@@ -1,0 +1,84 @@
+:root {
+  /* Core Fantasy Palette (Sampled & Refined from References) */
+  --ens-navy-deep: #0d1d68;
+  --ens-royal-cobalt: #1645c5;
+  --ens-electric-blue: #2375f2;
+  --ens-violet: #7436e8;
+  --ens-candy-pink: #f04abf;
+  --ens-coral: #ff967c;
+  --ens-mint: #16dda9;
+  --ens-gold: #ffd54a;
+  --ens-lavender-ink: #221763;
+  --ens-lavender-muted: #c9d2ff;
+
+  /* Multi-stop Atmospheric & Component Gradients */
+  --ens-bg-fantasy:
+    radial-gradient(120% 55% at 85% 18%, rgba(116, 54, 232, 0.36) 0%, transparent 58%),
+    radial-gradient(110% 45% at 15% 42%, rgba(35, 117, 242, 0.32) 0%, transparent 56%),
+    radial-gradient(100% 48% at 62% 76%, rgba(192, 74, 245, 0.28) 0%, transparent 60%),
+    linear-gradient(180deg, #0c227a 0%, #12319d 30%, #152fb4 64%, #182ba6 100%);
+
+  --ens-grad-hero: linear-gradient(132deg, #fb9864 0%, #fb7498 38%, #eb55c8 70%, #b532f5 100%);
+  --ens-grad-solo: linear-gradient(160deg, #56fac1 0%, #09e0aa 48%, #02c69b 100%);
+  --ens-grad-ranked: linear-gradient(160deg, #e08cff 0%, #b24af9 50%, #7d25df 100%);
+  --ens-grad-leaderboard: linear-gradient(160deg, #58c0ff 0%, #1685ff 52%, #0a5de6 100%);
+  --ens-grad-season: linear-gradient(125deg, #5821a8 0%, #44198c 45%, #7c30d8 100%);
+  --ens-grad-chapter: linear-gradient(135deg, #27329d 0%, #3743be 55%, #5538b8 100%);
+
+  --ens-grad-btn-lavender: linear-gradient(180deg, #ffffff 0%, #ece7ff 52%, #d3cbff 100%);
+  --ens-grad-btn-purple: linear-gradient(180deg, #b873ff 0%, #7f3af6 52%, #591fd4 100%);
+  --ens-grad-btn-radiant: linear-gradient(180deg, #dfb8ff 0%, #9949f8 55%, #6928df 100%);
+
+  --ens-grad-glass-panel: linear-gradient(180deg, rgba(46, 56, 166, 0.88) 0%, rgba(28, 36, 128, 0.94) 100%);
+  --ens-grad-glass-card: linear-gradient(180deg, rgba(50, 58, 158, 0.84) 0%, rgba(28, 37, 122, 0.92) 100%);
+  --ens-grad-glass-row: linear-gradient(180deg, rgba(46, 54, 146, 0.86) 0%, rgba(30, 38, 122, 0.92) 100%);
+  --ens-grad-tab-track: linear-gradient(180deg, rgba(35, 45, 138, 0.9) 0%, rgba(22, 30, 108, 0.94) 100%);
+  --ens-grad-bottom-nav: linear-gradient(180deg, #f3efff 0%, #dfd7ff 55%, #d3c9fc 100%);
+
+  /* Border Radii */
+  --ens-r-panel: 26px;
+  --ens-r-card: 22px;
+  --ens-r-row: 18px;
+  --ens-r-thumb: 14px;
+  --ens-r-pill: 999px;
+
+  /* Borders, Highlights, Blooms & Shadows */
+  --ens-border-luminous: 2px solid rgba(228, 222, 255, 0.72);
+  --ens-border-glass: 1.5px solid rgba(168, 166, 255, 0.52);
+  --ens-inset-gloss: inset 0 1.5px 0 rgba(255, 255, 255, 0.65), inset 0 -2px 0 rgba(18, 12, 74, 0.22);
+  --ens-shadow-card: 0 10px 26px rgba(7, 13, 58, 0.45);
+  --ens-glow-purple: 0 8px 24px rgba(132, 66, 255, 0.55);
+  --ens-glow-pink: 0 10px 28px rgba(240, 74, 191, 0.44);
+  --ens-glow-mint: 0 10px 24px rgba(10, 214, 158, 0.38);
+  --ens-glow-blue: 0 10px 24px rgba(20, 132, 255, 0.42);
+
+  /* Typography */
+  --font-display: 'Nunito', 'Fredoka', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-ui: 'Nunito', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+
+  /* Spacing */
+  --ens-page-px: 14px;
+  --ens-section-gap: 12px;
+
+  /* Legacy aliases preserved for Gameplay/Lobby/Templates screens */
+  --bg-deep: #091340;
+  --bg-royal: #10206b;
+  --bg-sheet: #f0f2fb;
+  --text-navy: #17204d;
+  --text-muted: #5d678c;
+  --accent-purple: #643bf2;
+  --accent-violet: #8b5cf6;
+  --mint-bg: linear-gradient(90deg, #b8f5dc 0%, #9eeed0 100%);
+  --mint-text: #0f3a30;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

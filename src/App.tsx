@@ -17,6 +17,10 @@ import { getSocket } from './services/socket';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { HomeScreen } from './screens/HomeScreen';
 import { PlayScreen } from './screens/PlayScreen';
+import { SoloScreen } from './screens/SoloScreen';
+import { RoomsBrowserScreen } from './screens/RoomsBrowserScreen';
+import { CreateRoomScreen } from './screens/CreateRoomScreen';
+import { LeaderboardScreen } from './screens/LeaderboardScreen';
 import { TemplatesScreen } from './screens/TemplatesScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { LobbyScreen } from './screens/LobbyScreen';
@@ -24,7 +28,11 @@ import { GameplayScreen } from './screens/GameplayScreen';
 import { SignInScreen } from './screens/SignInScreen';
 
 type ActiveRoute =
-  | { view: 'tab'; tab: NavTab; playSubView?: 'hub' | 'solo' | 'public' | 'create' }
+  | { view: 'tab'; tab: NavTab }
+  | { view: 'solo' }
+  | { view: 'rooms' }
+  | { view: 'create_room'; returnTo?: 'home' | 'rooms' | 'play' }
+  | { view: 'leaderboard' }
   | { view: 'lobby'; roomId: string }
   | { view: 'match'; matchId: string; soloStageId?: string | null };
 
@@ -41,7 +49,10 @@ export const App: React.FC = () => {
   const [route, setRoute] = useState<ActiveRoute>(() => {
     try {
       const saved = sessionStorage.getItem(ROUTE_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.view) return parsed;
+      }
     } catch {
       // ignore
     }
@@ -124,6 +135,13 @@ export const App: React.FC = () => {
     setAuthChecking(true);
     refreshPlatformData(activeProfileId);
   }, [activeProfileId, refreshPlatformData]);
+
+  // Refresh public rooms whenever opening Rooms Browser
+  useEffect(() => {
+    if (activeProfileId && route.view === 'rooms') {
+      api.listPublicRooms().then(setPublicRooms).catch(() => undefined);
+    }
+  }, [activeProfileId, route.view]);
 
   // Realtime connection & events (Supabase Realtime everywhere + Socket.IO on localhost)
   useEffect(() => {
@@ -287,17 +305,6 @@ export const App: React.FC = () => {
     setRoute({ view: 'match', matchId });
   };
 
-  const handleQuickPlay = async () => {
-    if (!currentProfile) return;
-    try {
-      const res = await api.quickPlay(currentProfile.id);
-      setActiveRoom(res.room);
-      setRoute({ view: 'lobby', roomId: res.room.id });
-    } catch (err: any) {
-      notify(err.message);
-    }
-  };
-
   const handleRankedMatch = async () => {
     if (!currentProfile) return;
     try {
@@ -399,7 +406,7 @@ export const App: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             color: '#c7d5ff',
-            fontWeight: 700,
+            fontWeight: 800,
             fontSize: 15,
           }}
         >
@@ -554,7 +561,7 @@ export const App: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             color: '#c7d5ff',
-            fontWeight: 700,
+            fontWeight: 800,
             fontSize: 15,
           }}
         >
@@ -563,44 +570,91 @@ export const App: React.FC = () => {
       );
     }
 
+    if (route.view === 'solo') {
+      return (
+        <SoloScreen
+          profile={currentProfile}
+          soloStages={soloStages}
+          onBack={() => setRoute({ view: 'tab', tab: 'home' })}
+          onStartSoloStage={handleStartSoloStage}
+        />
+      );
+    }
+
+    if (route.view === 'rooms') {
+      return (
+        <RoomsBrowserScreen
+          profile={currentProfile}
+          publicRooms={publicRooms}
+          onBack={() => setRoute({ view: 'tab', tab: 'home' })}
+          onRefreshPublicRooms={() => api.listPublicRooms().then(setPublicRooms).catch(() => undefined)}
+          onJoinRoomByCode={handleJoinRoomByCode}
+          onOpenCreateRoom={() => setRoute({ view: 'create_room', returnTo: 'rooms' })}
+        />
+      );
+    }
+
+    if (route.view === 'create_room') {
+      const returnView = route.returnTo === 'rooms'
+        ? { view: 'rooms' as const }
+        : route.returnTo === 'play'
+          ? { view: 'tab' as const, tab: 'play' as const }
+          : { view: 'tab' as const, tab: 'home' as const };
+      return (
+        <CreateRoomScreen
+          onBack={() => setRoute(returnView)}
+          onCancel={() => setRoute(returnView)}
+          onCreateRoom={handleCreateRoom}
+        />
+      );
+    }
+
+    if (route.view === 'leaderboard') {
+      return (
+        <LeaderboardScreen
+          currentProfile={currentProfile}
+          onBack={() => setRoute({ view: 'tab', tab: 'home' })}
+        />
+      );
+    }
+
     const tab = route.view === 'tab' ? route.tab : 'home';
 
     return (
-      <>
+      <div className="ens-tab-shell">
         {tab === 'home' && (
           <HomeScreen
             profile={currentProfile}
             ongoingMatches={ongoingMatches}
+            soloStages={soloStages}
             notifications={notifications}
+            rankedQueued={rankedQueued}
             onOpenNotifications={openNotifications}
             onContinueMatch={handleOpenMatch}
-            onViewAllMatches={() => setRoute({ view: 'tab', tab: 'play', playSubView: 'hub' })}
-            onQuickPlay={handleQuickPlay}
+            onViewAllMatches={() => setRoute({ view: 'tab', tab: 'play' })}
             onRankedMatch={handleRankedMatch}
-            onSoloAdventure={() => setRoute({ view: 'tab', tab: 'play', playSubView: 'solo' })}
-            onPublicRooms={() => setRoute({ view: 'tab', tab: 'play', playSubView: 'public' })}
-            onCreateRoom={() => setRoute({ view: 'tab', tab: 'play', playSubView: 'create' })}
-            onExploreFantasy={() => setRoute({ view: 'tab', tab: 'play', playSubView: 'solo' })}
+            onSoloAdventure={() => setRoute({ view: 'solo' })}
+            onLeaderboard={() => setRoute({ view: 'leaderboard' })}
+            onRooms={() => setRoute({ view: 'rooms' })}
+            onExploreFantasy={() => setRoute({ view: 'solo' })}
             onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
           />
         )}
 
         {tab === 'play' && (
           <PlayScreen
-            key={route.view === 'tab' ? route.playSubView || 'hub' : 'hub'}
             profile={currentProfile}
             ongoingMatches={ongoingMatches}
             publicRooms={publicRooms}
             soloStages={soloStages}
             rankedQueued={rankedQueued}
-            initialSubView={route.view === 'tab' ? route.playSubView || 'hub' : 'hub'}
             onOpenMatch={handleOpenMatch}
             onJoinRoomByCode={handleJoinRoomByCode}
-            onCreateRoom={handleCreateRoom}
-            onRefreshPublicRooms={() => api.listPublicRooms().then(setPublicRooms).catch(() => undefined)}
-            onStartSoloStage={handleStartSoloStage}
+            onOpenSolo={() => setRoute({ view: 'solo' })}
+            onOpenRooms={() => setRoute({ view: 'rooms' })}
+            onOpenCreateRoom={() => setRoute({ view: 'create_room', returnTo: 'play' })}
+            onOpenLeaderboard={() => setRoute({ view: 'leaderboard' })}
             onToggleRankedQueue={handleRankedMatch}
-            onQuickPlay={handleQuickPlay}
           />
         )}
 
@@ -661,7 +715,7 @@ export const App: React.FC = () => {
           onSelect={(nextTab) => setRoute({ view: 'tab', tab: nextTab })}
           hasOngoingMatch={ongoingMatches.some((m) => m.isYourTurn)}
         />
-      </>
+      </div>
     );
   };
 
@@ -700,7 +754,7 @@ export const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowNotifModal(false)}
-                  style={{ border: 'none', background: '#e5e9fa', borderRadius: 8, padding: '4px 10px', fontWeight: 700 }}
+                  style={{ border: 'none', background: '#e5e9fa', borderRadius: 8, padding: '4px 10px', fontWeight: 700, cursor: 'pointer' }}
                 >
                   Close
                 </button>

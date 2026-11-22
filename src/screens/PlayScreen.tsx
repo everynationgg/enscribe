@@ -1,27 +1,24 @@
 import React, { useState } from 'react';
 import {
-  CheckCircle2,
   Clock,
-  Crown,
   Gamepad2,
   Hash,
-  Mountain,
-  Play,
   Plus,
-  RefreshCw,
-  Sparkles,
-  Trophy,
   Users,
-  Zap,
 } from 'lucide-react';
 import {
   OngoingMatchSummary,
   Profile,
   Room,
-  RoomRules,
   SoloStage,
 } from '../../shared/types';
-import { TemplateThumb } from '../components/Artwork';
+import {
+  MountainFlagIcon,
+  PodiumCrownIcon,
+  RoomsUsersIcon,
+  TrophyLaurelIcon,
+} from '../components/GameIcons';
+import { GradientButton } from '../components/GradientButton';
 
 interface PlayScreenProps {
   profile: Profile;
@@ -29,14 +26,13 @@ interface PlayScreenProps {
   publicRooms: Room[];
   soloStages: SoloStage[];
   rankedQueued: boolean;
-  initialSubView?: 'hub' | 'solo' | 'public' | 'create';
   onOpenMatch: (matchId: string) => void;
   onJoinRoomByCode: (code: string) => Promise<void>;
-  onCreateRoom: (params: { name: string; isPublic: boolean; rules: Partial<RoomRules> }) => Promise<void>;
-  onRefreshPublicRooms: () => void;
-  onStartSoloStage: (stageId: string) => Promise<void>;
+  onOpenSolo: () => void;
+  onOpenRooms: () => void;
+  onOpenCreateRoom: () => void;
+  onOpenLeaderboard: () => void;
   onToggleRankedQueue: () => Promise<void>;
-  onQuickPlay: () => Promise<void>;
 }
 
 export const PlayScreen: React.FC<PlayScreenProps> = ({
@@ -44,426 +40,187 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({
   publicRooms,
   soloStages,
   rankedQueued,
-  initialSubView = 'hub',
   onOpenMatch,
   onJoinRoomByCode,
-  onCreateRoom,
-  onRefreshPublicRooms,
-  onStartSoloStage,
+  onOpenSolo,
+  onOpenRooms,
+  onOpenCreateRoom,
+  onOpenLeaderboard,
   onToggleRankedQueue,
-  onQuickPlay,
 }) => {
-  const [subView, setSubView] = useState<'hub' | 'solo' | 'public' | 'create'>(initialSubView);
   const [roomCode, setRoomCode] = useState('');
-  const [newRoomName, setNewRoomName] = useState('Private Room');
-  const [newRoomPublic, setNewRoomPublic] = useState(false);
-  const [newRoomMode, setNewRoomMode] = useState<'classic' | 'speed_race'>('classic');
-  const [newRoomMaxPlayers, setNewRoomMaxPlayers] = useState(2);
-  const [newRoomTimer, setNewRoomTimer] = useState(20);
-  const [newRoomTimerEnabled, setNewRoomTimerEnabled] = useState(true);
-  const [newRoomSource, setNewRoomSource] = useState<'saved_templates' | 'curated_db'>('saved_templates');
+  const [joining, setJoining] = useState(false);
+
+  const completedStages = soloStages.filter((s) => s.completed).length;
 
   const handleJoinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!roomCode.trim()) return;
-    await onJoinRoomByCode(roomCode.trim().toUpperCase());
-  };
-
-  const handleCreateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await onCreateRoom({
-      name: newRoomName.trim() || (newRoomPublic ? 'Public Room' : 'Private Room'),
-      isPublic: newRoomPublic,
-      rules: {
-        mode: newRoomMode,
-        maxPlayers: newRoomMaxPlayers,
-        timePerWordSeconds: newRoomTimer,
-        timerEnabled: newRoomTimerEnabled,
-        puzzleSource: newRoomSource,
-      },
-    });
+    const cleaned = roomCode.trim().toUpperCase();
+    if (!cleaned || joining) return;
+    setJoining(true);
+    try {
+      await onJoinRoomByCode(cleaned);
+    } finally {
+      setJoining(false);
+    }
   };
 
   return (
-    <div className="ens-sheet-screen" style={{ flex: 1, minHeight: 0 }}>
-      <header className="ens-royal-topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Gamepad2 size={20} color="#7dd3fc" />
-          <span style={{ fontSize: 18, fontWeight: 800 }}>Play Chain Clash</span>
-        </div>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 800,
-            background: 'rgba(255,255,255,0.14)',
-            padding: '4px 10px',
-            borderRadius: 999,
-          }}
-        >
-          Enscribe Hub
-        </span>
-      </header>
+    <div className="ens-fantasy-page ens-play-page">
+      <div className="ens-sky-sparkles" aria-hidden="true" />
 
-      <div className="ens-sheet-body">
-        {/* Sub-navigation pills */}
-        <div className="ens-segmented-tabs" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          <button
-            type="button"
-            className={`ens-seg-tab ${subView === 'hub' ? 'active' : ''}`}
-            onClick={() => setSubView('hub')}
-          >
-            Play
-          </button>
-          <button
-            type="button"
-            className={`ens-seg-tab ${subView === 'solo' ? 'active' : ''}`}
-            onClick={() => setSubView('solo')}
-          >
-            Solo
-          </button>
-          <button
-            type="button"
-            className={`ens-seg-tab ${subView === 'public' ? 'active' : ''}`}
-            onClick={() => {
-              setSubView('public');
-              onRefreshPublicRooms();
-            }}
-          >
-            Public
-          </button>
-          <button
-            type="button"
-            className={`ens-seg-tab ${subView === 'create' ? 'active' : ''}`}
-            onClick={() => setSubView('create')}
-          >
-            Create
-          </button>
-        </div>
-
-        {subView === 'hub' && (
-          <>
-            {/* Join by Room Code */}
-            <div className="ens-white-card">
-              <div className="ens-section-heading">
-                <Hash size={15} color="#5b3df5" />
-                <span>Join by Room Code</span>
-              </div>
-              <form onSubmit={handleJoinSubmit} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  value={roomCode}
-                  onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  placeholder="Enter room code"
-                  maxLength={8}
-                  className="ens-word-input"
-                  style={{ flex: 1 }}
-                />
-                <button type="submit" className="ens-btn-purple" style={{ padding: '0 16px' }}>
-                  Join
-                </button>
-              </form>
+      <div className="ens-scroll-body">
+        <div className="ens-home-wrap">
+          <header className="ens-play-topbar">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <Gamepad2 size={24} color="#8CE6FF" />
+              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, fontStyle: 'italic' }}>
+                Play Hub
+              </h1>
             </div>
+            <button
+              type="button"
+              className="ens-play-lb-chip"
+              onClick={onOpenLeaderboard}
+            >
+              <PodiumCrownIcon size={20} />
+              <span>Leaderboard</span>
+            </button>
+          </header>
 
-            {/* Mode Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
-              <button type="button" className="ens-mode-card quick-play" onClick={onQuickPlay}>
-                <div className="ens-mode-icon">
-                  <Zap size={18} fill="#fff" />
-                </div>
-                <div>
-                  <div className="ens-mode-title">Quick Play</div>
-                  <div className="ens-mode-sub">Instant lobby</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                className="ens-mode-card ranked-match"
-                onClick={onToggleRankedQueue}
-              >
-                <div className="ens-mode-icon">
-                  <Trophy size={18} color="#ffd34e" />
-                </div>
-                <div>
-                  <div className="ens-mode-title">{rankedQueued ? 'In Queue...' : 'Ranked'}</div>
-                  <div className="ens-mode-sub">{rankedQueued ? 'Tap to cancel' : 'Verified RP match'}</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                className="ens-mode-card solo-adv"
-                onClick={() => setSubView('solo')}
-              >
-                <div className="ens-mode-icon">
-                  <Mountain size={18} />
-                </div>
-                <div>
-                  <div className="ens-mode-title">Solo Adventure</div>
-                  <div className="ens-mode-sub">Themed stages</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                className="ens-mode-card public-rooms"
-                onClick={() => setSubView('create')}
-              >
-                <div className="ens-mode-icon">
-                  <Plus size={18} />
-                </div>
-                <div>
-                  <div className="ens-mode-title">Friendly Room</div>
-                  <div className="ens-mode-sub">Custom rules</div>
-                </div>
-              </button>
+          {/* Join by Room Code Glass Card */}
+          <form className="ens-play-code-card" onSubmit={handleJoinSubmit}>
+            <div className="ens-play-section-label">
+              <Hash size={15} color="#7DD3FC" />
+              <span>Join by Room Code</span>
             </div>
-
-            {/* Ongoing Persistent Matches */}
-            <section>
-              <div className="ens-section-heading">
-                <Clock size={15} color="#5b3df5" />
-                <span>Ongoing Matches ({ongoingMatches.length})</span>
-              </div>
-              {ongoingMatches.length === 0 ? (
-                <div className="ens-white-card" style={{ fontSize: 12.5, color: '#647096' }}>
-                  No ongoing matches yet. Start a Classic or Speed Race match!
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {ongoingMatches.map((m) => (
-                    <div
-                      key={m.matchId}
-                      className="ens-white-card"
-                      onClick={() => onOpenMatch(m.matchId)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 800 }}>
-                          {m.title} • vs {m.opponentPrimaryName}
-                        </div>
-                        <div style={{ fontSize: 11.5, color: '#647096', fontWeight: 600 }}>
-                          {m.progressLabel} • {m.mode === 'speed_race' ? 'Speed Race' : 'Classic Mode'}
-                        </div>
-                      </div>
-                      <span className={m.isYourTurn ? 'ens-pill-ready' : 'ens-pill-not-ready'}>
-                        {m.isYourTurn ? 'Your Turn ▶' : 'Waiting'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </>
-        )}
-
-        {subView === 'solo' && (
-          <section style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            <div className="ens-section-heading">
-              <Mountain size={16} color="#098b72" />
-              <span>Solo Adventure — Themed Chains</span>
-            </div>
-            {soloStages.map((stage) => (
-              <div
-                key={stage.id}
-                className="ens-tpl-card"
-                onClick={() => onStartSoloStage(stage.id)}
-              >
-                <TemplateThumb thumbnailKey={stage.thumbnailKey} size={54} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#5b3df5', textTransform: 'uppercase' }}>
-                    Stage {stage.stageNumber} • {stage.theme}
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 800 }}>{stage.title}</div>
-                  <div style={{ fontSize: 11.5, color: '#647096', fontWeight: 600 }}>
-                    {stage.subtitle} ({stage.wordCount} words)
-                  </div>
-                </div>
-                {stage.completed ? (
-                  <span className="ens-pill-ready">
-                    <CheckCircle2 size={14} />
-                    <span>Cleared</span>
-                  </span>
-                ) : (
-                  <span className="ens-btn-purple" style={{ padding: '7px 12px', borderRadius: 10 }}>
-                    <Play size={13} fill="#fff" />
-                  </span>
-                )}
-              </div>
-            ))}
-          </section>
-        )}
-
-        {subView === 'public' && (
-          <section style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div className="ens-section-heading" style={{ marginBottom: 0 }}>
-                <Users size={16} color="#1c51db" />
-                <span>Public Rooms ({publicRooms.length})</span>
-              </div>
-              <button
-                type="button"
-                onClick={onRefreshPublicRooms}
-                style={{
-                  border: 'none',
-                  background: '#e5e9fa',
-                  borderRadius: 9,
-                  padding: '5px 10px',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  cursor: 'pointer',
-                }}
-              >
-                <RefreshCw size={13} />
-                <span>Refresh</span>
-              </button>
-            </div>
-
-            {publicRooms.length === 0 ? (
-              <div className="ens-white-card" style={{ textAlign: 'center', fontSize: 13, color: '#647096' }}>
-                No open public rooms right now. Create one in the Create tab!
-              </div>
-            ) : (
-              publicRooms.map((r) => (
-                <div key={r.id} className="ens-white-card" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 800 }}>{r.name}</div>
-                      <div style={{ fontSize: 11.5, color: '#647096', fontWeight: 600 }}>
-                        Host: {r.hostName} • Code: <strong>{r.code}</strong>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="ens-btn-purple"
-                      style={{ padding: '7px 14px' }}
-                      onClick={() => onJoinRoomByCode(r.code)}
-                    >
-                      Join ({r.players.length}/{r.rules.maxPlayers})
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                    <span className="ens-rule-chip" style={{ fontSize: 11, padding: '3px 8px' }}>
-                      {r.rules.mode === 'speed_race' ? 'Speed Race' : 'Classic Mode'}
-                    </span>
-                    <span className="ens-rule-chip" style={{ fontSize: 11, padding: '3px 8px' }}>
-                      {r.rules.timerEnabled ? `${r.rules.timePerWordSeconds}s/word` : 'Untimed'}
-                    </span>
-                    <span className="ens-rule-chip" style={{ fontSize: 11, padding: '3px 8px' }}>
-                      {r.rules.puzzleSource === 'curated_db' ? 'Curated Chains' : 'Custom Templates'}
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </section>
-        )}
-
-        {subView === 'create' && (
-          <form onSubmit={handleCreateSubmit} className="ens-white-card" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-            <div className="ens-section-heading" style={{ marginBottom: 0 }}>
-              <Crown size={16} color="#5b3df5" />
-              <span>Create Multiplayer Room</span>
-            </div>
-
-            <label style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              Room Name
+            <div style={{ display: 'flex', gap: 8 }}>
               <input
                 type="text"
-                value={newRoomName}
-                onChange={(e) => setNewRoomName(e.target.value)}
-                className="ens-word-input"
-                style={{ textTransform: 'none' }}
+                value={roomCode}
+                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                placeholder="Enter room code"
+                maxLength={8}
+                className="ens-fantasy-input"
+                style={{ flex: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}
               />
-            </label>
-
-            <label style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Publicly Discoverable</span>
-              <input
-                type="checkbox"
-                checked={newRoomPublic}
-                onChange={(e) => {
-                  setNewRoomPublic(e.target.checked);
-                  if (newRoomName === 'Private Room' && e.target.checked) setNewRoomName('Public Clash Room');
-                  if (newRoomName === 'Public Clash Room' && !e.target.checked) setNewRoomName('Private Room');
-                }}
-              />
-            </label>
-
-            <label style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Game Mode</span>
-              <select
-                value={newRoomMode}
-                onChange={(e) => setNewRoomMode(e.target.value as any)}
-                style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
+              <GradientButton
+                type="submit"
+                variant="lavender"
+                size="md"
+                loading={joining}
+                disabled={!roomCode.trim()}
               >
-                <option value="classic">Classic Mode (Turn-Based)</option>
-                <option value="speed_race">Speed Race (Simultaneous)</option>
-              </select>
-            </label>
-
-            <label style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Players</span>
-              <select
-                value={newRoomMaxPlayers}
-                onChange={(e) => setNewRoomMaxPlayers(Number(e.target.value))}
-                style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-              >
-                <option value={2}>2 Players</option>
-                <option value={3}>3 Players</option>
-                <option value={4}>4 Players</option>
-              </select>
-            </label>
-
-            <label style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Puzzle Source</span>
-              <select
-                value={newRoomSource}
-                onChange={(e) => setNewRoomSource(e.target.value as any)}
-                style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-              >
-                <option value="saved_templates">Saved / Custom Templates</option>
-                <option value="curated_db">Curated Database Chains</option>
-              </select>
-            </label>
-
-            <label style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Word Timer ({newRoomTimerEnabled ? `${newRoomTimer}s` : 'Off'})</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={newRoomTimerEnabled}
-                  onChange={(e) => setNewRoomTimerEnabled(e.target.checked)}
-                />
-                {newRoomTimerEnabled && (
-                  <select
-                    value={newRoomTimer}
-                    onChange={(e) => setNewRoomTimer(Number(e.target.value))}
-                    style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid #cbd5e1', fontWeight: 700 }}
-                  >
-                    {[15, 20, 30, 45].map((s) => (
-                      <option key={s} value={s}>
-                        {s}s
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </label>
-
-            <button type="submit" className="ens-btn-purple" style={{ width: '100%', padding: '12px' }}>
-              Create &amp; Open Lobby
-            </button>
+                Join
+              </GradientButton>
+            </div>
           </form>
-        )}
+
+          {/* Primary Fantasy Mode Shortcuts (No Quick Match) */}
+          <div className="ens-play-mode-grid">
+            <button
+              type="button"
+              className="ens-play-tile is-solo"
+              onClick={onOpenSolo}
+            >
+              <MountainFlagIcon size={38} />
+              <div className="ens-play-tile-title">Solo</div>
+              <div className="ens-play-tile-sub">
+                {completedStages}/{soloStages.length} cleared
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="ens-play-tile is-ranked"
+              onClick={onToggleRankedQueue}
+            >
+              <TrophyLaurelIcon size={38} />
+              <div className="ens-play-tile-title">
+                {rankedQueued ? 'In Queue...' : 'Ranked'}
+              </div>
+              <div className="ens-play-tile-sub">
+                {rankedQueued ? 'Tap to cancel' : 'RP Matchmaking'}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="ens-play-tile is-rooms"
+              onClick={onOpenRooms}
+            >
+              <RoomsUsersIcon size={32} color="#FFFFFF" />
+              <div className="ens-play-tile-title">Rooms</div>
+              <div className="ens-play-tile-sub">
+                {publicRooms.length} open public
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="ens-play-tile is-create"
+              onClick={onOpenCreateRoom}
+            >
+              <span className="ens-play-plus-badge">
+                <Plus size={22} strokeWidth={2.8} />
+              </span>
+              <div className="ens-play-tile-title">Create Room</div>
+              <div className="ens-play-tile-sub">Host &amp; invite</div>
+            </button>
+          </div>
+
+          {/* Ongoing Matches */}
+          <section className="ens-play-ongoing">
+            <div className="ens-play-section-label">
+              <Clock size={15} color="#FFD54A" />
+              <span>Ongoing Matches ({ongoingMatches.length})</span>
+            </div>
+
+            {ongoingMatches.length === 0 ? (
+              <div className="ens-coming-soon-card" style={{ padding: 16 }}>
+                <Users size={22} color="#C9D2FF" />
+                <div className="ens-coming-sub" style={{ margin: 0 }}>
+                  No ongoing matches right now. Start a Solo stage or join a Room!
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {ongoingMatches.map((m) => (
+                  <div
+                    key={m.matchId}
+                    className="ens-room-list-card"
+                    onClick={() => onOpenMatch(m.matchId)}
+                    role="button"
+                    tabIndex={0}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="ens-room-info">
+                      <div className="ens-room-title">
+                        {m.title}
+                        {m.mode !== 'solo' ? ` • vs ${m.opponentPrimaryName}` : ''}
+                      </div>
+                      <div className="ens-room-meta">
+                        <span>{m.progressLabel}</span>
+                        <span>•</span>
+                        <span>{m.mode.replace('_', ' ').toUpperCase()}</span>
+                      </div>
+                    </div>
+                    <GradientButton
+                      variant={m.isYourTurn ? 'lavender' : 'purple'}
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenMatch(m.matchId);
+                      }}
+                    >
+                      {m.isYourTurn ? 'Your Turn' : 'Waiting'}
+                    </GradientButton>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );

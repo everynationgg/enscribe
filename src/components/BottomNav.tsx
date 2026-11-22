@@ -29,7 +29,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelect, hasOn
             onClick={() => onSelect(id)}
           >
             <span className="ens-nav-icon-wrap">
-              <Icon size={20} strokeWidth={active ? 2.4 : 2} fill={active && id !== 'profile' ? 'currentColor' : 'none'} />
+              <Icon
+                size={21}
+                strokeWidth={active ? 2.4 : 2.1}
+                fill={active && id !== 'profile' ? 'currentColor' : 'none'}
+              />
               {id === 'play' && hasOngoingMatch && <span className="ens-nav-dot" />}
             </span>
             <span className="ens-nav-label">{label}</span>
@@ -39,3 +43,5 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelect, hasOn
     </nav>
   );
 };
+
+export const EnscribeBottomNav = BottomNav;
