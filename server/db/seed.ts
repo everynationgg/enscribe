@@ -1,5 +1,5 @@
 import { RoomRules, SoloStage } from '../../shared/types.js';
-import { SqliteStorageRepository, StoredMatch } from '../repositories/StorageRepository.js';
+import { StorageRepository, StoredMatch } from '../repositories/types.js';
 
 export const DEFAULT_ROOM_RULES: RoomRules = {
   gameType: 'chain_clash',
@@ -80,7 +80,7 @@ export const SOLO_STAGES_CATALOG: Array<Omit<SoloStage, 'completed'>> = [
   },
 ];
 
-export function seedInitialData(repo: SqliteStorageRepository): void {
+export function seedInitialData(repo: StorageRepository): void {
   const existingProfiles = repo.listProfiles();
   if (existingProfiles.length > 0) {
     return;

@@ -8,10 +8,10 @@ import {
   SanitizedWordSlot,
 } from '../../../shared/types.js';
 import {
-  SqliteStorageRepository,
+  StorageRepository,
   StoredMatch,
   StoredMatchBoard,
-} from '../../repositories/StorageRepository.js';
+} from '../../repositories/types.js';
 import {
   AssignedPuzzle,
   validateSingleChainWord,
@@ -19,7 +19,7 @@ import {
 
 export class ChainClashEngine {
   constructor(
-    private repo: SqliteStorageRepository,
+    private repo: StorageRepository,
     private isPlayerOnline: (playerId: string) => boolean
   ) {}
 

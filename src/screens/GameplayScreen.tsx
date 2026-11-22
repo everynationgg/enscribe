@@ -29,6 +29,7 @@ interface GameplayScreenProps {
   onTypingPreview: (preview: string) => void;
   onSendChat: (text: string) => Promise<void>;
   onRematch: () => Promise<void>;
+  onTimerExpired?: () => void;
 }
 
 const KEYBOARD_ROWS = [
@@ -47,6 +48,7 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
   onTypingPreview,
   onSendChat,
   onRematch,
+  onTimerExpired,
 }) => {
   const myBoard = match.boards[currentProfile.id];
   const opponentBoards = Object.values(match.boards).filter(
@@ -66,6 +68,7 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
   const [typedSuffix, setTypedSuffix] = useState<string>('');
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
   const prevWinnerRef = useRef<string | null>(match.winnerId);
+  const lastTickedDeadlineRef = useRef<number | null>(null);
 
   // Sync clock offset so countdown remains accurate against authoritative server deadline
   const clockOffsetRef = useRef<number>(match.serverNowMs - Date.now());
@@ -155,6 +158,21 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
     const secs = remainingSec % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }, [match, currentProfile.id, nowMs]);
+
+  // Trigger authoritative server deadline check when countdown hits 00:00 (for Vercel serverless)
+  useEffect(() => {
+    if (!onTimerExpired || !match.rules.timerEnabled || match.status === 'finished') return;
+    const deadline =
+      match.mode === 'speed_race'
+        ? (match.speedRaceDeadlines[currentProfile.id] ?? null)
+        : match.turnDeadlineMs;
+    if (!deadline) return;
+    const serverNow = nowMs + clockOffsetRef.current;
+    if (serverNow >= deadline + 150 && lastTickedDeadlineRef.current !== deadline) {
+      lastTickedDeadlineRef.current = deadline;
+      onTimerExpired();
+    }
+  }, [nowMs, match.rules.timerEnabled, match.status, match.mode, match.speedRaceDeadlines, match.turnDeadlineMs, currentProfile.id, onTimerExpired]);
 
   const turnLabel = useMemo(() => {
     if (match.status === 'finished' && match.winnerId) {

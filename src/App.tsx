@@ -114,9 +114,11 @@ export const App: React.FC = () => {
     refreshPlatformData(activeProfileId);
   }, [activeProfileId, refreshPlatformData]);
 
-  // Socket.IO connection & real-time events
+  // Realtime connection & events (Supabase Realtime everywhere + Socket.IO on localhost)
   useEffect(() => {
     const socket = getSocket();
+    socket.setActivePlayerId(activeProfileId);
+
     const identify = () => {
       socket.emit('auth:identify', activeProfileId);
       if (route.view === 'lobby') {
@@ -144,8 +146,29 @@ export const App: React.FC = () => {
     };
 
     const onMatchState = (match: MatchStateClient) => {
-      setActiveMatch((prev) => (!prev || prev.id === match.id ? match : prev));
-      refreshPlatformData(activeProfileId);
+      if (route.view === 'match' && route.matchId === match.id) {
+        setActiveMatch(match);
+      }
+      if (match.status === 'finished') {
+        refreshPlatformData(activeProfileId);
+      }
+    };
+
+    const onTypingLive = ({ matchId, playerId, preview }: { matchId: string; playerId: string; preview: string }) => {
+      if (playerId === activeProfileId) return;
+      setActiveMatch((prev) => {
+        if (!prev || prev.id !== matchId || !prev.boards[playerId]) return prev;
+        return {
+          ...prev,
+          boards: {
+            ...prev.boards,
+            [playerId]: {
+              ...prev.boards[playerId],
+              liveInputPreview: preview,
+            },
+          },
+        };
+      });
     };
 
     const onPublicUpdated = () => {
@@ -166,6 +189,7 @@ export const App: React.FC = () => {
     socket.on('room:updated', onRoomUpdated);
     socket.on('room:match_started', onRoomMatchStarted);
     socket.on('match:state', onMatchState);
+    socket.on('match:typing_live', onTypingLive);
     socket.on('rooms:public_updated', onPublicUpdated);
     socket.on('matchmaking:ranked_matched', onRankedMatched);
     socket.on('match:rematch_created', onRematchCreated);
@@ -175,11 +199,30 @@ export const App: React.FC = () => {
       socket.off('room:updated', onRoomUpdated);
       socket.off('room:match_started', onRoomMatchStarted);
       socket.off('match:state', onMatchState);
+      socket.off('match:typing_live', onTypingLive);
       socket.off('rooms:public_updated', onPublicUpdated);
       socket.off('matchmaking:ranked_matched', onRankedMatched);
       socket.off('match:rematch_created', onRematchCreated);
     };
   }, [activeProfileId, route.view, (route as any).roomId, (route as any).matchId, notify, refreshPlatformData]);
+
+  // Lightweight resilience sync for serverless/mobile networks when in an active lobby or match
+  useEffect(() => {
+    if (route.view !== 'lobby' && route.view !== 'match') return;
+    const interval = window.setInterval(() => {
+      if (route.view === 'lobby') {
+        api.getRoom(route.roomId).then((r) => {
+          setActiveRoom(r);
+          if (r.status === 'in_progress' && r.activeMatchId) {
+            setRoute({ view: 'match', matchId: r.activeMatchId });
+          }
+        }).catch(() => undefined);
+      } else if (route.view === 'match') {
+        api.getMatch(route.matchId, activeProfileId).then(setActiveMatch).catch(() => undefined);
+      }
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [route, activeProfileId]);
 
   // Restore room or match state cleanly on route change or browser refresh
   useEffect(() => {
@@ -329,7 +372,7 @@ export const App: React.FC = () => {
   };
 
   const renderScreen = () => {
-    if (route.view === 'lobby' && activeRoom) {
+    if (route.view === 'lobby' && activeRoom && activeRoom.id === route.roomId) {
       return (
         <LobbyScreen
           room={activeRoom}
@@ -376,12 +419,13 @@ export const App: React.FC = () => {
       );
     }
 
-    if (route.view === 'match' && activeMatch) {
+    if (route.view === 'match' && activeMatch && activeMatch.id === route.matchId) {
       return (
         <GameplayScreen
           match={activeMatch}
           currentProfile={currentProfile}
           onBackHome={() => {
+            setActiveMatch(null);
             refreshPlatformData(currentProfile.id);
             setRoute({ view: 'tab', tab: 'home' });
           }}
@@ -409,14 +453,40 @@ export const App: React.FC = () => {
             });
           }}
           onSendChat={async (text) => {
-            await api.sendMatchChat(activeMatch.id, currentProfile.id, text);
+            const msg = await api.sendMatchChat(activeMatch.id, currentProfile.id, text);
+            setActiveMatch((prev) =>
+              prev && prev.id === activeMatch.id && !prev.messages.some((m) => m.id === msg.id)
+                ? { ...prev, messages: [...prev.messages, msg] }
+                : prev
+            );
           }}
           onRematch={async () => {
             const next = await api.rematch(activeMatch.id, currentProfile.id);
             setActiveMatch(next);
             setRoute({ view: 'match', matchId: next.id });
           }}
+          onTimerExpired={() => {
+            api.tickMatch(activeMatch.id, currentProfile.id).then(setActiveMatch).catch(() => undefined);
+          }}
         />
+      );
+    }
+
+    if (route.view === 'lobby' || route.view === 'match') {
+      return (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#c7d5ff',
+            fontWeight: 700,
+            fontSize: 15,
+          }}
+        >
+          Loading {route.view === 'lobby' ? 'room' : 'match'}...
+        </div>
       );
     }
 

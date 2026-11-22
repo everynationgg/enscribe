@@ -147,6 +147,11 @@ export const api = {
     request<OngoingMatchSummary[]>(`/api/matches/ongoing/${playerId}`),
   getMatch: (matchId: string, playerId: string) =>
     request<MatchStateClient>(`/api/matches/${matchId}?playerId=${encodeURIComponent(playerId)}`),
+  tickMatch: (matchId: string, playerId: string) =>
+    request<MatchStateClient>(`/api/matches/${matchId}/tick`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
   submitGuess: (matchId: string, playerId: string, guess: string, soloStageId?: string | null) =>
     request<GuessResult>(`/api/matches/${matchId}/guess`, {
       method: 'POST',

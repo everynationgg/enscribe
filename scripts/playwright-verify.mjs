@@ -44,7 +44,10 @@ async function checkNoOverflow(page, label) {
 async function run() {
   await waitForServer(APP_URL);
   console.log('Dev server ready at', APP_URL);
-  await fetch(`${APP_URL}/api/dev/reset-seed`, { method: 'POST' });
+  const resetRes = await fetch(`${APP_URL}/api/dev/reset-seed`, { method: 'POST' });
+  if (!resetRes.ok) {
+    throw new Error(`reset-seed failed with ${resetRes.status}: ${await resetRes.text()}`);
+  }
 
   const browser = await chromium.launch({
     executablePath: CHROME_PATH,
@@ -149,6 +152,7 @@ async function run() {
     await page1.getByRole('button', { name: /Duplicate/i }).click();
     await page1.waitForSelector('text=Playwright Chain Copy');
     console.log('Template create/save/reload/duplicate verified!');
+    await ctx1.close();
 
     // 2. Two-Browser-Session Real-Time Multiplayer Acceptance Test
     const ctxHost = await browser.newContext({ viewport: { width: 390, height: 844 } });
