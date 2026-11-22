@@ -23,9 +23,9 @@ export const GameModeCard: React.FC<GameModeCardProps> = ({
   onClick,
 }) => {
   const renderIcon = () => {
-    if (variant === 'solo') return <MountainFlagIcon size={56} />;
-    if (variant === 'ranked') return <TrophyLaurelIcon size={56} />;
-    return <PodiumCrownIcon size={56} />;
+    if (variant === 'solo') return <MountainFlagIcon size={62} />;
+    if (variant === 'ranked') return <TrophyLaurelIcon size={64} />;
+    return <PodiumCrownIcon size={64} />;
   };
 
   return (

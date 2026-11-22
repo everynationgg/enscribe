@@ -94,135 +94,167 @@ export const WaveHandIcon: React.FC<IconProps> = ({ size = 20, className }) => (
   </svg>
 );
 
-export const MountainFlagIcon: React.FC<IconProps> = ({ size = 46, className }) => {
+export const MountainFlagIcon: React.FC<IconProps> = ({ size = 62, className }) => {
   const id = useId();
   return (
-    <svg width={size} height={size} viewBox="0 0 64 56" fill="none" className={className} aria-hidden="true">
+    <svg width={size} height={Math.round(size * 0.8)} viewBox="0 0 72 58" fill="none" className={className} aria-hidden="true">
       <defs>
-        <linearGradient id={`${id}-m1`} x1="18" y1="18" x2="48" y2="50" gradientUnits="userSpaceOnUse">
+        <linearGradient id={`${id}-m1`} x1="18" y1="14" x2="54" y2="52" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#FFFFFF" />
-          <stop offset="55%" stopColor="#D6FFF7" />
-          <stop offset="100%" stopColor="#94F2DC" />
+          <stop offset="52%" stopColor="#E0FFF8" />
+          <stop offset="100%" stopColor="#9CF5E0" />
         </linearGradient>
-        <linearGradient id={`${id}-m2`} x1="6" y1="26" x2="28" y2="50" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#E6FFF9" />
-          <stop offset="100%" stopColor="#6FE3C7" />
+        <linearGradient id={`${id}-m2`} x1="4" y1="22" x2="32" y2="52" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#F2FFFC" />
+          <stop offset="100%" stopColor="#7DECD2" />
         </linearGradient>
-        <linearGradient id={`${id}-flag`} x1="33" y1="6" x2="50" y2="18" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#FF75B5" />
-          <stop offset="100%" stopColor="#EB378D" />
-        </linearGradient>
-      </defs>
-      {/* Flagpole + pink pennant */}
-      <path d="M33 21V7.5" stroke="#5E299E" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M33.5 7.8L48 12.2L33.5 16.8V7.8Z" fill={`url(#${id}-flag)`} stroke="#FFD3EB" strokeWidth="1.1" strokeLinejoin="round" />
-      {/* Back left smaller peak */}
-      <path d="M7 47L21 25L33 47H7Z" fill={`url(#${id}-m2)`} stroke="#FFFFFF" strokeWidth="1.4" strokeLinejoin="round" />
-      {/* Main snowy peak */}
-      <path d="M16 47L33 19.5L54 47H16Z" fill={`url(#${id}-m1)`} stroke="#FFFFFF" strokeWidth="1.6" strokeLinejoin="round" />
-      {/* Snow ridge shading */}
-      <path d="M33 19.5L40 31.5L35 30L31.5 34L27.5 30.5L33 19.5Z" fill="#FFFFFF" />
-      <path d="M33 20L53.5 47H35L31.5 34L35 30L40 31.5L33 20Z" fill="#18B899" fillOpacity="0.16" />
-      {/* Soft snow clouds around base */}
-      <ellipse cx="14" cy="46.5" rx="7" ry="3.2" fill="#D5FFF5" fillOpacity="0.85" />
-      <ellipse cx="50" cy="46.5" rx="7" ry="3.2" fill="#D5FFF5" fillOpacity="0.85" />
-    </svg>
-  );
-};
-
-export const TrophyLaurelIcon: React.FC<IconProps> = ({ size = 48, className }) => {
-  const id = useId();
-  return (
-    <svg width={size} height={size} viewBox="0 0 68 56" fill="none" className={className} aria-hidden="true">
-      <defs>
-        <linearGradient id={`${id}-t`} x1="20" y1="8" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#FFF59E" />
-          <stop offset="45%" stopColor="#FFD23F" />
-          <stop offset="100%" stopColor="#F59B14" />
+        <linearGradient id={`${id}-flag`} x1="37" y1="3" x2="58" y2="17" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#FF7EC2" />
+          <stop offset="100%" stopColor="#EC258B" />
         </linearGradient>
       </defs>
-      {/* Lavender-white laurel wreath left */}
+      {/* Flagpole + bold pink pennant */}
+      <path d="M38 19V5.5" stroke="#4D1E96" strokeWidth="3.2" strokeLinecap="round" />
       <path
-        d="M17 41C11 35 10 24 16 17M14 36C10.5 35 8.5 32 9 29M13 29C9.5 28 8 25 9 22M15 22C12 20.5 11.5 17.5 13 15.5M19 42C16.5 44 13.5 43.5 12 41.5"
-        stroke="#F6DCFF"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Lavender-white laurel wreath right */}
-      <path
-        d="M51 41C57 35 58 24 52 17M54 36C57.5 35 59.5 32 59 29M55 29C58.5 28 60 25 59 22M53 22C56 20.5 56.5 17.5 55 15.5M49 42C51.5 44 54.5 43.5 56 41.5"
-        stroke="#F6DCFF"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Handles */}
-      <path d="M23 16H17.5C15.8 16 15 17.5 15.6 19.6C16.5 22.8 19.5 25 23.5 25.5" stroke="#FFD65A" strokeWidth="3.2" strokeLinecap="round" />
-      <path d="M45 16H50.5C52.2 16 53 17.5 52.4 19.6C51.5 22.8 48.5 25 44.5 25.5" stroke="#FFD65A" strokeWidth="3.2" strokeLinecap="round" />
-      {/* Cup */}
-      <path
-        d="M22 12H46L44.2 25.5C43.5 31 39 34.5 34 34.5C29 34.5 24.5 31 23.8 25.5L22 12Z"
-        fill={`url(#${id}-t)`}
-        stroke="#FFF8CC"
+        d="M38.5 5.2L57.5 10.6C58.4 10.9 58.4 12.1 57.5 12.4L38.5 17.6V5.2Z"
+        fill={`url(#${id}-flag)`}
+        stroke="#FFE0F2"
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
-      {/* Stem & base */}
-      <rect x="31" y="34" width="6" height="8" rx="2" fill="#F59B14" />
-      <rect x="24" y="41" width="20" height="5.5" rx="2.7" fill={`url(#${id}-t)`} stroke="#FFF8CC" strokeWidth="1.2" />
-      {/* Center ruby-pink star */}
+      {/* Left smaller twin peak */}
       <path
-        d="M34 16.5L35.6 19.9L39.3 20.4L36.6 23L37.3 26.6L34 24.8L30.7 26.6L31.4 23L28.7 20.4L32.4 19.9L34 16.5Z"
-        fill="#F43F98"
-        stroke="#FFE0F2"
-        strokeWidth="0.9"
+        d="M4 50L22 22.5C22.8 21.3 24.6 21.3 25.4 22.6L40 50H4Z"
+        fill={`url(#${id}-m2)`}
+        stroke="#FFFFFF"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path d="M23.7 22.2L30 34L25.5 32.5L22.5 35.5L18.5 32L23.7 22.2Z" fill="#FFFFFF" />
+      {/* Main snowy peak */}
+      <path
+        d="M17 50L36.2 17.2C37.1 15.6 39.4 15.6 40.3 17.2L65.5 50H17Z"
+        fill={`url(#${id}-m1)`}
+        stroke="#FFFFFF"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      {/* Snow cap highlight & shaded right facet */}
+      <path d="M38.2 16.5L47.5 31L41.5 29.2L37.2 33.8L32.8 29.8L38.2 16.5Z" fill="#FFFFFF" />
+      <path d="M38.2 16.8L64.8 49.5H41.5L37.2 33.8L41.5 29.2L47.5 31L38.2 16.8Z" fill="#0B9E81" fillOpacity="0.18" />
+      {/* Soft snow puffs at base */}
+      <ellipse cx="14" cy="49.5" rx="9" ry="4" fill="#DCFFF7" fillOpacity="0.95" />
+      <ellipse cx="57" cy="49.5" rx="9.5" ry="4" fill="#DCFFF7" fillOpacity="0.95" />
+    </svg>
+  );
+};
+
+export const TrophyLaurelIcon: React.FC<IconProps> = ({ size = 64, className }) => {
+  const id = useId();
+  return (
+    <svg width={size} height={Math.round(size * 0.8)} viewBox="0 0 76 60" fill="none" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id={`${id}-t`} x1="20" y1="6" x2="56" y2="54" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#FFF7AD" />
+          <stop offset="42%" stopColor="#FFD236" />
+          <stop offset="100%" stopColor="#F5950A" />
+        </linearGradient>
+        <linearGradient id={`${id}-leaf`} x1="8" y1="14" x2="22" y2="48" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="100%" stopColor="#E9C7FF" />
+        </linearGradient>
+      </defs>
+      {/* Left lush solid laurel branch */}
+      <path d="M18 46C10.5 39 9.5 25 16.5 16" stroke="#F8E2FF" strokeWidth="2.6" strokeLinecap="round" />
+      <ellipse cx="11.2" cy="40.5" rx="4.2" ry="2.2" transform="rotate(-38 11.2 40.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="9.2" cy="33.5" rx="4.5" ry="2.3" transform="rotate(-18 9.2 33.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="9.8" cy="26.2" rx="4.4" ry="2.2" transform="rotate(6 9.8 26.2)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="12.5" cy="19.5" rx="4" ry="2.1" transform="rotate(28 12.5 19.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="17.8" cy="46.2" rx="4" ry="2.1" transform="rotate(14 17.8 46.2)" fill={`url(#${id}-leaf)`} />
+      {/* Right lush solid laurel branch */}
+      <path d="M58 46C65.5 39 66.5 25 59.5 16" stroke="#F8E2FF" strokeWidth="2.6" strokeLinecap="round" />
+      <ellipse cx="64.8" cy="40.5" rx="4.2" ry="2.2" transform="rotate(38 64.8 40.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="66.8" cy="33.5" rx="4.5" ry="2.3" transform="rotate(18 66.8 33.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="66.2" cy="26.2" rx="4.4" ry="2.2" transform="rotate(-6 66.2 26.2)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="63.5" cy="19.5" rx="4" ry="2.1" transform="rotate(-28 63.5 19.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="58.2" cy="46.2" rx="4" ry="2.1" transform="rotate(-14 58.2 46.2)" fill={`url(#${id}-leaf)`} />
+      {/* Chunky Trophy Handles */}
+      <path d="M23 14H16.2C14 14 13.2 16 14 18.8C15.2 23 19 26 24.5 26.8" stroke="#FFD654" strokeWidth="4.2" strokeLinecap="round" />
+      <path d="M53 14H59.8C62 14 62.8 16 62 18.8C60.8 23 57 26 51.5 26.8" stroke="#FFD654" strokeWidth="4.2" strokeLinecap="round" />
+      {/* Bold Trophy Cup */}
+      <path
+        d="M21 8.5H55L52.6 26.5C51.7 33.5 45.6 38 38 38C30.4 38 24.3 33.5 23.4 26.5L21 8.5Z"
+        fill={`url(#${id}-t)`}
+        stroke="#FFFBE0"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      {/* Specular Vertical Gloss on Cup */}
+      <path d="M25.5 12H30.5L29 29C26.8 27 26 24.5 25.5 12Z" fill="#FFFFFF" fillOpacity="0.45" />
+      {/* Stem & Tiered Base */}
+      <rect x="33.5" y="37" width="9" height="9" rx="2.5" fill="#F59B14" stroke="#FFF4B8" strokeWidth="1.2" />
+      <rect x="24" y="45" width="28" height="7" rx="3.5" fill={`url(#${id}-t)`} stroke="#FFFBE0" strokeWidth="1.6" />
+      {/* Ruby-Pink Emblem Star */}
+      <path
+        d="M38 14.2L40.1 18.7L45.1 19.4L41.4 22.9L42.3 27.8L38 25.4L33.7 27.8L34.6 22.9L30.9 19.4L35.9 18.7L38 14.2Z"
+        fill="#F43594"
+        stroke="#FFE4F4"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
       />
     </svg>
   );
 };
 
-export const PodiumCrownIcon: React.FC<IconProps> = ({ size = 48, className }) => {
+export const PodiumCrownIcon: React.FC<IconProps> = ({ size = 64, className }) => {
   const id = useId();
   return (
-    <svg width={size} height={size} viewBox="0 0 68 56" fill="none" className={className} aria-hidden="true">
+    <svg width={size} height={Math.round(size * 0.8)} viewBox="0 0 76 60" fill="none" className={className} aria-hidden="true">
       <defs>
-        <linearGradient id={`${id}-c`} x1="22" y1="6" x2="46" y2="24" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#FFF59E" />
-          <stop offset="50%" stopColor="#FFD038" />
-          <stop offset="100%" stopColor="#F59E0B" />
+        <linearGradient id={`${id}-c`} x1="23" y1="3" x2="53" y2="25" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#FFF7AD" />
+          <stop offset="48%" stopColor="#FFD236" />
+          <stop offset="100%" stopColor="#F5950A" />
         </linearGradient>
-        <linearGradient id={`${id}-p`} x1="16" y1="26" x2="52" y2="48" gradientUnits="userSpaceOnUse">
+        <linearGradient id={`${id}-p`} x1="16" y1="24" x2="60" y2="54" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#FFFFFF" />
-          <stop offset="100%" stopColor="#BEE8FF" />
+          <stop offset="100%" stopColor="#B8E3FF" />
+        </linearGradient>
+        <linearGradient id={`${id}-leaf`} x1="8" y1="16" x2="20" y2="48" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="100%" stopColor="#C2ECFF" />
         </linearGradient>
       </defs>
-      {/* Cyan-white laurel branches */}
+      {/* Left solid cyan-white laurel branch */}
+      <path d="M16 46C9.5 39 9 26 15.5 17" stroke="#E0F6FF" strokeWidth="2.6" strokeLinecap="round" />
+      <ellipse cx="10.2" cy="40.5" rx="4.1" ry="2.1" transform="rotate(-38 10.2 40.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="8.6" cy="33.5" rx="4.4" ry="2.2" transform="rotate(-18 8.6 33.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="9.2" cy="26.2" rx="4.3" ry="2.2" transform="rotate(6 9.2 26.2)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="11.8" cy="19.5" rx="3.9" ry="2" transform="rotate(28 11.8 19.5)" fill={`url(#${id}-leaf)`} />
+      {/* Right solid cyan-white laurel branch */}
+      <path d="M60 46C66.5 39 67 26 60.5 17" stroke="#E0F6FF" strokeWidth="2.6" strokeLinecap="round" />
+      <ellipse cx="65.8" cy="40.5" rx="4.1" ry="2.1" transform="rotate(38 65.8 40.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="67.4" cy="33.5" rx="4.4" ry="2.2" transform="rotate(18 67.4 33.5)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="66.8" cy="26.2" rx="4.3" ry="2.2" transform="rotate(-6 66.8 26.2)" fill={`url(#${id}-leaf)`} />
+      <ellipse cx="64.2" cy="19.5" rx="3.9" ry="2" transform="rotate(-28 64.2 19.5)" fill={`url(#${id}-leaf)`} />
+      {/* Chunky 3-step Podium */}
+      <rect x="15" y="34.5" width="14" height="17.5" rx="3.5" fill="#C9E6FF" stroke="#FFFFFF" strokeWidth="1.8" />
+      <rect x="47" y="38.5" width="14" height="13.5" rx="3.5" fill="#B2DAFF" stroke="#FFFFFF" strokeWidth="1.8" />
+      <rect x="29" y="26.5" width="18" height="25.5" rx="4" fill={`url(#${id}-p)`} stroke="#FFFFFF" strokeWidth="2" />
+      {/* Subtle rank numbers on podium steps */}
+      <rect x="33" y="30" width="10" height="3" rx="1.5" fill="#FFFFFF" fillOpacity="0.85" />
+      {/* Prominent Golden Crown above Center Podium */}
       <path
-        d="M15 41C10 35 9.5 25 14.5 18M12.5 36C9.5 35 8 32 8.5 29M12 29C9 28 7.5 25 8.5 22M14 22C11.5 20.5 11 18 12.5 16"
-        stroke="#D8F3FF"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-      <path
-        d="M53 41C58 35 58.5 25 53.5 18M55.5 36C58.5 35 60 32 59.5 29M56 29C59 28 60.5 25 59.5 22M54 22C56.5 20.5 57 18 55.5 16"
-        stroke="#D8F3FF"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-      {/* 3-step podium */}
-      <rect x="16" y="34" width="11" height="14" rx="2.5" fill="#B5D8FF" stroke="#FFFFFF" strokeWidth="1.2" />
-      <rect x="41" y="37" width="11" height="11" rx="2.5" fill="#9ECAFF" stroke="#FFFFFF" strokeWidth="1.2" />
-      <rect x="27" y="27" width="14" height="21" rx="3" fill={`url(#${id}-p)`} stroke="#FFFFFF" strokeWidth="1.5" />
-      {/* Crown above center podium */}
-      <path
-        d="M24.5 22L22.5 13C22.3 12 23.5 11.4 24.3 12L28.5 15.8L32.8 9.8C33.4 9 34.6 9 35.2 9.8L39.5 15.8L43.7 12C44.5 11.4 45.7 12 45.5 13L43.5 22H24.5Z"
+        d="M25.5 22L22.8 10.6C22.5 9.3 24.1 8.4 25.1 9.3L30.8 14.3L36.4 6.4C37.2 5.3 38.8 5.3 39.6 6.4L45.2 14.3L50.9 9.3C51.9 8.4 53.5 9.3 53.2 10.6L50.5 22H25.5Z"
         fill={`url(#${id}-c)`}
-        stroke="#FFF8CC"
-        strokeWidth="1.3"
+        stroke="#FFFBE0"
+        strokeWidth="1.8"
         strokeLinejoin="round"
       />
-      <circle cx="34" cy="8.8" r="1.7" fill="#FFF7C2" />
+      <rect x="26.5" y="21.5" width="23" height="3.2" rx="1.6" fill="#F59B14" stroke="#FFF4B8" strokeWidth="1" />
+      <circle cx="23.5" cy="9.2" r="2.2" fill="#FFF7AD" />
+      <circle cx="38" cy="5.5" r="2.5" fill="#FFFBE0" />
+      <circle cx="52.5" cy="9.2" r="2.2" fill="#FFF7AD" />
     </svg>
   );
 };

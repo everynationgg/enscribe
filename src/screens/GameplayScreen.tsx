@@ -794,13 +794,13 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
         <div className="ens-modal-backdrop" onClick={() => setShowResultsModal(false)}>
           <div className="ens-modal-card" onClick={(e) => e.stopPropagation()}>
             <div style={{ textAlign: 'center', marginBottom: 14 }}>
-              <Trophy size={40} color="#f59e0b" style={{ marginBottom: 4 }} />
-              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
+              <Trophy size={40} color="#ffd54a" style={{ marginBottom: 4 }} />
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: '#ffffff' }}>
                 {match.winnerId === currentProfile.id
                   ? 'Victory! You Completed First!'
                   : `${match.boards[match.winnerId]?.username} Wins!`}
               </h2>
-              <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#5d678c', fontWeight: 600 }}>
+              <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#d4dcff', fontWeight: 700 }}>
                 Chain Clash • {match.title}
               </p>
             </div>
@@ -811,10 +811,10 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <AvatarBadge avatarId={b.avatarId} size={32} />
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 800 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#ffffff' }}>
                         {b.username} {b.isWinner ? '👑' : ''}
                       </div>
-                      <div style={{ fontSize: 11.5, color: '#647096', fontWeight: 600 }}>
+                      <div style={{ fontSize: 11.5, color: '#cdd6ff', fontWeight: 600 }}>
                         {b.completedAtMs
                           ? 'Completed full chain'
                           : `${b.currentWordIndex}/${b.totalWords} words solved`}
@@ -862,8 +862,8 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
       {showMenuModal && (
         <div className="ens-modal-backdrop" onClick={() => setShowMenuModal(false)}>
           <div className="ens-modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 800 }}>Match Options</h3>
-            <div style={{ fontSize: 12.5, color: '#5d678c', fontWeight: 600, marginBottom: 12 }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 18, fontWeight: 900, color: '#ffffff' }}>Match Options</h3>
+            <div style={{ fontSize: 13, color: '#d4dcff', fontWeight: 700, marginBottom: 14, lineHeight: 1.55 }}>
               <div>Mode: {match.mode.toUpperCase()}</div>
               <div>Per-word timer: {match.rules.timerEnabled ? `${match.rules.timePerWordSeconds}s` : 'Off'}</div>
               <div>Clues: {match.rules.chainVisibility}</div>

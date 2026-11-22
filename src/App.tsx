@@ -749,20 +749,21 @@ export const App: React.FC = () => {
         {showNotifModal && (
           <div className="ens-modal-backdrop" onClick={() => setShowNotifModal(false)}>
             <div className="ens-modal-card" onClick={(e) => e.stopPropagation()}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Notifications</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#ffffff' }}>Notifications</h3>
                 <button
                   type="button"
                   onClick={() => setShowNotifModal(false)}
-                  style={{ border: 'none', background: '#e5e9fa', borderRadius: 8, padding: '4px 10px', fontWeight: 700, cursor: 'pointer' }}
+                  className="ens-btn-white"
+                  style={{ minHeight: 32, padding: '4px 12px', fontSize: 12 }}
                 >
                   Close
                 </button>
               </div>
               {notifications.length === 0 ? (
-                <div style={{ fontSize: 13, color: '#647096' }}>You&apos;re all caught up!</div>
+                <div style={{ fontSize: 13.5, color: '#d4dcff', fontWeight: 700 }}>You&apos;re all caught up!</div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                   {notifications.map((n) => (
                     <div
                       key={n.id}
@@ -773,8 +774,8 @@ export const App: React.FC = () => {
                       }}
                       style={{ cursor: n.matchId ? 'pointer' : 'default' }}
                     >
-                      <div style={{ fontSize: 13.5, fontWeight: 800 }}>{n.title}</div>
-                      <div style={{ fontSize: 12, color: '#5d678c', fontWeight: 600 }}>{n.body}</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#ffffff' }}>{n.title}</div>
+                      <div style={{ fontSize: 12.5, color: '#cdd6ff', fontWeight: 600, marginTop: 2 }}>{n.body}</div>
                     </div>
                   ))}
                 </div>

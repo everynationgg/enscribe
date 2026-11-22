@@ -183,37 +183,42 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
 
   return (
     <div className="ens-sheet-screen" style={{ flex: 1, minHeight: 0 }}>
-      {/* Top Royal Header */}
+      <div className="ens-sky-sparkles" aria-hidden="true" />
+
+      {/* Scenic Fantasy Topbar */}
       <header className="ens-royal-topbar">
-        <div style={{ width: 34, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Layers size={20} color="#a5b4fc" />
+        <img src="/art/header-fantasy.png" alt="" className="ens-royal-topbar-art" aria-hidden="true" />
+        <div style={{ width: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Layers size={22} color="#a5f3fc" />
         </div>
-        <span style={{ fontSize: 19, fontWeight: 800 }}>My Templates</span>
+        <span style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', textShadow: '0 2px 8px rgba(8,12,56,0.6)' }}>
+          My Templates
+        </span>
         <button
           type="button"
           onClick={handleCreateNew}
           aria-label="Create new template"
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 11,
-            border: 'none',
-            background: '#ffffff',
-            color: '#17204d',
+            width: 38,
+            height: 38,
+            borderRadius: '50%',
+            border: '1.8px solid #ffffff',
+            background: 'var(--ens-grad-btn-lavender)',
+            color: '#24196a',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            boxShadow: '0 4px 12px rgba(8,12,56,0.4)',
           }}
         >
           <Plus size={20} strokeWidth={2.8} />
         </button>
       </header>
 
-      {/* Body Sheet */}
+      {/* Fantasy Scroll Body */}
       <div className="ens-sheet-body">
-        {/* Segmented Tabs */}
+        {/* Segmented Fantasy Pill Tabs */}
         <div className="ens-segmented-tabs">
           <button
             type="button"
@@ -239,10 +244,26 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
         </div>
 
         {/* Template List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {myTemplates.length === 0 ? (
-            <div className="ens-white-card" style={{ textAlign: 'center', padding: 16, fontSize: 13, color: '#647096' }}>
-              No templates here yet. Tap <strong>+</strong> to craft your own chain!
+            <div className="ens-coming-soon-card" style={{ padding: '22px 16px' }}>
+              <Layers size={28} color="#d8c8ff" />
+              <div className="ens-coming-title">
+                {activeTab === 'draft' ? 'No Draft Chains Saved' : 'No Templates Here Yet'}
+              </div>
+              <p className="ens-coming-sub">
+                {activeTab === 'draft'
+                  ? 'Work-in-progress word chains saved as drafts will appear here.'
+                  : 'Craft your own word chain to challenge opponents in Rooms and Matches!'}
+              </p>
+              <button
+                type="button"
+                className="ens-grad-btn is-purple is-sm"
+                onClick={handleCreateNew}
+              >
+                <Plus size={15} strokeWidth={2.8} />
+                <span>Create Template</span>
+              </button>
             </div>
           ) : (
             myTemplates.map((tpl) => {
@@ -254,14 +275,44 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                   onClick={() => loadIntoEditor(tpl)}
                   style={{ position: 'relative' }}
                 >
-                  <TemplateThumb thumbnailKey={tpl.thumbnailKey} size={52} />
+                  <div
+                    style={{
+                      borderRadius: 14,
+                      border: '1.8px solid rgba(226, 224, 255, 0.78)',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                      boxShadow: '0 4px 10px rgba(8, 12, 56, 0.4)',
+                    }}
+                  >
+                    <TemplateThumb thumbnailKey={tpl.thumbnailKey} size={52} />
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: '#17204d' }}>{tpl.name}</div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#647096', marginTop: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 15.5,
+                        fontWeight: 900,
+                        color: '#ffffff',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {tpl.name}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#cdd6ff', marginTop: 1 }}>
                       {tpl.words.length} words • {tpl.theme}
                     </div>
-                    <div style={{ marginTop: 4 }}>
-                      <span className={tpl.status === 'draft' ? 'ens-pill-creating' : 'ens-pill-ready'} style={{ padding: '2px 8px', fontSize: 11 }}>
+                    <div style={{ marginTop: 5 }}>
+                      <span
+                        className={
+                          tpl.status === 'official'
+                            ? 'ens-pill-official'
+                            : tpl.status === 'draft'
+                              ? 'ens-pill-creating'
+                              : 'ens-pill-ready'
+                        }
+                        style={{ padding: '2px 9px', fontSize: 11 }}
+                      >
                         {tpl.status === 'official'
                           ? '★ Official'
                           : tpl.status === 'draft'
@@ -272,21 +323,10 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                   </div>
                   <button
                     type="button"
+                    className="ens-tpl-more-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       setMenuOpenId(menuOpenId === tpl.id ? null : tpl.id);
-                    }}
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: '50%',
-                      border: '1px solid #e2e6f5',
-                      background: '#f5f6fc',
-                      color: '#5a6385',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
                     }}
                     aria-label="Template options"
                   >
@@ -295,60 +335,49 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
 
                   {menuOpenId === tpl.id && (
                     <div
+                      className="ens-tpl-popover"
                       onClick={(e) => e.stopPropagation()}
-                      style={{
-                        position: 'absolute',
-                        right: 10,
-                        top: 48,
-                        background: '#ffffff',
-                        borderRadius: 12,
-                        border: '1px solid #d9dff4',
-                        boxShadow: '0 8px 24px rgba(15, 23, 66, 0.18)',
-                        zIndex: 25,
-                        padding: 6,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        minWidth: 145,
-                      }}
                     >
                       <button
                         type="button"
+                        className="ens-tpl-pop-item"
                         onClick={() => loadIntoEditor(tpl)}
-                        style={{ border: 'none', background: 'transparent', textAlign: 'left', padding: '7px 10px', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}
                       >
                         Edit Template
                       </button>
                       <button
                         type="button"
+                        className="ens-tpl-pop-item"
+                        style={{ color: '#c4b5fd' }}
                         onClick={() => {
                           setMenuOpenId(null);
                           onPlayWithTemplate(tpl);
                         }}
-                        style={{ border: 'none', background: 'transparent', textAlign: 'left', padding: '7px 10px', fontWeight: 700, fontSize: 12.5, color: '#5b3df5', cursor: 'pointer' }}
                       >
                         Select for Match
                       </button>
                       <button
                         type="button"
+                        className="ens-tpl-pop-item"
                         onClick={async () => {
                           setMenuOpenId(null);
                           const dup = await onDuplicateTemplate(tpl.id);
                           loadIntoEditor(dup);
                           onNotify(`Duplicated "${tpl.name}"`);
                         }}
-                        style={{ border: 'none', background: 'transparent', textAlign: 'left', padding: '7px 10px', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}
                       >
                         Duplicate
                       </button>
                       {tpl.status !== 'official' && (
                         <button
                           type="button"
+                          className="ens-tpl-pop-item"
+                          style={{ color: '#fda4af' }}
                           onClick={async () => {
                             setMenuOpenId(null);
                             await onDeleteTemplate(tpl.id);
                             onNotify(`Deleted "${tpl.name}"`);
                           }}
-                          style={{ border: 'none', background: 'transparent', textAlign: 'left', padding: '7px 10px', fontWeight: 700, fontSize: 12.5, color: '#dc2626', cursor: 'pointer' }}
                         >
                           Delete
                         </button>
@@ -367,26 +396,27 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
             onClick={() => setEditorCollapsed((c) => !c)}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 14.5, fontWeight: 800 }}>
-              <Pencil size={15} color="#5b3df5" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 15, fontWeight: 900, color: '#ffffff' }}>
+              <Pencil size={15} color="#f0abfc" />
               <span>Edit Template: {editName || 'Untitled'}</span>
             </div>
             <ChevronUp
               size={18}
+              color="#d6dfff"
               style={{ transform: editorCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
             />
           </div>
 
           {!editorCollapsed && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 7 }}>
                 <input
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   placeholder="Template name"
                   className="ens-word-input"
-                  style={{ textTransform: 'none', fontSize: 12.5 }}
+                  style={{ textTransform: 'none', fontSize: 13 }}
                 />
                 <input
                   type="text"
@@ -394,14 +424,14 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                   onChange={(e) => setEditTheme(e.target.value)}
                   placeholder="Theme"
                   className="ens-word-input"
-                  style={{ textTransform: 'none', fontSize: 12.5 }}
+                  style={{ textTransform: 'none', fontSize: 13 }}
                 />
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                 {editWords.map((word, idx) => (
                   <div key={idx} className="ens-word-input-row">
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#4d5780' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: '#cdd6ff' }}>
                       Word {idx + 1}
                     </span>
                     <input
@@ -411,21 +441,21 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                       placeholder="WORD"
                       className="ens-word-input"
                     />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       <button
                         type="button"
+                        className="ens-reorder-btn"
                         onClick={() => moveWord(idx, -1)}
                         disabled={idx === 0}
-                        style={{ border: 'none', background: '#f0f2fb', borderRadius: 6, padding: 4, cursor: 'pointer' }}
                         title="Move up"
                       >
                         <ArrowUp size={13} />
                       </button>
                       <button
                         type="button"
+                        className="ens-reorder-btn"
                         onClick={() => moveWord(idx, 1)}
                         disabled={idx === editWords.length - 1}
-                        style={{ border: 'none', background: '#f0f2fb', borderRadius: 6, padding: 4, cursor: 'pointer' }}
                         title="Move down"
                       >
                         <ArrowDown size={13} />
@@ -433,14 +463,14 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                       {editWords.length > 3 ? (
                         <button
                           type="button"
+                          className="ens-delete-word-btn"
                           onClick={() => setEditWords(editWords.filter((_, i) => i !== idx))}
-                          style={{ border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: 6, padding: 4, cursor: 'pointer' }}
                           title="Remove word"
                         >
                           <Trash2 size={13} />
                         </button>
                       ) : (
-                        <GripVertical size={15} color="#94a3b8" />
+                        <GripVertical size={15} color="#9aa6e8" />
                       )}
                     </div>
                   </div>
@@ -448,25 +478,17 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 7 }}>
                   <button
                     type="button"
+                    className="ens-add-word-btn"
                     onClick={() => setEditWords([...editWords, ''])}
-                    style={{
-                      border: '1px dashed #8b5cf6',
-                      background: '#f5f2ff',
-                      color: '#5b3df5',
-                      borderRadius: 9,
-                      padding: '5px 10px',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
                   >
                     + Add Word
                   </button>
                   <button
                     type="button"
+                    className="ens-gen-chain-btn"
                     onClick={async () => {
                       try {
                         const gen = await api.generateChain(editTheme || 'Adventure', Math.max(4, editWords.length));
@@ -480,19 +502,6 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                         onNotify(err.message || 'Could not generate chain');
                       }
                     }}
-                    style={{
-                      border: '1px solid #c4b5fd',
-                      background: '#ece8ff',
-                      color: '#4626ba',
-                      borderRadius: 9,
-                      padding: '5px 10px',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
                   >
                     <Sparkles size={13} />
                     <span>Generate Chain</span>
@@ -500,15 +509,8 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                 </div>
                 <button
                   type="button"
+                  className="ens-draft-link-btn"
                   onClick={() => handleSave('draft')}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: '#5b3df5',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
                 >
                   Save as Draft
                 </button>
@@ -516,18 +518,18 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
 
               {/* Live Phrase Preview */}
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#5d678c', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 800, color: '#cdd6ff', marginBottom: 4 }}>
                   <Eye size={14} />
                   <span>Preview (Links)</span>
                 </div>
                 <div className="ens-link-preview-strip">
                   {linkPairs.length === 0 ? (
-                    <span style={{ fontSize: 11.5, color: '#94a3b8' }}>Enter words above to preview links</span>
+                    <span style={{ fontSize: 11.5, color: '#9aa6e8' }}>Enter words above to preview links</span>
                   ) : (
                     linkPairs.map((pair, i) => (
                       <React.Fragment key={i}>
                         <span className="ens-link-pill">{pair}</span>
-                        {i < linkPairs.length - 1 && <ArrowRight size={13} color="#7c87b0" style={{ flexShrink: 0 }} />}
+                        {i < linkPairs.length - 1 && <ArrowRight size={13} color="#a5b4fc" style={{ flexShrink: 0 }} />}
                       </React.Fragment>
                     ))
                   )}
@@ -552,6 +554,10 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
             <Play size={14} fill="#fff" />
           </button>
         </div>
+      </div>
+
+      <div className="ens-home-bottom-art" aria-hidden="true">
+        <img src="/art/home-bottom-landscape.png" alt="" className="ens-home-bottom-img" />
       </div>
     </div>
   );

@@ -11,6 +11,19 @@
   --ens-lavender-ink: #221763;
   --ens-lavender-muted: #c9d2ff;
 
+  /* Global Shared Fantasy Surface Tokens */
+  --enscribe-bg-start: #0d1d68;
+  --enscribe-bg-mid: #1645c5;
+  --enscribe-bg-end: #4931ab;
+  --enscribe-panel: linear-gradient(145deg, rgba(60, 56, 164, 0.94) 0%, rgba(30, 44, 134, 0.96) 100%);
+  --enscribe-panel-elevated: linear-gradient(145deg, rgba(78, 66, 192, 0.95) 0%, rgba(44, 52, 154, 0.96) 100%);
+  --enscribe-panel-soft: linear-gradient(135deg, rgba(114, 88, 218, 0.44) 0%, rgba(46, 70, 174, 0.56) 100%);
+  --enscribe-panel-deep: rgba(17, 25, 92, 0.8);
+  --enscribe-border: rgba(198, 174, 255, 0.68);
+  --enscribe-border-soft: rgba(168, 172, 255, 0.46);
+  --enscribe-glow: 0 8px 24px rgba(124, 68, 252, 0.32);
+  --enscribe-radius: 20px;
+
   /* Multi-stop Atmospheric & Component Gradients */
   --ens-bg-fantasy:
     radial-gradient(120% 55% at 85% 18%, rgba(116, 54, 232, 0.36) 0%, transparent 58%),

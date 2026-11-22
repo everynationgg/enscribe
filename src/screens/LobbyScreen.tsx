@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Circle,
@@ -121,13 +122,16 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   return (
     <div className="ens-sheet-screen">
+      <div className="ens-sky-sparkles" aria-hidden="true" />
+
       {/* Top Royal Header */}
       <header className="ens-royal-topbar">
+        <img src="/art/header-fantasy.png" alt="" className="ens-royal-topbar-art" aria-hidden="true" />
         <button type="button" className="ens-icon-btn" onClick={onBack} aria-label="Back">
           <ChevronLeft size={20} />
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 18, fontWeight: 800 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 18, fontWeight: 900, fontStyle: 'italic' }}>
           <Users size={19} />
           <span>{room.name}</span>
         </div>
@@ -161,23 +165,23 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         {/* Players List */}
         <section>
           <div className="ens-section-heading">
-            <Users size={16} color="#4e37c9" />
+            <Users size={16} color="#a5f3fc" />
             <span>
               Players ({room.players.length} / {room.rules.maxPlayers})
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {room.players.map((p) => (
               <div key={p.playerId} className="ens-player-row">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                  <AvatarBadge avatarId={p.avatarId} size={34} />
+                  <AvatarBadge avatarId={p.avatarId} size={36} />
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 800 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 14.5, fontWeight: 800, color: '#ffffff' }}>
                       <span>{p.username}</span>
-                      {p.isHost && <span style={{ fontSize: 12, fontWeight: 600, color: '#5d678c' }}>(Host) 👑</span>}
+                      {p.isHost && <span style={{ fontSize: 12, fontWeight: 700, color: '#ffd54a' }}>(Host) 👑</span>}
                     </div>
                     {p.submittedTemplateName && (
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#643bf2' }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: '#c4b5fd' }}>
                         Puzzle: {p.submittedTemplateName}
                       </div>
                     )}
@@ -209,23 +213,16 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
         {/* Rules Summary */}
         <section>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div className="ens-section-heading" style={{ marginBottom: 0 }}>
-              <Settings size={16} color="#4e37c9" />
+              <Settings size={16} color="#f0abfc" />
               <span>Rules</span>
             </div>
             {isHost && (
               <button
                 type="button"
                 onClick={() => setShowRulesModal(true)}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: '#5b3df5',
-                  fontWeight: 800,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                }}
+                className="ens-draft-link-btn"
               >
                 Edit Rules
               </button>
@@ -233,23 +230,23 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           </div>
           <div className="ens-rule-chips" onClick={() => isHost && setShowRulesModal(true)}>
             <span className="ens-rule-chip">
-              <Gamepad2 size={14} color="#5b3df5" />
+              <Gamepad2 size={14} color="#c4b5fd" />
               {room.rules.mode === 'speed_race' ? 'Speed Race' : 'Classic Mode'}
             </span>
             <span className="ens-rule-chip">
-              <Clock size={14} color="#ef4444" />
+              <Clock size={14} color="#fda4af" />
               {room.rules.timerEnabled ? `${room.rules.timePerWordSeconds}s per word` : 'No Timer'}
             </span>
             <span className="ens-rule-chip">
-              <Eye size={14} color="#0ea5e9" />
+              <Eye size={14} color="#7dd3fc" />
               {room.rules.chainVisibility === 'full_chain' ? 'Full Chain Visible' : 'Progressive Clues'}
             </span>
             <span className="ens-rule-chip">
-              <Users size={14} color="#6366f1" />
+              <Users size={14} color="#a5b4fc" />
               {room.rules.maxPlayers} Players
             </span>
             <span className="ens-rule-chip">
-              <Coffee size={14} color="#7c3aed" />
+              <Coffee size={14} color="#f0abfc" />
               {room.rules.difficultyPreset === 'competitive' ? 'Competitive' : 'Casual'}
             </span>
           </div>
@@ -258,7 +255,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         {/* Puzzle Source */}
         <section>
           <div className="ens-section-heading">
-            <BookOpen size={16} color="#4e37c9" />
+            <BookOpen size={16} color="#a5f3fc" />
             <span>Puzzle Source</span>
           </div>
           <div
@@ -269,11 +266,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div
                 style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 11,
-                  background: '#ece8ff',
-                  color: '#5b3df5',
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.35) 0%, rgba(99, 102, 241, 0.4) 100%)',
+                  border: '1px solid rgba(206, 188, 255, 0.5)',
+                  color: '#f5d8ff',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -282,34 +280,34 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 <BookOpen size={19} />
               </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 800 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 800, color: '#ffffff' }}>
                   {room.rules.puzzleSource === 'curated_db'
                     ? 'Curated Database Chains'
                     : room.rules.puzzleSource === 'custom_create'
                       ? 'Create Custom Chains'
                       : 'Use Saved Templates'}
                 </div>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: '#647096' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#cdd6ff' }}>
                   {me?.submittedTemplateName
                     ? `Selected: ${me.submittedTemplateName}`
                     : 'Pick from your template library'}
                 </div>
               </div>
             </div>
-            <ChevronRight size={18} color="#647096" />
+            <ChevronRight size={18} color="#cdd6ff" />
           </div>
         </section>
 
         {/* Room Chat */}
         <section>
           <div className="ens-section-heading">
-            <MessageSquare size={16} color="#4e37c9" />
+            <MessageSquare size={16} color="#f0abfc" />
             <span>Room Chat</span>
           </div>
-          <div className="ens-white-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="ens-white-card" style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             <div ref={chatBoxRef} style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {room.messages.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#7a84a8', textAlign: 'center', padding: 10 }}>
+                <div style={{ fontSize: 12.5, color: '#cdd6ff', textAlign: 'center', padding: 10, fontWeight: 600 }}>
                   No messages yet. Say hello or coordinate rules!
                 </div>
               ) : (
@@ -318,27 +316,14 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     <AvatarBadge avatarId={m.senderAvatar} size={30} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 800, color: '#17204d' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 800, color: '#ffffff' }}>
                           {m.senderName}
                         </span>
-                        <span style={{ fontSize: 10.5, fontWeight: 600, color: '#838db0' }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 600, color: '#aeb9f0' }}>
                           {formatTime(m.createdAt)}
                         </span>
                       </div>
-                      <div
-                        style={{
-                          marginTop: 2,
-                          background: '#f2f4fc',
-                          borderRadius: '4px 12px 12px 12px',
-                          padding: '6px 10px',
-                          fontSize: 12.5,
-                          fontWeight: 600,
-                          color: '#232d5e',
-                          display: 'inline-block',
-                          maxWidth: '100%',
-                          wordBreak: 'break-word',
-                        }}
-                      >
+                      <div className="ens-chat-msg-bubble">
                         {m.text}
                       </div>
                     </div>
@@ -347,30 +332,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               )}
             </div>
 
-            <form onSubmit={handleSendChat} style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+            <form onSubmit={handleSendChat} style={{ display: 'flex', gap: 7, marginTop: 2 }}>
               <input
                 type="text"
                 value={chatText}
                 onChange={(e) => setChatText(e.target.value)}
                 placeholder="Message room..."
-                style={{
-                  flex: 1,
-                  border: '1.5px solid #dbe1f4',
-                  borderRadius: 11,
-                  padding: '7px 10px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: '#17204d',
-                  background: '#f7f8fd',
-                }}
+                className="ens-chat-input"
               />
               <button
                 type="submit"
                 style={{
-                  border: 'none',
-                  borderRadius: 11,
-                  padding: '0 12px',
-                  background: '#5b3df5',
+                  border: '1.5px solid rgba(226, 204, 255, 0.72)',
+                  borderRadius: 12,
+                  padding: '0 13px',
+                  background: 'var(--ens-grad-btn-purple)',
                   color: '#fff',
                   cursor: 'pointer',
                   display: 'flex',
@@ -419,20 +395,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         <div className="ens-modal-backdrop" onClick={() => setShowPuzzleModal(false)}>
           <div className="ens-modal-card" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Prepare Puzzle for Opponent</h3>
+              <h3 style={{ margin: 0, fontSize: 17.5, fontWeight: 900, color: '#ffffff' }}>Prepare Puzzle for Opponent</h3>
               <button
                 type="button"
                 onClick={() => setShowPuzzleModal(false)}
-                style={{ border: 'none', background: '#e6eaf8', borderRadius: 8, padding: '4px 10px', fontWeight: 700 }}
+                className="ens-btn-white"
+                style={{ minHeight: 32, padding: '4px 12px', fontSize: 12 }}
               >
                 Close
               </button>
             </div>
-            <p style={{ margin: '0 0 10px', fontSize: 12, color: '#5d678c', fontWeight: 600 }}>
+            <p style={{ margin: '0 0 11px', fontSize: 12.5, color: '#d4dcff', fontWeight: 600 }}>
               In custom multiplayer, your chosen puzzle is assigned to another player — you will never solve your own puzzle!
             </p>
 
-            <div className="ens-segmented-tabs" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 10 }}>
+            <div className="ens-segmented-tabs" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 11 }}>
               <button
                 type="button"
                 className={`ens-seg-tab ${puzzleTab === 'saved' ? 'active' : ''}`}
@@ -459,8 +436,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                   >
                     <TemplateThumb thumbnailKey={tpl.thumbnailKey} size={46} />
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 800 }}>{tpl.name}</div>
-                      <div style={{ fontSize: 11.5, color: '#647096', fontWeight: 600 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#ffffff' }}>{tpl.name}</div>
+                      <div style={{ fontSize: 11.5, color: '#cdd6ff', fontWeight: 600 }}>
                         {tpl.words.length} words • {tpl.theme}
                       </div>
                     </div>
@@ -472,7 +449,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {customWords.map((w, idx) => (
                   <div key={idx} className="ens-word-input-row">
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#5d678c' }}>Word {idx + 1}</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: '#cdd6ff' }}>Word {idx + 1}</span>
                     <input
                       className="ens-word-input"
                       value={w}
@@ -485,8 +462,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     {customWords.length > 3 && (
                       <button
                         type="button"
+                        className="ens-delete-word-btn"
                         onClick={() => setCustomWords(customWords.filter((_, i) => i !== idx))}
-                        style={{ border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: 8, padding: '6px 9px', fontWeight: 800 }}
                       >
                         ×
                       </button>
@@ -531,111 +508,136 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       {showRulesModal && isHost && (
         <div className="ens-modal-backdrop" onClick={() => setShowRulesModal(false)}>
           <div className="ens-modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 17, fontWeight: 800 }}>Host Room Rules</h3>
+            <h3 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 900, color: '#ffffff' }}>Host Room Rules</h3>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 11, fontSize: 13, fontWeight: 700 }}>
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11, fontSize: 13, fontWeight: 800, color: '#ffffff' }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <span>Game Mode</span>
-                <select
-                  value={room.rules.mode}
-                  onChange={(e) => onUpdateRules({ mode: e.target.value as 'classic' | 'speed_race' })}
-                  style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-                >
-                  <option value="classic">Classic Mode (Turn-Based)</option>
-                  <option value="speed_race">Speed Race (Simultaneous)</option>
-                </select>
-              </label>
-
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Puzzle Source</span>
-                <select
-                  value={room.rules.puzzleSource}
-                  onChange={(e) => onUpdateRules({ puzzleSource: e.target.value as any })}
-                  style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-                >
-                  <option value="saved_templates">Use Saved / Custom Templates</option>
-                  <option value="curated_db">Curated Database Puzzles</option>
-                </select>
-              </label>
-
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Max Players</span>
-                <select
-                  value={room.rules.maxPlayers}
-                  onChange={(e) => onUpdateRules({ maxPlayers: Number(e.target.value) })}
-                  style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-                >
-                  {[2, 3, 4, 6].map((n) => (
-                    <option key={n} value={n}>
-                      {n} Players
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Timer Enabled</span>
-                <input
-                  type="checkbox"
-                  checked={room.rules.timerEnabled}
-                  onChange={(e) => onUpdateRules({ timerEnabled: e.target.checked })}
-                />
-              </label>
-
-              {room.rules.timerEnabled && (
-                <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>Seconds Per Word</span>
+                <div className="ens-select-pill-wrap">
                   <select
-                    value={room.rules.timePerWordSeconds}
-                    onChange={(e) => onUpdateRules({ timePerWordSeconds: Number(e.target.value) })}
-                    style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
+                    value={room.rules.mode}
+                    onChange={(e) => onUpdateRules({ mode: e.target.value as 'classic' | 'speed_race' })}
+                    className="ens-select-pill"
                   >
-                    {[10, 15, 20, 30, 45, 60].map((sec) => (
-                      <option key={sec} value={sec}>
-                        {sec}s
+                    <option value="classic">Classic Mode (Turn-Based)</option>
+                    <option value="speed_race">Speed Race (Simultaneous)</option>
+                  </select>
+                  <ChevronDown size={14} className="ens-select-chevron" aria-hidden="true" />
+                </div>
+              </label>
+
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span>Puzzle Source</span>
+                <div className="ens-select-pill-wrap">
+                  <select
+                    value={room.rules.puzzleSource}
+                    onChange={(e) => onUpdateRules({ puzzleSource: e.target.value as any })}
+                    className="ens-select-pill"
+                  >
+                    <option value="saved_templates">Use Saved / Custom Templates</option>
+                    <option value="curated_db">Curated Database Puzzles</option>
+                  </select>
+                  <ChevronDown size={14} className="ens-select-chevron" aria-hidden="true" />
+                </div>
+              </label>
+
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span>Max Players</span>
+                <div className="ens-select-pill-wrap">
+                  <select
+                    value={room.rules.maxPlayers}
+                    onChange={(e) => onUpdateRules({ maxPlayers: Number(e.target.value) })}
+                    className="ens-select-pill"
+                  >
+                    {[2, 3, 4, 6].map((n) => (
+                      <option key={n} value={n}>
+                        {n} Players
                       </option>
                     ))}
                   </select>
+                  <ChevronDown size={14} className="ens-select-chevron" aria-hidden="true" />
+                </div>
+              </label>
+
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span>Timer Enabled</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={room.rules.timerEnabled}
+                  className={`ens-glossy-switch ${room.rules.timerEnabled ? 'is-on' : 'is-off'}`}
+                  onClick={() => onUpdateRules({ timerEnabled: !room.rules.timerEnabled })}
+                >
+                  <span className="ens-switch-thumb" />
+                </button>
+              </label>
+
+              {room.rules.timerEnabled && (
+                <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span>Seconds Per Word</span>
+                  <div className="ens-select-pill-wrap">
+                    <select
+                      value={room.rules.timePerWordSeconds}
+                      onChange={(e) => onUpdateRules({ timePerWordSeconds: Number(e.target.value) })}
+                      className="ens-select-pill"
+                    >
+                      {[10, 15, 20, 30, 45, 60].map((sec) => (
+                        <option key={sec} value={sec}>
+                          {sec}s
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="ens-select-chevron" aria-hidden="true" />
+                  </div>
                 </label>
               )}
 
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <span>Clue Visibility</span>
-                <select
-                  value={room.rules.chainVisibility}
-                  onChange={(e) => onUpdateRules({ chainVisibility: e.target.value as any })}
-                  style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-                >
-                  <option value="full_chain">Full Chain Visible</option>
-                  <option value="progressive">Progressive Clues</option>
-                </select>
+                <div className="ens-select-pill-wrap">
+                  <select
+                    value={room.rules.chainVisibility}
+                    onChange={(e) => onUpdateRules({ chainVisibility: e.target.value as any })}
+                    className="ens-select-pill"
+                  >
+                    <option value="full_chain">Full Chain Visible</option>
+                    <option value="progressive">Progressive Clues</option>
+                  </select>
+                  <ChevronDown size={14} className="ens-select-chevron" aria-hidden="true" />
+                </div>
               </label>
 
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <span>Opponent Board Visibility</span>
-                <select
-                  value={room.rules.opponentVisibility}
-                  onChange={(e) => onUpdateRules({ opponentVisibility: e.target.value as any })}
-                  style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-                >
-                  <option value="full_live">Full Live Progress</option>
-                  <option value="words_only">Completed &amp; Clues Only</option>
-                  <option value="minimal">Minimal (Masked)</option>
-                </select>
+                <div className="ens-select-pill-wrap">
+                  <select
+                    value={room.rules.opponentVisibility}
+                    onChange={(e) => onUpdateRules({ opponentVisibility: e.target.value as any })}
+                    className="ens-select-pill"
+                  >
+                    <option value="full_live">Full Live Progress</option>
+                    <option value="words_only">Completed &amp; Clues Only</option>
+                    <option value="minimal">Minimal (Masked)</option>
+                  </select>
+                  <ChevronDown size={14} className="ens-select-chevron" aria-hidden="true" />
+                </div>
               </label>
 
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <span>Auto-Reveal After Wrong Guesses</span>
-                <select
-                  value={room.rules.autoRevealAfterAttempts}
-                  onChange={(e) => onUpdateRules({ autoRevealAfterAttempts: Number(e.target.value) })}
-                  style={{ padding: '6px 10px', borderRadius: 9, border: '1px solid #cbd5e1', fontWeight: 700 }}
-                >
-                  <option value={0}>Off</option>
-                  <option value={2}>Every 2 wrong</option>
-                  <option value={3}>Every 3 wrong</option>
-                  <option value={5}>Every 5 wrong</option>
-                </select>
+                <div className="ens-select-pill-wrap">
+                  <select
+                    value={room.rules.autoRevealAfterAttempts}
+                    onChange={(e) => onUpdateRules({ autoRevealAfterAttempts: Number(e.target.value) })}
+                    className="ens-select-pill"
+                  >
+                    <option value={0}>Off</option>
+                    <option value={2}>Every 2 wrong</option>
+                    <option value={3}>Every 3 wrong</option>
+                    <option value={5}>Every 5 wrong</option>
+                  </select>
+                  <ChevronDown size={14} className="ens-select-chevron" aria-hidden="true" />
+                </div>
               </label>
             </div>
 
