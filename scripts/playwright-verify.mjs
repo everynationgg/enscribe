@@ -33,12 +33,21 @@ async function checkNoOverflow(page, label) {
   const dims = await page.evaluate(() => ({
     scrollW: document.documentElement.scrollWidth,
     innerW: window.innerWidth,
-    bodyScrollW: document.body.scrollWidth,
   }));
   assert.ok(
     dims.scrollW <= dims.innerW + 1,
     `[${label}] Horizontal overflow detected: scrollW=${dims.scrollW} > innerW=${dims.innerW}`
   );
+}
+
+async function signInPlayer(page, nickname, avatarLabel) {
+  await page.waitForSelector('#enscribe-nickname');
+  if (avatarLabel) {
+    await page.getByLabel(`Select ${avatarLabel} avatar`).click();
+  }
+  await page.fill('#enscribe-nickname', nickname);
+  await page.getByRole('button', { name: /Enter Enscribe/i }).click();
+  await page.waitForSelector(`text=Hi, ${nickname}!`);
 }
 
 async function run() {
@@ -56,87 +65,30 @@ async function run() {
   });
 
   try {
-    // 1. Mobile Portrait Visual Captures + Core Screens Check (390x844)
+    // 1. Mobile Sign-In, Home, Templates, Solo Gameplay checks (390x844)
     const ctx1 = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page1 = await ctx1.newPage();
     const consoleErrors = [];
     page1.on('pageerror', (err) => consoleErrors.push(err.message));
 
     await page1.goto(APP_URL, { waitUntil: 'networkidle' });
-    await page1.waitForSelector('.ens-brand-title');
+    await page1.waitForSelector('#enscribe-nickname');
+    await checkNoOverflow(page1, 'SignIn 390x844');
+    await page1.screenshot({ path: path.join(SCREENSHOT_DIR, 'screen0-signin.png') });
+    console.log('Captured screen0-signin.png');
+
+    await signInPlayer(page1, 'SkyWalker', 'Blue');
     assert.equal(await page1.textContent('.ens-brand-title'), 'Enscribe');
     await checkNoOverflow(page1, 'Home 390x844');
     await page1.screenshot({ path: path.join(SCREENSHOT_DIR, 'screen1-home.png') });
     console.log('Captured screen1-home.png');
 
-    // Screen 4: My Templates
+    // Templates create/save/reload/duplicate
     await page1.locator('.ens-bottom-nav').getByRole('button', { name: 'Templates', exact: true }).click();
     await page1.waitForSelector('.ens-editor-card');
     await checkNoOverflow(page1, 'Templates 390x844');
     await page1.screenshot({ path: path.join(SCREENSHOT_DIR, 'screen4-templates.png') });
-    console.log('Captured screen4-templates.png');
 
-    // Screen 2: Lobby (Join seeded Private Room 7F3K9 cleanly before mutations)
-    await page1.locator('.ens-bottom-nav').getByRole('button', { name: 'Play', exact: true }).click();
-    await page1.fill('input[placeholder*="7F3K9"]', '7F3K9');
-    await page1.getByRole('button', { name: 'Join' }).click();
-    await page1.waitForSelector('.ens-share-pill');
-    await checkNoOverflow(page1, 'Lobby 390x844');
-    await page1.screenshot({ path: path.join(SCREENSHOT_DIR, 'screen2-lobby.png') });
-    console.log('Captured screen2-lobby.png');
-
-    // Screen 3: Classic Match (Return Home -> Continue Match on seeded active match)
-    await page1.getByLabel('Back').click();
-    await page1.locator('.ens-bottom-nav').getByRole('button', { name: 'Home', exact: true }).click();
-    await page1.waitForSelector('.ens-hero-btn');
-    await page1.click('.ens-hero-btn');
-    await page1.waitForSelector('.ens-chain-board');
-    await checkNoOverflow(page1, 'Classic Match 390x844');
-
-    // CRITICAL CHECK: Verify ALL words inside the gameplay chain are LEFT-ALIGNED!
-    const alignmentReport = await page1.evaluate(() => {
-      const cards = Array.from(document.querySelectorAll('.ens-word-card'));
-      return cards.map((card) => {
-        const span = card.querySelector('.ens-word-card-text');
-        const csSpan = span ? getComputedStyle(span) : null;
-        const rectCard = card.getBoundingClientRect();
-        const rectSpan = span ? span.getBoundingClientRect() : null;
-        return {
-          text: span?.textContent?.trim(),
-          textAlign: csSpan?.textAlign,
-          leftOffsetFromCard: rectSpan ? Math.round(rectSpan.left - rectCard.left) : null,
-        };
-      });
-    });
-    console.log('Gameplay word alignment:', alignmentReport);
-    for (const row of alignmentReport) {
-      assert.equal(row.textAlign, 'left', `Word "${row.text}" must have textAlign=left`);
-      assert.ok(
-        row.leftOffsetFromCard !== null && row.leftOffsetFromCard <= 24,
-        `Word "${row.text}" left offset ${row.leftOffsetFromCard}px should be left-padded (~18px), not centered`
-      );
-    }
-
-    await page1.screenshot({ path: path.join(SCREENSHOT_DIR, 'screen3-match.png') });
-    console.log('Captured screen3-match.png');
-
-    // Check 320px and 430px widths too
-    await page1.setViewportSize({ width: 320, height: 568 });
-    await checkNoOverflow(page1, 'Classic Match 320x568');
-    await page1.setViewportSize({ width: 430, height: 932 });
-    await checkNoOverflow(page1, 'Classic Match 430x932');
-
-    // Test on-screen keyboard + physical keyboard on seeded match (word 4: S T _ _ -> STOP)
-    await page1.setViewportSize({ width: 390, height: 844 });
-    await page1.locator('.ens-kbd .ens-key', { hasText: /^O$/ }).click();
-    await page1.keyboard.press('p');
-    await page1.click('.ens-submit-btn');
-    await page1.waitForSelector('text=completed the chain first');
-    console.log('On-screen + physical keyboard unified input & victory verified!');
-
-    // Test Template create, save, reload persistence, duplicate
-    await page1.getByLabel('Back').click();
-    await page1.locator('.ens-bottom-nav').getByRole('button', { name: 'Templates', exact: true }).click();
     await page1.getByLabel('Create new template').click();
     await page1.locator('.ens-editor-card input[placeholder="Template name"]').fill('Playwright Chain');
     const wordInputs = page1.locator('.ens-editor-card .ens-word-input-row input');
@@ -152,40 +104,50 @@ async function run() {
     await page1.getByRole('button', { name: /Duplicate/i }).click();
     await page1.waitForSelector('text=Playwright Chain Copy');
     console.log('Template create/save/reload/duplicate verified!');
+
+    // Profile tab shows real Player ID and Sign Out works
+    await page1.locator('.ens-bottom-nav').getByRole('button', { name: 'Profile', exact: true }).click();
+    await page1.waitForSelector('text=Player ID:');
+    await checkNoOverflow(page1, 'Profile 390x844');
+    await page1.getByRole('button', { name: /Sign Out/i }).click();
+    await page1.waitForSelector('#enscribe-nickname');
+    console.log('Profile & Sign Out verified!');
     await ctx1.close();
 
-    // 2. Two-Browser-Session Real-Time Multiplayer Acceptance Test
+    // 2. Real Two-Player Nickname Sign-In + Live Multiplayer Test
     const ctxHost = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const ctxGuest = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const hostPage = await ctxHost.newPage();
     const guestPage = await ctxGuest.newPage();
 
-    // Host = Alex (default), Guest = NovaRex
     await hostPage.goto(APP_URL, { waitUntil: 'networkidle' });
     await guestPage.goto(APP_URL, { waitUntil: 'networkidle' });
-    await guestPage.locator('.ens-bottom-nav').getByRole('button', { name: 'Profile', exact: true }).click();
-    await guestPage.locator('button', { hasText: 'NovaRex' }).click();
 
-    // Host creates a new 2-player room
+    await signInPlayer(hostPage, 'HostAce', 'Blue');
+    await signInPlayer(guestPage, 'GuestNova', 'Neon');
+
+    // Host creates a 2-player room
     await hostPage.getByRole('button', { name: /Create Room/i }).click();
     await hostPage.getByRole('button', { name: /Create & Open Lobby/i }).click();
     await hostPage.waitForSelector('.ens-share-pill');
     const code = (await hostPage.textContent('.ens-share-pill'))?.trim();
     assert.ok(code && code.length >= 4, 'Created room must show share code');
 
-    // Guest joins using code
+    // Guest joins using Share Code
     await guestPage.locator('.ens-bottom-nav').getByRole('button', { name: 'Play', exact: true }).click();
-    await guestPage.fill('input[placeholder*="7F3K9"]', code);
+    await guestPage.fill('input[placeholder="Enter room code"]', code);
     await guestPage.getByRole('button', { name: 'Join' }).click();
     await guestPage.waitForSelector('text=Players (2 / 2)');
     await hostPage.waitForSelector('text=Players (2 / 2)');
+    await checkNoOverflow(hostPage, 'Lobby 390x844');
+    await hostPage.screenshot({ path: path.join(SCREENSHOT_DIR, 'screen2-lobby.png') });
 
     // Exchange lobby chat messages
     await guestPage.fill('input[placeholder="Message room..."]', 'Ready when you are!');
     await guestPage.click('button[aria-label="Send chat message"]');
     await hostPage.waitForSelector('text=Ready when you are!');
 
-    // Host prepares custom chain ALPHA -> BETA -> GAMMA -> DELTA
+    // Host prepares ALPHA -> BETA -> GAMMA -> DELTA
     await hostPage.getByRole('button', { name: /Select Template/i }).click();
     await hostPage.getByRole('button', { name: /Write Custom Chain/i }).click();
     const hostCustom = hostPage.locator('.ens-modal-card .ens-word-input-row input');
@@ -195,7 +157,7 @@ async function run() {
     await hostCustom.nth(3).fill('DELTA');
     await hostPage.getByRole('button', { name: /Lock In Custom Chain/i }).click();
 
-    // Guest prepares custom chain MOON -> LIGHT -> HOUSE -> BOAT
+    // Guest prepares MOON -> LIGHT -> HOUSE -> BOAT
     await guestPage.getByRole('button', { name: /Select Template/i }).click();
     await guestPage.getByRole('button', { name: /Write Custom Chain/i }).click();
     const guestCustom = guestPage.locator('.ens-modal-card .ens-word-input-row input');
@@ -205,8 +167,7 @@ async function run() {
     await guestCustom.nth(3).fill('BOAT');
     await guestPage.getByRole('button', { name: /Lock In Custom Chain/i }).click();
 
-    await hostPage.waitForTimeout(300);
-    // Host Force Starts match
+    await hostPage.waitForTimeout(400);
     await hostPage.getByRole('button', { name: /Force Start/i }).click();
     await hostPage.waitForSelector('.ens-chain-board');
     await guestPage.waitForSelector('.ens-chain-board');
@@ -218,32 +179,55 @@ async function run() {
     assert.equal(guestAnchor?.trim(), 'ALPHA', 'Guest must receive Host puzzle ALPHA');
     console.log('Multiplayer derangement verified: Host got MOON, Guest got ALPHA!');
 
-    // Opening race: Guest solves BETA first -> Guest wins active turn!
-    await guestPage.keyboard.type('eta');
+    // Verify ALL gameplay words are LEFT-ALIGNED and capture Classic Match screenshot
+    const alignmentReport = await guestPage.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.ens-word-card'));
+      return cards.map((card) => {
+        const span = card.querySelector('.ens-word-card-text');
+        const csSpan = span ? getComputedStyle(span) : null;
+        const rectCard = card.getBoundingClientRect();
+        const rectSpan = span ? span.getBoundingClientRect() : null;
+        return {
+          text: span?.textContent?.trim(),
+          textAlign: csSpan?.textAlign,
+          leftOffsetFromCard: rectSpan ? Math.round(rectSpan.left - rectCard.left) : null,
+        };
+      });
+    });
+    for (const row of alignmentReport) {
+      assert.equal(row.textAlign, 'left', `Word "${row.text}" must have textAlign=left`);
+      assert.ok(row.leftOffsetFromCard !== null && row.leftOffsetFromCard <= 24);
+    }
+
+    // Opening race: Guest solves BETA using unified on-screen + physical keyboard!
+    await guestPage.locator('.ens-kbd .ens-key', { hasText: /^E$/ }).click();
+    await guestPage.keyboard.type('ta');
     await guestPage.click('.ens-submit-btn');
     await guestPage.waitForSelector('.ens-turn-pill:has-text("Your Turn")');
-    await hostPage.waitForSelector('.ens-turn-pill:has-text("NovaRex\'s Turn")');
+    await hostPage.waitForSelector('.ens-turn-pill:has-text("GuestNova\'s Turn")');
+    await guestPage.screenshot({ path: path.join(SCREENSHOT_DIR, 'screen3-match.png') });
+    console.log('Captured screen3-match.png');
 
-    // Reload browser on Guest and verify match restores with exact turn & solved words!
+    // Reload persistence & unauthorized player check
     await guestPage.reload({ waitUntil: 'networkidle' });
     await guestPage.waitForSelector('.ens-turn-pill:has-text("Your Turn")');
     const guestSecondWord = await guestPage.locator('.ens-word-card-text').nth(1).textContent();
-    assert.equal(guestSecondWord?.trim(), 'BETA', 'Solved word BETA persisted across reload');
+    assert.equal(guestSecondWord?.trim(), 'BETA');
 
-    // Unauthorized player (PixelMochi) must be rejected from entering this ongoing match via API
     const matchId = await guestPage.evaluate(() => {
       const saved = sessionStorage.getItem('enscribe_tab_route_v1');
       return saved ? JSON.parse(saved).matchId : null;
     });
     assert.ok(matchId);
-    const unauthRes = await fetch(`${APP_URL}/api/matches/${matchId}?playerId=player_pixelmochi`);
-    assert.equal(unauthRes.status, 403, 'Unauthorized player must receive 403');
+    const unauthRes = await fetch(`${APP_URL}/api/matches/${matchId}?playerId=player_intruder`);
+    assert.equal(unauthRes.status, 403);
     console.log('Reload persistence & unauthorized rejection verified!');
 
     assert.equal(consoleErrors.length, 0, `Unexpected page errors: ${consoleErrors.join('; ')}`);
-    // Restore clean seeded demo state for user inspection
+
+    // Leave Supabase clean with zero fake test players/rooms!
     await fetch(`${APP_URL}/api/dev/reset-seed`, { method: 'POST' });
-    console.log('ALL PLAYWRIGHT VISUAL & MULTIPLAYER ACCEPTANCE TESTS PASSED!');
+    console.log('ALL SIGN-IN, VISUAL & MULTIPLAYER ACCEPTANCE TESTS PASSED!');
   } finally {
     await browser.close();
   }

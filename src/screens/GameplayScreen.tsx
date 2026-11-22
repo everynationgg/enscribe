@@ -570,23 +570,6 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
           >
             <MessageCircle size={14} />
           </button>
-          {/* Modular Power-up Slot (Architecture Only) */}
-          <span
-            title="Power-ups slot (coming soon)"
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: 'rgba(255,255,255,0.1)',
-              border: '1px dashed rgba(196, 181, 253, 0.4)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#c4b5fd',
-            }}
-          >
-            <Sparkles size={13} />
-          </span>
         </div>
 
         {showChatInput && (

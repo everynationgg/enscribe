@@ -29,6 +29,11 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   getHealth: () => request<{ ok: boolean; platform: string; games: GameModuleDescriptor[] }>('/api/health'),
+  signIn: (username: string, avatarId: string) =>
+    request<{ profile: Profile; isNew: boolean }>('/api/auth/signin', {
+      method: 'POST',
+      body: JSON.stringify({ username, avatarId }),
+    }),
   listProfiles: () => request<Profile[]>('/api/profiles'),
   getProfileDetail: (id: string) =>
     request<{ profile: Profile; history: MatchHistorySummary[] }>(`/api/profiles/${id}`),

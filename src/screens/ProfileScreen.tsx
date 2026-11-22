@@ -1,40 +1,43 @@
 import React, { useState } from 'react';
-import { Award, Check, Coins, Crown, History, Palette, Plus, UserCheck } from 'lucide-react';
+import { Crown, History, LogOut, Palette, Save, UserCheck } from 'lucide-react';
 import { EquippedCosmetics, MatchHistorySummary, Profile } from '../../shared/types';
 import { AvatarBadge } from '../components/Artwork';
 
 interface ProfileScreenProps {
   profile: Profile;
-  allProfiles: Profile[];
   matchHistory: MatchHistorySummary[];
-  onSwitchProfile: (playerId: string) => void;
-  onCreateProfile: (username: string, avatarId: string) => Promise<void>;
+  onUpdateProfile: (data: { username: string; avatarId: string }) => Promise<void>;
   onUpdateCosmetics: (cosmetics: EquippedCosmetics) => Promise<void>;
+  onSignOut: () => void;
 }
 
 const AVATAR_OPTIONS = ['alex', 'novarex', 'pixelmochi', 'leafy', 'spark', 'knight'];
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   profile,
-  allProfiles,
   matchHistory,
-  onSwitchProfile,
-  onCreateProfile,
+  onUpdateProfile,
   onUpdateCosmetics,
+  onSignOut,
 }) => {
-  const [newUsername, setNewUsername] = useState('');
-  const [newAvatar, setNewAvatar] = useState('spark');
+  const [editUsername, setEditUsername] = useState(profile.username);
+  const [editAvatar, setEditAvatar] = useState(profile.avatarId);
+  const [saving, setSaving] = useState(false);
 
   const winRate =
     profile.wins + profile.losses > 0
       ? Math.round((profile.wins / (profile.wins + profile.losses)) * 100)
       : 0;
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUsername.trim()) return;
-    await onCreateProfile(newUsername.trim(), newAvatar);
-    setNewUsername('');
+    if (editUsername.trim().length < 2) return;
+    setSaving(true);
+    try {
+      await onUpdateProfile({ username: editUsername.trim(), avatarId: editAvatar });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -44,9 +47,26 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <UserCheck size={20} color="#7dd3fc" />
           <span style={{ fontSize: 18, fontWeight: 800 }}>Player Profile</span>
         </div>
-        <span style={{ fontSize: 11.5, fontWeight: 700, color: '#c7d5ff' }}>
-          Local Dev Session
-        </span>
+        <button
+          type="button"
+          onClick={onSignOut}
+          style={{
+            border: 'none',
+            borderRadius: 999,
+            padding: '5px 12px',
+            background: 'rgba(255, 255, 255, 0.14)',
+            color: '#ffffff',
+            fontSize: 12,
+            fontWeight: 700,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            cursor: 'pointer',
+          }}
+        >
+          <LogOut size={13} />
+          <span>Sign Out</span>
+        </button>
       </header>
 
       <div className="ens-sheet-body">
@@ -65,13 +85,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             <AvatarBadge avatarId={profile.avatarId} size={56} />
             <div>
               <div style={{ fontSize: 19, fontWeight: 800 }}>{profile.username}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 700, color: '#ffd34e' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: '#ffd34e',
+                }}
+              >
                 <Crown size={14} fill="#ffd34e" />
-                <span>{profile.rankTier} • {profile.rankPoints} RP</span>
+                <span>
+                  {profile.rankTier} • {profile.rankPoints} RP
+                </span>
               </div>
-              <div style={{ fontSize: 11.5, color: '#c7d5ff', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Coins size={12} color="#fde047" />
-                <span>{profile.matchPointsBalance} Match Points (Currency Hook)</span>
+              <div style={{ fontSize: 11, color: '#c7d5ff', marginTop: 3, fontWeight: 600 }}>
+                Player ID: <span style={{ fontFamily: 'monospace' }}>{profile.id}</span>
               </div>
             </div>
           </div>
@@ -93,73 +123,54 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
         </div>
 
-        {/* Local Dev Multi-User Switcher */}
-        <div className="ens-white-card">
-          <div className="ens-section-heading">
-            <Award size={15} color="#5b3df5" />
-            <span>Switch Local Test Account (Per Browser Tab)</span>
-          </div>
-          <div style={{ fontSize: 11.5, color: '#647096', fontWeight: 600, marginBottom: 8 }}>
-            Open a second browser tab and pick another profile (e.g., NovaRex) to test real-time 2-player multiplayer locally!
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
-            {allProfiles.map((p) => {
-              const active = p.id === profile.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => onSwitchProfile(p.id)}
-                  style={{
-                    border: active ? '2px solid #5b3df5' : '1px solid #d7ddf2',
-                    borderRadius: 12,
-                    padding: '7px 9px',
-                    background: active ? '#eee9ff' : '#f8f9fe',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <AvatarBadge avatarId={p.avatarId} size={30} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#17204d' }}>{p.username}</div>
-                    <div style={{ fontSize: 10.5, fontWeight: 600, color: '#647096' }}>{p.rankTier}</div>
-                  </div>
-                  {active && <Check size={15} color="#5b3df5" strokeWidth={3} />}
-                </button>
-              );
-            })}
+        {/* Edit Nickname & Avatar */}
+        <form onSubmit={handleSaveProfile} className="ens-white-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="ens-section-heading" style={{ marginBottom: 0 }}>
+            <UserCheck size={15} color="#5b3df5" />
+            <span>Nickname &amp; Avatar</span>
           </div>
 
-          <form onSubmit={handleCreate} style={{ marginTop: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
+            {AVATAR_OPTIONS.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setEditAvatar(a)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'center',
+                }}
+              >
+                <AvatarBadge
+                  avatarId={a}
+                  size={38}
+                  ringColor={editAvatar === a ? '#5b3df5' : 'rgba(200, 210, 240, 0.7)'}
+                />
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
             <input
               type="text"
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
-              placeholder="New guest name..."
+              value={editUsername}
+              onChange={(e) => setEditUsername(e.target.value.slice(0, 20))}
+              maxLength={20}
               className="ens-word-input"
-              style={{ flex: 1, textTransform: 'none', fontSize: 12.5 }}
+              style={{ flex: 1, textTransform: 'none', fontSize: 13 }}
             />
-            <select
-              value={newAvatar}
-              onChange={(e) => setNewAvatar(e.target.value)}
-              style={{ borderRadius: 9, border: '1px solid #cbd5e1', padding: '7px 6px', fontSize: 12, fontWeight: 700 }}
-            >
-              {AVATAR_OPTIONS.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-            <button type="submit" className="ens-btn-purple" style={{ padding: '7px 11px' }}>
-              <Plus size={15} />
+            <button type="submit" disabled={saving} className="ens-btn-purple" style={{ padding: '0 14px' }}>
+              <Save size={14} />
+              <span>Save</span>
             </button>
-          </form>
-        </div>
+          </div>
+        </form>
 
-        {/* Cosmetics Preview */}
+        {/* Cosmetics */}
         <div className="ens-white-card">
           <div className="ens-section-heading">
             <Palette size={15} color="#5b3df5" />

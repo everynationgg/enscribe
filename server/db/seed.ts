@@ -1,5 +1,6 @@
+import crypto from 'node:crypto';
 import { RoomRules, SoloStage } from '../../shared/types.js';
-import { StorageRepository, StoredMatch } from '../repositories/types.js';
+import { StorageRepository } from '../repositories/types.js';
 
 export const DEFAULT_ROOM_RULES: RoomRules = {
   gameType: 'chain_clash',
@@ -80,128 +81,63 @@ export const SOLO_STAGES_CATALOG: Array<Omit<SoloStage, 'completed'>> = [
   },
 ];
 
+export function seedStarterTemplatesForPlayer(repo: StorageRepository, playerId: string): void {
+  const existing = repo.listTemplates(playerId).filter((t) => t.ownerId === playerId);
+  if (existing.length > 0) return;
+
+  const now = Date.now();
+  const starters = [
+    {
+      name: 'School Days',
+      theme: 'Education',
+      thumbnailKey: 'school' as const,
+      words: ['HIGH', 'SCHOOL', 'BUS', 'STOP'],
+      status: 'saved' as const,
+      offset: 1000,
+    },
+    {
+      name: 'Fantasy Path',
+      theme: 'Fantasy',
+      thumbnailKey: 'castle' as const,
+      words: ['DRAGON', 'FIRE', 'STORM', 'CLOUD', 'CASTLE'],
+      status: 'saved' as const,
+      offset: 2000,
+    },
+    {
+      name: 'Food Frenzy',
+      theme: 'Food',
+      thumbnailKey: 'burger' as const,
+      words: ['CHEESE', 'BURGER', 'KING', 'CRAB', 'CAKE', 'WALK'],
+      status: 'saved' as const,
+      offset: 3000,
+    },
+  ];
+
+  for (const s of starters) {
+    repo.saveTemplate({
+      id: `tpl_${crypto.randomUUID().slice(0, 10)}`,
+      ownerId: playerId,
+      name: s.name,
+      theme: s.theme,
+      thumbnailKey: s.thumbnailKey,
+      words: s.words,
+      status: s.status,
+      createdAt: now - s.offset,
+      updatedAt: now - s.offset,
+    });
+  }
+}
+
 export function seedInitialData(repo: StorageRepository): void {
-  const existingProfiles = repo.listProfiles();
-  if (existingProfiles.length > 0) {
+  const existingOfficials = repo.listTemplates().filter((t) => t.status === 'official');
+  if (existingOfficials.length > 0) {
     return;
   }
 
   const now = Date.now();
-  const baseCosmetics = {
-    tileSkin: 'classic_cream',
-    boardSkin: 'royal_cosmos',
-    backgroundTheme: 'deep_blue',
-    chatBubbleStyle: 'frost_pill',
-  };
 
   repo.runInTransaction(() => {
-    // 1. Development Profiles
-    repo.upsertProfile({
-      id: 'player_alex',
-      username: 'Alex',
-      avatarId: 'alex',
-      rankTier: 'Gold II',
-      rankPoints: 1248,
-      wins: 18,
-      losses: 9,
-      matchPointsBalance: 420,
-      equippedCosmetics: baseCosmetics,
-      createdAt: now - 1000000,
-    });
-    repo.upsertProfile({
-      id: 'player_novarex',
-      username: 'NovaRex',
-      avatarId: 'novarex',
-      rankTier: 'Gold I',
-      rankPoints: 1410,
-      wins: 24,
-      losses: 11,
-      matchPointsBalance: 510,
-      equippedCosmetics: baseCosmetics,
-      createdAt: now - 900000,
-    });
-    repo.upsertProfile({
-      id: 'player_pixelmochi',
-      username: 'PixelMochi',
-      avatarId: 'pixelmochi',
-      rankTier: 'Silver I',
-      rankPoints: 980,
-      wins: 11,
-      losses: 10,
-      matchPointsBalance: 260,
-      equippedCosmetics: baseCosmetics,
-      createdAt: now - 800000,
-    });
-    repo.upsertProfile({
-      id: 'player_leafy',
-      username: 'Leafy',
-      avatarId: 'leafy',
-      rankTier: 'Gold III',
-      rankPoints: 1120,
-      wins: 14,
-      losses: 12,
-      matchPointsBalance: 310,
-      equippedCosmetics: baseCosmetics,
-      createdAt: now - 700000,
-    });
-
-    // 2. Saved & Official Templates
-    const templates = [
-      {
-        id: 'tpl_school_days',
-        ownerId: 'player_alex',
-        name: 'School Days',
-        theme: 'Education',
-        thumbnailKey: 'school' as const,
-        words: ['HIGH', 'SCHOOL', 'BUS', 'STOP'],
-        status: 'saved' as const,
-        createdAt: now - 500000,
-        updatedAt: now - 1000,
-      },
-      {
-        id: 'tpl_fantasy_path',
-        ownerId: 'player_alex',
-        name: 'Fantasy Path',
-        theme: 'Fantasy',
-        thumbnailKey: 'castle' as const,
-        words: ['DRAGON', 'FIRE', 'STORM', 'CLOUD', 'CASTLE'],
-        status: 'saved' as const,
-        createdAt: now - 490000,
-        updatedAt: now - 2000,
-      },
-      {
-        id: 'tpl_food_frenzy',
-        ownerId: 'player_alex',
-        name: 'Food Frenzy',
-        theme: 'Food',
-        thumbnailKey: 'burger' as const,
-        words: ['CHEESE', 'BURGER', 'KING', 'CRAB', 'CAKE', 'WALK'],
-        status: 'saved' as const,
-        createdAt: now - 480000,
-        updatedAt: now - 3000,
-      },
-      {
-        id: 'tpl_draft_space',
-        ownerId: 'player_alex',
-        name: 'Orbit Run',
-        theme: 'Science Fiction',
-        thumbnailKey: 'scifi' as const,
-        words: ['STAR', 'LIGHT', 'YEAR', 'BOOK'],
-        status: 'draft' as const,
-        createdAt: now - 470000,
-        updatedAt: now - 4000,
-      },
-      {
-        id: 'tpl_novarex_nature',
-        ownerId: 'player_novarex',
-        name: 'River Rush',
-        theme: 'Nature',
-        thumbnailKey: 'nature' as const,
-        words: ['WATER', 'FALL', 'RIVER', 'BANK'],
-        status: 'saved' as const,
-        createdAt: now - 460000,
-        updatedAt: now - 5000,
-      },
+    const officialTemplates = [
       {
         id: 'tpl_official_school_ext',
         ownerId: 'system',
@@ -270,163 +206,8 @@ export function seedInitialData(repo: StorageRepository): void {
       },
     ];
 
-    for (const t of templates) {
+    for (const t of officialTemplates) {
       repo.saveTemplate(t);
     }
-
-    // 3. Seeded Private Room (Code 7F3K9) matching Screen 2
-    repo.createRoom({
-      id: 'room_demo_7f3k9',
-      code: '7F3K9',
-      name: 'Private Room',
-      hostId: 'player_alex',
-      isPublic: false,
-      rules: { ...DEFAULT_ROOM_RULES },
-      createdAt: now - 120000,
-    });
-    repo.upsertRoomPlayer('room_demo_7f3k9', 'player_alex', {
-      isReady: true,
-      puzzleStatus: 'ready',
-      submittedTemplateId: 'tpl_school_days',
-    });
-    repo.upsertRoomPlayer('room_demo_7f3k9', 'player_novarex', {
-      isReady: false,
-      puzzleStatus: 'creating',
-    });
-    repo.upsertRoomPlayer('room_demo_7f3k9', 'player_pixelmochi', {
-      isReady: true,
-      puzzleStatus: 'ready',
-      submittedTemplateId: 'tpl_fantasy_path',
-    });
-    repo.upsertRoomPlayer('room_demo_7f3k9', 'player_leafy', {
-      isReady: false,
-      puzzleStatus: 'none',
-    });
-
-    repo.addRoomMessage({
-      id: 'rmsg_1',
-      roomId: 'room_demo_7f3k9',
-      senderId: 'player_novarex',
-      senderName: 'NovaRex',
-      senderAvatar: 'novarex',
-      text: 'Can we make it 20s per word instead of 15s?',
-      createdAt: now - 90000,
-    });
-    repo.addRoomMessage({
-      id: 'rmsg_2',
-      roomId: 'room_demo_7f3k9',
-      senderId: 'player_pixelmochi',
-      senderName: 'PixelMochi',
-      senderAvatar: 'pixelmochi',
-      text: "Sounds good! And let's keep Classic Mode.",
-      createdAt: now - 60000,
-    });
-    repo.addRoomMessage({
-      id: 'rmsg_3',
-      roomId: 'room_demo_7f3k9',
-      senderId: 'player_leafy',
-      senderName: 'Leafy',
-      senderAvatar: 'leafy',
-      text: "Yep, that's perfect! 👍",
-      createdAt: now - 30000,
-    });
-
-    // 4. Seeded Public Room for Public Rooms browser
-    repo.createRoom({
-      id: 'room_public_1',
-      code: 'OPEN4',
-      name: 'Friday Word Clash',
-      hostId: 'player_pixelmochi',
-      isPublic: true,
-      rules: {
-        ...DEFAULT_ROOM_RULES,
-        maxPlayers: 2,
-        puzzleSource: 'curated_db',
-      },
-      createdAt: now - 100000,
-    });
-    repo.upsertRoomPlayer('room_public_1', 'player_pixelmochi', {
-      isReady: true,
-      puzzleStatus: 'ready',
-      submittedTemplateId: 'tpl_official_fantasy_1',
-    });
-
-    // 5. Seeded Persistent Demo Ongoing Match (Home "It's Your Turn" vs. NovaRex • Classic Mode)
-    // Uses turnAwaitingOnline = true so countdown does not silently expire before user opens it!
-    const demoMatch: StoredMatch = {
-      id: 'match_demo_active',
-      roomId: null,
-      gameType: 'chain_clash',
-      mode: 'classic',
-      title: 'Classic Match',
-      theme: 'Education & Nature',
-      status: 'active_turns',
-      activeTurnPlayerId: 'player_alex',
-      turnOrder: ['player_alex', 'player_novarex'],
-      turnDeadlineMs: null,
-      turnStartedAtMs: null,
-      turnAwaitingOnline: true,
-      speedRaceDeadlines: {},
-      winnerId: null,
-      finishOrder: [],
-      rules: {
-        ...DEFAULT_ROOM_RULES,
-        maxPlayers: 2,
-      },
-      isDemoSeed: true,
-      createdAt: now - 300000,
-      updatedAt: now - 5000,
-      boards: {
-        player_alex: {
-          matchId: 'match_demo_active',
-          playerId: 'player_alex',
-          authorPlayerId: 'player_novarex',
-          words: ['HIGH', 'SCHOOL', 'BUS', 'STOP'],
-          currentWordIndex: 3,
-          revealedCounts: [4, 6, 3, 2],
-          wrongAttemptsCurrentWord: 0,
-          passesCurrentWord: 0,
-          completedAtMs: null,
-          liveInputPreview: 'ST',
-          earnedMatchPoints: 20,
-        },
-        player_novarex: {
-          matchId: 'match_demo_active',
-          playerId: 'player_novarex',
-          authorPlayerId: 'player_alex',
-          words: ['WATER', 'FALL', 'RIVER', 'BANK'],
-          currentWordIndex: 2,
-          revealedCounts: [5, 4, 1, 1],
-          wrongAttemptsCurrentWord: 0,
-          passesCurrentWord: 0,
-          completedAtMs: null,
-          liveInputPreview: 'R',
-          earnedMatchPoints: 10,
-        },
-      },
-      messages: [],
-    };
-    repo.saveMatch(demoMatch);
-    repo.addMatchMessage({
-      id: 'mmsg_demo_1',
-      matchId: 'match_demo_active',
-      senderId: 'player_novarex',
-      senderName: 'NovaRex',
-      senderAvatar: 'novarex',
-      text: 'hurry up 😅',
-      createdAt: now - 15000,
-    });
-
-    // 6. Seeded In-App Notification
-    repo.addNotification({
-      id: 'notif_demo_1',
-      playerId: 'player_alex',
-      type: 'your_turn',
-      title: "It's Your Turn vs. NovaRex",
-      body: 'Classic Mode • Word 4 is waiting for your move!',
-      matchId: 'match_demo_active',
-      read: false,
-      createdAt: now - 5000,
-    });
   });
 }

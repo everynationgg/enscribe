@@ -153,7 +153,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({
                   type="text"
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  placeholder="Enter code (e.g. 7F3K9)"
+                  placeholder="Enter room code"
                   maxLength={8}
                   className="ens-word-input"
                   style={{ flex: 1 }}
@@ -259,30 +259,6 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({
                 </div>
               )}
             </section>
-
-            {/* Enscribe Multi-Game Platform Shelf */}
-            <div className="ens-white-card" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 11,
-                  background: '#ece8ff',
-                  color: '#5b3df5',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Sparkles size={18} />
-              </div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 800 }}>Enscribe Game Collection</div>
-                <div style={{ fontSize: 11.5, color: '#647096', fontWeight: 600 }}>
-                  Active: Chain Clash • Modular architecture ready for upcoming word games
-                </div>
-              </div>
-            </div>
           </>
         )}
 

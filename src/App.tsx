@@ -21,6 +21,7 @@ import { TemplatesScreen } from './screens/TemplatesScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { LobbyScreen } from './screens/LobbyScreen';
 import { GameplayScreen } from './screens/GameplayScreen';
+import { SignInScreen } from './screens/SignInScreen';
 
 type ActiveRoute =
   | { view: 'tab'; tab: NavTab; playSubView?: 'hub' | 'solo' | 'public' | 'create' }
@@ -28,13 +29,15 @@ type ActiveRoute =
   | { view: 'match'; matchId: string; soloStageId?: string | null };
 
 const TAB_STORAGE_KEY = 'enscribe_tab_profile_id';
+const DEVICE_STORAGE_KEY = 'enscribe_profile_id';
 const ROUTE_STORAGE_KEY = 'enscribe_tab_route_v1';
 
 export const App: React.FC = () => {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<string>(
-    () => sessionStorage.getItem(TAB_STORAGE_KEY) || 'player_alex'
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(
+    () => sessionStorage.getItem(TAB_STORAGE_KEY) || localStorage.getItem(DEVICE_STORAGE_KEY) || null
   );
+  const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
+  const [authChecking, setAuthChecking] = useState<boolean>(Boolean(activeProfileId));
   const [route, setRoute] = useState<ActiveRoute>(() => {
     try {
       const saved = sessionStorage.getItem(ROUTE_STORAGE_KEY);
@@ -69,7 +72,13 @@ export const App: React.FC = () => {
   }, [toast]);
 
   useEffect(() => {
-    sessionStorage.setItem(TAB_STORAGE_KEY, activeProfileId);
+    if (activeProfileId) {
+      sessionStorage.setItem(TAB_STORAGE_KEY, activeProfileId);
+      localStorage.setItem(DEVICE_STORAGE_KEY, activeProfileId);
+    } else {
+      sessionStorage.removeItem(TAB_STORAGE_KEY);
+      localStorage.removeItem(DEVICE_STORAGE_KEY);
+    }
   }, [activeProfileId]);
 
   useEffect(() => {
@@ -89,33 +98,43 @@ export const App: React.FC = () => {
 
   const refreshPlatformData = useCallback(async (pid: string) => {
     try {
-      const [allProfs, tpls, ongoing, pubRooms, stages, notifs, detail] = await Promise.all([
-        api.listProfiles(),
+      const [detail, tpls, ongoing, pubRooms, stages, notifs] = await Promise.all([
+        api.getProfileDetail(pid),
         api.listTemplates(pid),
         api.listOngoingMatches(pid),
         api.listPublicRooms(),
         api.listSoloStages(pid),
         api.listNotifications(pid),
-        api.getProfileDetail(pid),
       ]);
-      setProfiles(allProfs);
+      setCurrentProfile(detail.profile);
+      setMatchHistory(detail.history);
       setTemplates(tpls);
       setOngoingMatches(ongoing);
       setPublicRooms(pubRooms);
       setSoloStages(stages);
       setNotifications(notifs);
-      setMatchHistory(detail.history);
     } catch (err: any) {
-      console.error('Failed refreshing platform data:', err);
+      console.error('Failed loading profile:', err);
+      setCurrentProfile(null);
+      setActiveProfileId(null);
+    } finally {
+      setAuthChecking(false);
     }
   }, []);
 
   useEffect(() => {
+    if (!activeProfileId) {
+      setCurrentProfile(null);
+      setAuthChecking(false);
+      return;
+    }
+    setAuthChecking(true);
     refreshPlatformData(activeProfileId);
   }, [activeProfileId, refreshPlatformData]);
 
   // Realtime connection & events (Supabase Realtime everywhere + Socket.IO on localhost)
   useEffect(() => {
+    if (!activeProfileId) return;
     const socket = getSocket();
     socket.setActivePlayerId(activeProfileId);
 
@@ -208,7 +227,7 @@ export const App: React.FC = () => {
 
   // Lightweight resilience sync for serverless/mobile networks when in an active lobby or match
   useEffect(() => {
-    if (route.view !== 'lobby' && route.view !== 'match') return;
+    if (!activeProfileId || (route.view !== 'lobby' && route.view !== 'match')) return;
     const interval = window.setInterval(() => {
       if (route.view === 'lobby') {
         api.getRoom(route.roomId).then((r) => {
@@ -226,6 +245,7 @@ export const App: React.FC = () => {
 
   // Restore room or match state cleanly on route change or browser refresh
   useEffect(() => {
+    if (!activeProfileId) return;
     const socket = getSocket();
     if (route.view === 'lobby') {
       api
@@ -252,31 +272,30 @@ export const App: React.FC = () => {
     }
   }, [route, activeProfileId, notify]);
 
-  const currentProfile =
-    profiles.find((p) => p.id === activeProfileId) ??
-    profiles[0] ?? {
-      id: 'player_alex',
-      username: 'Alex',
-      avatarId: 'alex',
-      rankTier: 'Gold II',
-      rankPoints: 1248,
-      wins: 18,
-      losses: 9,
-      matchPointsBalance: 420,
-      equippedCosmetics: {
-        tileSkin: 'classic_cream',
-        boardSkin: 'royal_cosmos',
-        backgroundTheme: 'deep_blue',
-        chatBubbleStyle: 'frost_pill',
-      },
-      createdAt: Date.now(),
-    };
+  const handleSignIn = async (username: string, avatarId: string) => {
+    const res = await api.signIn(username, avatarId);
+    setCurrentProfile(res.profile);
+    setActiveProfileId(res.profile.id);
+    setActiveRoom(null);
+    setActiveMatch(null);
+    setRoute({ view: 'tab', tab: 'home' });
+    notify(res.isNew ? `Welcome, ${res.profile.username}!` : `Welcome back, ${res.profile.username}!`);
+  };
+
+  const handleSignOut = () => {
+    setActiveProfileId(null);
+    setCurrentProfile(null);
+    setActiveRoom(null);
+    setActiveMatch(null);
+    setRoute({ view: 'tab', tab: 'home' });
+  };
 
   const handleOpenMatch = (matchId: string) => {
     setRoute({ view: 'match', matchId });
   };
 
   const handleQuickPlay = async () => {
+    if (!currentProfile) return;
     try {
       const res = await api.quickPlay(currentProfile.id);
       setActiveRoom(res.room);
@@ -287,6 +306,7 @@ export const App: React.FC = () => {
   };
 
   const handleRankedMatch = async () => {
+    if (!currentProfile) return;
     try {
       if (rankedQueued) {
         await api.leaveRankedQueue(currentProfile.id);
@@ -312,6 +332,7 @@ export const App: React.FC = () => {
     isPublic: boolean;
     rules: Partial<RoomRules>;
   }) => {
+    if (!currentProfile) return;
     try {
       const room = await api.createRoom({
         hostId: currentProfile.id,
@@ -327,6 +348,7 @@ export const App: React.FC = () => {
   };
 
   const handleJoinRoomByCode = async (code: string) => {
+    if (!currentProfile) return;
     try {
       const room = await api.joinRoom(code, currentProfile.id);
       setActiveRoom(room);
@@ -337,6 +359,7 @@ export const App: React.FC = () => {
   };
 
   const handlePlayWithTemplate = async (tpl: Template) => {
+    if (!currentProfile) return;
     try {
       const room = await api.createRoom({
         hostId: currentProfile.id,
@@ -356,6 +379,7 @@ export const App: React.FC = () => {
   };
 
   const handleStartSoloStage = async (stageId: string) => {
+    if (!currentProfile) return;
     try {
       const res = await api.startSoloMatch(currentProfile.id, { stageId });
       setActiveMatch(res.match);
@@ -366,12 +390,35 @@ export const App: React.FC = () => {
   };
 
   const openNotifications = async () => {
+    if (!currentProfile) return;
     setShowNotifModal(true);
     await api.markNotificationsRead(currentProfile.id);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
   const renderScreen = () => {
+    if (authChecking) {
+      return (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#c7d5ff',
+            fontWeight: 700,
+            fontSize: 15,
+          }}
+        >
+          Signing in...
+        </div>
+      );
+    }
+
+    if (!currentProfile) {
+      return <SignInScreen onSignIn={handleSignIn} />;
+    }
+
     if (route.view === 'lobby' && activeRoom && activeRoom.id === route.roomId) {
       return (
         <LobbyScreen
@@ -565,24 +612,18 @@ export const App: React.FC = () => {
         {tab === 'profile' && (
           <ProfileScreen
             profile={currentProfile}
-            allProfiles={profiles}
             matchHistory={matchHistory}
-            onSwitchProfile={(pid) => {
-              setActiveProfileId(pid);
-              setActiveRoom(null);
-              setActiveMatch(null);
-              notify(`Switched active profile`);
-            }}
-            onCreateProfile={async (username, avatarId) => {
-              const created = await api.createProfile(username, avatarId);
-              setActiveProfileId(created.id);
-              notify(`Created profile "${created.username}"`);
+            onUpdateProfile={async (data) => {
+              const updated = await api.updateProfile(currentProfile.id, data);
+              setCurrentProfile(updated);
+              notify('Profile updated');
             }}
             onUpdateCosmetics={async (cosmetics) => {
               await api.updateCosmetics(currentProfile.id, cosmetics);
               await refreshPlatformData(currentProfile.id);
               notify('Cosmetics updated');
             }}
+            onSignOut={handleSignOut}
           />
         )}
 

@@ -11,7 +11,12 @@ import {
   SoloStage,
   Template,
 } from '../shared/types.js';
-import { DEFAULT_ROOM_RULES, SOLO_STAGES_CATALOG, seedInitialData } from './db/seed.js';
+import {
+  DEFAULT_ROOM_RULES,
+  SOLO_STAGES_CATALOG,
+  seedInitialData,
+  seedStarterTemplatesForPlayer,
+} from './db/seed.js';
 import { getRegisteredGames } from './platform/GameRegistry.js';
 import { ChainClashEngine } from './games/chain-clash/ChainClashEngine.js';
 import {
@@ -112,12 +117,11 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
         inFlightHydration = (async () => {
           try {
             const snap = await cloudSync.loadSnapshot();
-            if (snap && Object.keys(snap.profiles || {}).length > 0) {
+            if (snap && (Object.keys(snap.templates || {}).length > 0 || Object.keys(snap.profiles || {}).length > 0)) {
               repo.fromSnapshot(snap);
+              seedInitialData(repo);
             } else {
-              if (repo.listProfiles().length === 0) {
-                seedInitialData(repo);
-              }
+              seedInitialData(repo);
               await cloudSync.saveSnapshot(repo.toSnapshot());
             }
             initialized = true;
@@ -133,8 +137,9 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     if (!initialized) {
       initialized = true;
       const localSnap = loadLocalFileIfExists();
-      if (localSnap && Object.keys(localSnap.profiles || {}).length > 0) {
+      if (localSnap && (Object.keys(localSnap.templates || {}).length > 0 || Object.keys(localSnap.profiles || {}).length > 0)) {
         repo.fromSnapshot(localSnap);
+        seedInitialData(repo);
       } else {
         seedInitialData(repo);
         saveLocalFileIfUnconfigured(repo.toSnapshot());
@@ -341,6 +346,54 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     })
   );
 
+  // Auth: Nickname Sign-In (creates or resumes persistent player profile with unique ID)
+  app.post(
+    '/api/auth/signin',
+    handleApi(true, (req, res) => {
+      const { username, avatarId } = req.body ?? {};
+      const cleanName = String(username || '').trim().slice(0, 20);
+      if (cleanName.length < 2) {
+        res.status(400).json({ error: 'Nickname must be at least 2 characters.' });
+        return;
+      }
+
+      const existing = repo
+        .listProfiles()
+        .find((p) => p.username.toLowerCase() === cleanName.toLowerCase());
+
+      if (existing) {
+        const updated =
+          avatarId && avatarId !== existing.avatarId
+            ? repo.upsertProfile({ ...existing, avatarId: String(avatarId) })
+            : existing;
+        seedStarterTemplatesForPlayer(repo, updated.id);
+        res.json({ profile: updated, isNew: false });
+        return;
+      }
+
+      const profile: Profile = {
+        id: `player_${crypto.randomUUID().slice(0, 8)}`,
+        username: cleanName,
+        avatarId: String(avatarId || 'alex'),
+        rankTier: 'Silver II',
+        rankPoints: 1000,
+        wins: 0,
+        losses: 0,
+        matchPointsBalance: 0,
+        equippedCosmetics: {
+          tileSkin: 'classic_cream',
+          boardSkin: 'royal_cosmos',
+          backgroundTheme: 'deep_blue',
+          chatBubbleStyle: 'frost_pill',
+        },
+        createdAt: Date.now(),
+      };
+      const saved = repo.upsertProfile(profile);
+      seedStarterTemplatesForPlayer(repo, saved.id);
+      res.status(201).json({ profile: saved, isNew: true });
+    })
+  );
+
   // Profiles
   app.get(
     '/api/profiles',
@@ -366,8 +419,16 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     handleApi(true, (req, res) => {
       const { username, avatarId } = req.body ?? {};
       const cleanName = String(username || '').trim().slice(0, 20);
-      if (!cleanName) {
-        res.status(400).json({ error: 'Username is required' });
+      if (cleanName.length < 2) {
+        res.status(400).json({ error: 'Nickname must be at least 2 characters.' });
+        return;
+      }
+      const existing = repo
+        .listProfiles()
+        .find((p) => p.username.toLowerCase() === cleanName.toLowerCase());
+      if (existing) {
+        seedStarterTemplatesForPlayer(repo, existing.id);
+        res.json(existing);
         return;
       }
       const profile: Profile = {
@@ -378,7 +439,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
         rankPoints: 1000,
         wins: 0,
         losses: 0,
-        matchPointsBalance: 100,
+        matchPointsBalance: 0,
         equippedCosmetics: {
           tileSkin: 'classic_cream',
           boardSkin: 'royal_cosmos',
@@ -387,7 +448,9 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
         },
         createdAt: Date.now(),
       };
-      res.status(201).json(repo.upsertProfile(profile));
+      const saved = repo.upsertProfile(profile);
+      seedStarterTemplatesForPlayer(repo, saved.id);
+      res.status(201).json(saved);
     })
   );
 

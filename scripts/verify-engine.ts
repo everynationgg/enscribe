@@ -19,6 +19,37 @@ const onlineSet = new Set<string>(['player_alex', 'player_novarex']);
 const repo = new SqliteStorageRepository(db, (pid) => onlineSet.has(pid));
 seedInitialData(repo);
 
+const baseCosmetics = {
+  tileSkin: 'classic_cream',
+  boardSkin: 'royal_cosmos',
+  backgroundTheme: 'deep_blue',
+  chatBubbleStyle: 'frost_pill',
+};
+repo.upsertProfile({
+  id: 'player_alex',
+  username: 'Alex',
+  avatarId: 'alex',
+  rankTier: 'Silver II',
+  rankPoints: 1000,
+  wins: 0,
+  losses: 0,
+  matchPointsBalance: 0,
+  equippedCosmetics: baseCosmetics,
+  createdAt: Date.now(),
+});
+repo.upsertProfile({
+  id: 'player_novarex',
+  username: 'NovaRex',
+  avatarId: 'novarex',
+  rankTier: 'Silver II',
+  rankPoints: 1000,
+  wins: 0,
+  losses: 0,
+  matchPointsBalance: 0,
+  equippedCosmetics: baseCosmetics,
+  createdAt: Date.now(),
+});
+
 const engine = new ChainClashEngine(repo, (pid) => onlineSet.has(pid));
 
 console.log('1. Testing Template validation & persistence...');
