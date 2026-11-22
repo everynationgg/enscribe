@@ -509,7 +509,9 @@ export const App: React.FC = () => {
               route.soloStageId
             );
             setActiveMatch(res.match);
-            refreshPlatformData(currentProfile.id);
+            if (res.matchWon || res.match.status === 'finished') {
+              refreshPlatformData(currentProfile.id);
+            }
             return { correct: res.correct, message: res.message };
           }}
           onPassTurn={async () => {

@@ -15,9 +15,11 @@ import {
   MessageSquare,
   Send,
   Settings,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import { Profile, Room, RoomRules, Template } from '../../shared/types';
+import { api } from '../services/api';
 import { AvatarBadge, TemplateThumb } from '../components/Artwork';
 
 interface LobbyScreenProps {
@@ -498,6 +500,17 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     onClick={() => setCustomWords([...customWords, ''])}
                   >
                     + Add Word
+                  </button>
+                  <button
+                    type="button"
+                    className="ens-btn-white"
+                    onClick={async () => {
+                      const gen = await api.generateChain('Adventure', Math.max(4, customWords.length));
+                      setCustomWords(gen.words);
+                    }}
+                  >
+                    <Sparkles size={14} color="#5b3df5" />
+                    <span>Generate</span>
                   </button>
                   <button
                     type="button"

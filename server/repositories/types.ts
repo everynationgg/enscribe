@@ -26,6 +26,7 @@ export interface StoredMatchBoard {
   completedAtMs: number | null;
   liveInputPreview: string;
   earnedMatchPoints: number;
+  wordClues?: Record<number, string>;
 }
 
 export interface StoredMatch {

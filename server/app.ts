@@ -25,6 +25,7 @@ import {
   pickCuratedChainsForPlayers,
   validateChainWords,
 } from './games/chain-clash/puzzleAssignment.js';
+import { generateWordChain, resolveOneWordClue } from './games/chain-clash/clueProvider.js';
 import { MemorySnapshot, MemoryStorageRepository } from './repositories/MemoryStorageRepository.js';
 import { StoredMatch } from './repositories/types.js';
 import { RealtimeBroadcastEvent, SupabaseCloudSync } from './db/supabaseCloud.js';
@@ -201,12 +202,32 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     const updatedMatches = engine.processExpiredTimers();
     if (updatedMatches.length > 0) {
       for (const m of updatedMatches) {
-        broadcastMatchState(m);
+        for (const b of Object.values(m.boards)) {
+          await ensureActiveWordClue(m.id, b.playerId);
+        }
+        const refreshed = repo.getMatch(m.id) ?? m;
+        broadcastMatchState(refreshed);
       }
       await flushSideEffects(true);
     }
     return updatedMatches;
   };
+
+  async function ensureActiveWordClue(matchId: string, playerId: string): Promise<void> {
+    const m = repo.getMatch(matchId);
+    if (!m) return;
+    const b = m.boards[playerId];
+    if (!b || b.completedAtMs !== null) return;
+    const idx = b.currentWordIndex;
+    const targetWord = b.words[idx];
+    if (!targetWord) return;
+    const revealed = b.revealedCounts[idx] ?? 1;
+    if ((revealed >= 2 || b.passesCurrentWord >= 2) && !b.wordClues?.[idx]) {
+      const clue = await resolveOneWordClue(targetWord);
+      b.wordClues = { ...(b.wordClues ?? {}), [idx]: clue };
+      repo.updateMatchBoard(b);
+    }
+  }
 
   function generateRoomCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -1170,15 +1191,33 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
   );
 
   app.post(
+    '/api/ai/generate-chain',
+    handleApi(false, async (req, res) => {
+      const theme = String(req.body?.theme || 'Adventure').trim().slice(0, 30);
+      const length = Number(req.body?.length || 5);
+      const generated = await generateWordChain(theme, length);
+      res.json(generated);
+    })
+  );
+
+  app.post(
     '/api/matches/:id/tick',
-    handleApi(false, (req, res) => {
+    handleApi(false, async (req, res, markDirty) => {
       const { playerId } = req.body ?? {};
-      const match = repo.getMatch(String(req.params.id));
+      const matchId = String(req.params.id);
+      const match = repo.getMatch(matchId);
       if (!match || !playerId || !match.boards[String(playerId)]) {
         res.status(403).json({ error: 'Unauthorized' });
         return;
       }
-      res.json(engine.sanitizeForViewer(match, String(playerId)));
+      const prevClue = match.boards[String(playerId)]?.wordClues?.[match.boards[String(playerId)].currentWordIndex];
+      await ensureActiveWordClue(matchId, String(playerId));
+      const updated = repo.getMatch(matchId)!;
+      const newClue = updated.boards[String(playerId)]?.wordClues?.[updated.boards[String(playerId)].currentWordIndex];
+      if (newClue && newClue !== prevClue) {
+        markDirty();
+      }
+      res.json(engine.sanitizeForViewer(updated, String(playerId)));
     })
   );
 
@@ -1208,10 +1247,13 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
 
   app.post(
     '/api/matches/:id/pass',
-    handleApi(true, (req, res) => {
+    handleApi(true, async (req, res) => {
       try {
         const { playerId } = req.body ?? {};
-        const updated = engine.passTurn(String(req.params.id), String(playerId));
+        const matchId = String(req.params.id);
+        engine.passTurn(matchId, String(playerId));
+        await ensureActiveWordClue(matchId, String(playerId));
+        const updated = repo.getMatch(matchId)!;
         broadcastMatchState(updated);
         res.json(engine.sanitizeForViewer(updated, String(playerId)));
       } catch (err: any) {

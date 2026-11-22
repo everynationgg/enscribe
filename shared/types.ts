@@ -94,6 +94,7 @@ export interface RoomRules {
   wordLengthVisible: boolean;
   autoRevealAfterAttempts: number;
   autoRevealAfterPasses: number;
+  autoRevealAfterFailedTurns?: number;
   opponentVisibility: OpponentVisibility;
   difficultyPreset: 'casual' | 'competitive' | 'custom';
   theme?: string;
@@ -149,6 +150,8 @@ export interface SanitizedWordSlot {
   isUpcomingMasked: boolean;
   displayText: string;
   revealedLetters: number;
+  clueWord?: string | null;
+  failedTurns?: number;
 }
 
 export interface ClientBoardState {

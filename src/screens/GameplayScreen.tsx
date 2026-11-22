@@ -7,17 +7,76 @@ import {
   Eye,
   Gamepad2,
   Home,
+  Lightbulb,
   MessageCircle,
   MoreHorizontal,
   RotateCcw,
   Send,
-  Sparkles,
   Timer,
   Trophy,
   Users,
 } from 'lucide-react';
 import { MatchStateClient, Profile } from '../../shared/types';
 import { AvatarBadge } from '../components/Artwork';
+
+interface MatchTimerProps {
+  match: MatchStateClient;
+  currentPlayerId: string;
+  onTimerExpired?: () => void;
+}
+
+const MatchTimer: React.FC<MatchTimerProps> = React.memo(({ match, currentPlayerId, onTimerExpired }) => {
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const clockOffsetRef = useRef<number>(match.serverNowMs - Date.now());
+  const lastTickedDeadlineRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    clockOffsetRef.current = match.serverNowMs - Date.now();
+  }, [match.serverNowMs]);
+
+  useEffect(() => {
+    if (!match.rules.timerEnabled || match.status === 'finished') return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [match.rules.timerEnabled, match.status]);
+
+  const deadline =
+    match.mode === 'speed_race'
+      ? (match.speedRaceDeadlines[currentPlayerId] ?? null)
+      : match.status !== 'finished'
+        ? match.turnDeadlineMs
+        : null;
+
+  useEffect(() => {
+    if (!onTimerExpired || !match.rules.timerEnabled || match.status === 'finished' || !deadline) return;
+    const serverNow = nowMs + clockOffsetRef.current;
+    if (serverNow >= deadline + 150 && lastTickedDeadlineRef.current !== deadline) {
+      lastTickedDeadlineRef.current = deadline;
+      onTimerExpired();
+    }
+  }, [nowMs, deadline, match.rules.timerEnabled, match.status, onTimerExpired]);
+
+  let timerDisplay = '∞';
+  if (match.rules.timerEnabled) {
+    if (deadline === null) {
+      timerDisplay = `00:${String(match.rules.timePerWordSeconds).padStart(2, '0')}`;
+    } else {
+      const serverNow = nowMs + clockOffsetRef.current;
+      const rawRemaining = Math.max(0, Math.ceil((deadline - serverNow) / 1000));
+      const remainingSec = Math.min(match.rules.timePerWordSeconds, rawRemaining);
+      const mins = Math.floor(remainingSec / 60);
+      const secs = remainingSec % 60;
+      timerDisplay = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+  }
+
+  return (
+    <div className="ens-timer-pill">
+      <Timer size={20} />
+      <span>{timerDisplay}</span>
+    </div>
+  );
+});
 
 interface GameplayScreenProps {
   match: MatchStateClient;
@@ -64,22 +123,10 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
   const [showChatInput, setShowChatInput] = useState<boolean>(false);
   const [chatDraft, setChatDraft] = useState('');
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState<number>(Date.now());
   const [typedSuffix, setTypedSuffix] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
   const prevWinnerRef = useRef<string | null>(match.winnerId);
-  const lastTickedDeadlineRef = useRef<number | null>(null);
-
-  // Sync clock offset so countdown remains accurate against authoritative server deadline
-  const clockOffsetRef = useRef<number>(match.serverNowMs - Date.now());
-  useEffect(() => {
-    clockOffsetRef.current = match.serverNowMs - Date.now();
-  }, [match.serverNowMs]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNowMs(Date.now()), 200);
-    return () => window.clearInterval(id);
-  }, []);
 
   useEffect(() => {
     if (opponentBoards.length > 0 && !opponentBoards.some((o) => o.playerId === selectedOpponentId)) {
@@ -138,42 +185,6 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
     return match.activeTurnPlayerId === currentProfile.id;
   }, [myBoard, inspectingBoardId, currentProfile.id, match.mode, match.status, match.activeTurnPlayerId]);
 
-  // Compute authoritative countdown display
-  const timerDisplay = useMemo(() => {
-    if (!match.rules.timerEnabled) return '∞';
-    let deadline: number | null = null;
-    if (match.mode === 'speed_race') {
-      deadline = match.speedRaceDeadlines[currentProfile.id] ?? null;
-    } else if (match.status !== 'finished') {
-      deadline = match.turnDeadlineMs;
-    }
-    if (deadline === null) {
-      const secs = match.rules.timePerWordSeconds;
-      return `00:${String(secs).padStart(2, '0')}`;
-    }
-    const serverNow = nowMs + clockOffsetRef.current;
-    const rawRemaining = Math.max(0, Math.ceil((deadline - serverNow) / 1000));
-    const remainingSec = Math.min(match.rules.timePerWordSeconds, rawRemaining);
-    const mins = Math.floor(remainingSec / 60);
-    const secs = remainingSec % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }, [match, currentProfile.id, nowMs]);
-
-  // Trigger authoritative server deadline check when countdown hits 00:00 (for Vercel serverless)
-  useEffect(() => {
-    if (!onTimerExpired || !match.rules.timerEnabled || match.status === 'finished') return;
-    const deadline =
-      match.mode === 'speed_race'
-        ? (match.speedRaceDeadlines[currentProfile.id] ?? null)
-        : match.turnDeadlineMs;
-    if (!deadline) return;
-    const serverNow = nowMs + clockOffsetRef.current;
-    if (serverNow >= deadline + 150 && lastTickedDeadlineRef.current !== deadline) {
-      lastTickedDeadlineRef.current = deadline;
-      onTimerExpired();
-    }
-  }, [nowMs, match.rules.timerEnabled, match.status, match.mode, match.speedRaceDeadlines, match.turnDeadlineMs, currentProfile.id, onTimerExpired]);
-
   const turnLabel = useMemo(() => {
     if (match.status === 'finished' && match.winnerId) {
       const winner = match.boards[match.winnerId];
@@ -212,12 +223,13 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (!canAct || !activeWordSlot) return;
+    if (!canAct || !activeWordSlot || submitting) return;
     const guessToSend = fullGuess;
     if (guessToSend.length < 2) {
       setFeedbackMsg('Type the word first!');
       return;
     }
+    setSubmitting(true);
     try {
       const res = await onSubmitGuess(guessToSend);
       setFeedbackMsg(res.message);
@@ -226,41 +238,64 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
       }
     } catch (err: any) {
       setFeedbackMsg(err.message || 'Could not submit guess');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handlePass = async () => {
-    if (!canAct) return;
+    if (!canAct || submitting) return;
+    setSubmitting(true);
+    setTypedSuffix('');
     try {
       await onPassTurn();
-      setTypedSuffix('');
       setFeedbackMsg('Turn passed');
     } catch (err: any) {
       setFeedbackMsg(err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  // Physical / mobile keyboard listener unified with on-screen keyboard
+  // Physical / mobile keyboard listener unified with on-screen keyboard (ref-stabilized so never re-binds)
+  const keyHandlersRef = useRef({
+    pushKey,
+    popKey,
+    handleSubmit,
+    blocked: false,
+  });
+  keyHandlersRef.current = {
+    pushKey,
+    popKey,
+    handleSubmit,
+    blocked: showChatInput || showResultsModal || showMenuModal,
+  };
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (showChatInput || showResultsModal || showMenuModal) return;
-      if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && document.activeElement !== hiddenInputRef.current) {
+      const state = keyHandlersRef.current;
+      if (state.blocked) return;
+      if (
+        document.activeElement &&
+        ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) &&
+        document.activeElement !== hiddenInputRef.current
+      ) {
         return;
       }
       if (/^[a-zA-Z]$/.test(e.key)) {
         e.preventDefault();
-        pushKey(e.key.toUpperCase());
+        state.pushKey(e.key.toUpperCase());
       } else if (e.key === 'Backspace') {
         e.preventDefault();
-        popKey();
+        state.popKey();
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        handleSubmit();
+        state.handleSubmit();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  });
+  }, []);
 
   useEffect(() => {
     if (!feedbackMsg) return;
@@ -508,10 +543,11 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
 
       {/* Glowing Timer & Active Turn Badge */}
       <div className="ens-timer-zone">
-        <div className="ens-timer-pill">
-          <Timer size={20} />
-          <span>{timerDisplay}</span>
-        </div>
+        <MatchTimer
+          match={match}
+          currentPlayerId={currentProfile.id}
+          onTimerExpired={onTimerExpired}
+        />
         <div className={`ens-turn-pill ${isMyTurnHighlight ? '' : 'waiting'}`}>
           {inspectingBoardId && inspectingBoardId !== currentProfile.id
             ? `Inspecting ${activeBoard?.username}'s Board`
@@ -532,6 +568,28 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
             return (
               <div key={slot.index} className={`ens-word-card ${stateClass}`}>
                 <span className="ens-word-card-text">{slot.displayText}</span>
+                {slot.isActive && slot.clueWord && (
+                  <span
+                    style={{
+                      background: 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)',
+                      color: '#4c1d95',
+                      border: '1px solid #c4b5fd',
+                      borderRadius: 999,
+                      padding: '3px 9px',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: '0.03em',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      flexShrink: 0,
+                      marginLeft: 8,
+                    }}
+                  >
+                    <Lightbulb size={12} color="#6d28d9" />
+                    <span>{slot.clueWord}</span>
+                  </span>
+                )}
                 {slot.isCompleted && <Check size={20} strokeWidth={3} color="#0d9b58" />}
               </div>
             );

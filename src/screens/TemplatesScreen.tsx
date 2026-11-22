@@ -13,9 +13,11 @@ import {
   Pencil,
   Play,
   Plus,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import { Profile, Template, TemplateStatus, ThumbnailKey } from '../../shared/types';
+import { api } from '../services/api';
 import { TemplateThumb } from '../components/Artwork';
 
 interface TemplatesScreenProps {
@@ -445,23 +447,57 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                 ))}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={() => setEditWords([...editWords, ''])}
-                  style={{
-                    border: '1px dashed #8b5cf6',
-                    background: '#f5f2ff',
-                    color: '#5b3df5',
-                    borderRadius: 9,
-                    padding: '5px 10px',
-                    fontSize: 12,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  + Add Word
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setEditWords([...editWords, ''])}
+                    style={{
+                      border: '1px dashed #8b5cf6',
+                      background: '#f5f2ff',
+                      color: '#5b3df5',
+                      borderRadius: 9,
+                      padding: '5px 10px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + Add Word
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const gen = await api.generateChain(editTheme || 'Adventure', Math.max(4, editWords.length));
+                        setIsCreatingNew(true);
+                        setEditingId(undefined);
+                        setEditName(gen.name);
+                        setEditTheme(gen.theme);
+                        setEditWords(gen.words);
+                        onNotify(`Generated "${gen.name}"!`);
+                      } catch (err: any) {
+                        onNotify(err.message || 'Could not generate chain');
+                      }
+                    }}
+                    style={{
+                      border: '1px solid #c4b5fd',
+                      background: '#ece8ff',
+                      color: '#4626ba',
+                      borderRadius: 9,
+                      padding: '5px 10px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <Sparkles size={13} />
+                    <span>Generate Chain</span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => handleSave('draft')}

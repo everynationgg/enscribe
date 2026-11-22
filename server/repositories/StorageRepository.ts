@@ -405,6 +405,7 @@ export class SqliteStorageRepository implements StorageRepository {
         completedAtMs: br.completed_at_ms ?? null,
         liveInputPreview: br.live_input_preview ?? '',
         earnedMatchPoints: br.earned_match_points ?? 0,
+        wordClues: br.word_clues_json ? JSON.parse(br.word_clues_json) : {},
       };
     }
 
@@ -525,8 +526,8 @@ export class SqliteStorageRepository implements StorageRepository {
         `INSERT INTO match_boards (
            match_id, player_id, author_player_id, words_json, current_word_index,
            revealed_counts_json, wrong_attempts_current_word, passes_current_word,
-           completed_at_ms, live_input_preview, earned_match_points
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           completed_at_ms, live_input_preview, earned_match_points, word_clues_json
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(match_id, player_id) DO UPDATE SET
            current_word_index = excluded.current_word_index,
            revealed_counts_json = excluded.revealed_counts_json,
@@ -534,7 +535,8 @@ export class SqliteStorageRepository implements StorageRepository {
            passes_current_word = excluded.passes_current_word,
            completed_at_ms = excluded.completed_at_ms,
            live_input_preview = excluded.live_input_preview,
-           earned_match_points = excluded.earned_match_points`
+           earned_match_points = excluded.earned_match_points,
+           word_clues_json = excluded.word_clues_json`
       )
       .run(
         board.matchId,
@@ -547,7 +549,8 @@ export class SqliteStorageRepository implements StorageRepository {
         board.passesCurrentWord,
         board.completedAtMs,
         board.liveInputPreview,
-        board.earnedMatchPoints
+        board.earnedMatchPoints,
+        JSON.stringify(board.wordClues ?? {})
       );
   }
 

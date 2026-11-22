@@ -118,6 +118,7 @@ export function initSchema(db: DatabaseSync): void {
       completed_at_ms INTEGER,
       live_input_preview TEXT NOT NULL DEFAULT '',
       earned_match_points INTEGER NOT NULL DEFAULT 0,
+      word_clues_json TEXT NOT NULL DEFAULT '{}',
       PRIMARY KEY (match_id, player_id),
       FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE
     );

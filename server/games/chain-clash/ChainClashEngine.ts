@@ -16,6 +16,7 @@ import {
   AssignedPuzzle,
   validateSingleChainWord,
 } from './puzzleAssignment.js';
+import { getSyncOneWordClue } from './clueProvider.js';
 
 export class ChainClashEngine {
   constructor(
@@ -61,6 +62,7 @@ export class ChainClashEngine {
         completedAtMs: null,
         liveInputPreview: '',
         earnedMatchPoints: 0,
+        wordClues: {},
       };
       if (params.mode === 'speed_race') {
         speedRaceDeadlines[assignment.recipientPlayerId] = deadlineMs;
@@ -177,6 +179,11 @@ export class ChainClashEngine {
           }
         }
 
+        const clueWord =
+          isSelf && isActive && (revealed >= 2 || board.passesCurrentWord >= 2)
+            ? board.wordClues?.[idx] ?? getSyncOneWordClue(word)
+            : null;
+
         return {
           index: idx,
           length: match.rules.wordLengthVisible || isCompleted ? word.length : 0,
@@ -185,6 +192,8 @@ export class ChainClashEngine {
           isUpcomingMasked,
           displayText,
           revealedLetters: isCompleted ? word.length : revealed,
+          clueWord,
+          failedTurns: isSelf && isActive ? board.passesCurrentWord : undefined,
         };
       });
 
@@ -488,18 +497,7 @@ export class ChainClashEngine {
       const now = Date.now();
       const board = match.boards[playerId];
       if (board && board.completedAtMs === null) {
-        board.passesCurrentWord += 1;
-        board.liveInputPreview = '';
-        const targetIndex = board.currentWordIndex;
-        const targetWord = board.words[targetIndex];
-        if (
-          targetWord &&
-          match.rules.autoRevealAfterPasses > 0 &&
-          board.passesCurrentWord % match.rules.autoRevealAfterPasses === 0 &&
-          board.revealedCounts[targetIndex] < targetWord.length - 1
-        ) {
-          board.revealedCounts[targetIndex] += 1;
-        }
+        this.recordFailedTurnForActiveWord(match, board);
         this.repo.updateMatchBoard(board);
       }
 
@@ -507,6 +505,24 @@ export class ChainClashEngine {
       this.repo.saveMatch(match);
       return this.repo.getMatch(matchId)!;
     });
+  }
+
+  private recordFailedTurnForActiveWord(match: StoredMatch, board: StoredMatchBoard): void {
+    board.passesCurrentWord += 1;
+    board.liveInputPreview = '';
+    const targetIndex = board.currentWordIndex;
+    const targetWord = board.words[targetIndex];
+    if (!targetWord) return;
+
+    const failedThreshold = match.rules.autoRevealAfterFailedTurns ?? 2;
+    const passThreshold = match.rules.autoRevealAfterPasses || 0;
+    const shouldReveal =
+      (failedThreshold > 0 && board.passesCurrentWord % failedThreshold === 0) ||
+      (passThreshold > 0 && board.passesCurrentWord % passThreshold === 0);
+
+    if (shouldReveal && board.revealedCounts[targetIndex] < targetWord.length - 1) {
+      board.revealedCounts[targetIndex] += 1;
+    }
   }
 
   private transferTurnInternal(match: StoredMatch, now: number): void {
@@ -588,8 +604,8 @@ export class ChainClashEngine {
               return null;
             }
             const activeBoard = fresh.activeTurnPlayerId ? fresh.boards[fresh.activeTurnPlayerId] : null;
-            if (activeBoard) {
-              activeBoard.liveInputPreview = '';
+            if (activeBoard && activeBoard.completedAtMs === null) {
+              this.recordFailedTurnForActiveWord(fresh, activeBoard);
               this.repo.updateMatchBoard(activeBoard);
             }
             this.transferTurnInternal(fresh, now);

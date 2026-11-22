@@ -10,6 +10,7 @@ import {
   generateDerangementIndices,
   validateChainWords,
 } from '../server/games/chain-clash/puzzleAssignment.js';
+import { generateWordChain, getSyncOneWordClue } from '../server/games/chain-clash/clueProvider.js';
 
 const testDbPath = path.resolve(process.cwd(), 'data', 'test-verify.sqlite');
 if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
@@ -52,7 +53,14 @@ repo.upsertProfile({
 
 const engine = new ChainClashEngine(repo, (pid) => onlineSet.has(pid));
 
-console.log('1. Testing Template validation & persistence...');
+console.log('1. Testing Official catalog size, AI chain generator & template persistence...');
+const officialList = repo.listTemplates().filter((t) => t.status === 'official');
+assert.ok(officialList.length >= 25, `Expected >=25 official templates, got ${officialList.length}`);
+const generated = await generateWordChain('Fantasy', 5);
+assert.equal(generated.words.length, 5);
+assert.equal(validateChainWords(generated.words).valid, true);
+assert.equal(getSyncOneWordClue('SCHOOL'), 'ACADEMY');
+
 assert.equal(validateChainWords(['high', 'school', 'bus']).valid, true);
 assert.equal(validateChainWords(['high', 'school bus', 'stop']).valid, false);
 assert.equal(validateChainWords(['high', '123', 'stop']).valid, false);
@@ -211,6 +219,39 @@ const srNovaWin = engine.submitGuess(speedMatch.id, 'player_novarex', 'STORM');
 assert.equal(srNovaWin.matchWon, true);
 const alexSees = engine.sanitizeForViewer(repo.getMatch(speedMatch.id)!, 'player_alex');
 assert.notEqual(alexSees.boards['player_novarex'].words[2].displayText, 'STORM');
+
+console.log('5. Testing 2-failed-turns letter reveal + 1-word synonym clue unlock...');
+const clueMatch = engine.createMatch({
+  roomId: null,
+  mode: 'classic',
+  title: '2 Failed Turns Clue Test',
+  rules: { ...DEFAULT_ROOM_RULES, maxPlayers: 2, autoRevealAfterFailedTurns: 2 },
+  assignments: [
+    { recipientPlayerId: 'player_alex', authorPlayerId: 'player_novarex', words: ['HIGH', 'SCHOOL', 'BUS', 'STOP'] },
+    { recipientPlayerId: 'player_novarex', authorPlayerId: 'player_alex', words: ['WATER', 'FALL', 'RIVER', 'BANK'] },
+  ],
+});
+engine.submitGuess(clueMatch.id, 'player_alex', 'SCHOOL');
+// Before any failed turn on BUS: revealedLetters = 1, clueWord = null
+let viewA = engine.sanitizeForViewer(repo.getMatch(clueMatch.id)!, 'player_alex');
+assert.equal(viewA.boards['player_alex'].words[2].revealedLetters, 1);
+assert.equal(viewA.boards['player_alex'].words[2].clueWord, null);
+
+// 1st failed turn (Pass) on BUS -> still 1 letter, no clue yet
+engine.passTurn(clueMatch.id, 'player_alex');
+engine.passTurn(clueMatch.id, 'player_novarex');
+viewA = engine.sanitizeForViewer(repo.getMatch(clueMatch.id)!, 'player_alex');
+assert.equal(viewA.boards['player_alex'].words[2].revealedLetters, 1);
+assert.equal(viewA.boards['player_alex'].words[2].clueWord, null);
+
+// 2nd failed turn (Timeout) on BUS -> 2nd letter revealed + 1-word synonym clue unlocked!
+const mTimed = repo.getMatch(clueMatch.id)!;
+mTimed.turnDeadlineMs = Date.now() - 100;
+repo.saveMatch(mTimed);
+engine.processExpiredTimers();
+viewA = engine.sanitizeForViewer(repo.getMatch(clueMatch.id)!, 'player_alex');
+assert.equal(viewA.boards['player_alex'].words[2].revealedLetters, 2);
+assert.equal(viewA.boards['player_alex'].words[2].clueWord, 'SHUTTLE');
 
 console.log('ALL BACKEND ENGINE ACCEPTANCE TESTS PASSED!');
 db.close();

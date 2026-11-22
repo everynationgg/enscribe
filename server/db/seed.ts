@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { RoomRules, SoloStage } from '../../shared/types.js';
+import { RoomRules, SoloStage, ThumbnailKey } from '../../shared/types.js';
 import { StorageRepository } from '../repositories/types.js';
 
 export const DEFAULT_ROOM_RULES: RoomRules = {
@@ -12,8 +12,9 @@ export const DEFAULT_ROOM_RULES: RoomRules = {
   puzzleSource: 'saved_templates',
   chainVisibility: 'full_chain',
   wordLengthVisible: true,
-  autoRevealAfterAttempts: 3,
-  autoRevealAfterPasses: 1,
+  autoRevealAfterAttempts: 0,
+  autoRevealAfterPasses: 0,
+  autoRevealAfterFailedTurns: 2,
   opponentVisibility: 'full_live',
   difficultyPreset: 'casual',
 };
@@ -128,86 +129,224 @@ export function seedStarterTemplatesForPlayer(repo: StorageRepository, playerId:
   }
 }
 
+const OFFICIAL_CHAIN_CATALOG: Array<{
+  id: string;
+  name: string;
+  theme: string;
+  thumbnailKey: ThumbnailKey;
+  words: string[];
+}> = [
+  {
+    id: 'tpl_official_school_ext',
+    name: 'Campus Express',
+    theme: 'School Life',
+    thumbnailKey: 'school',
+    words: ['HIGH', 'SCHOOL', 'BUS', 'STOP', 'SIGN', 'LANGUAGE', 'ARTS', 'CENTER'],
+  },
+  {
+    id: 'tpl_official_fantasy_1',
+    name: 'Dragon Keep',
+    theme: 'Fantasy',
+    thumbnailKey: 'castle',
+    words: ['DRAGON', 'FIRE', 'STORM', 'CLOUD', 'CASTLE'],
+  },
+  {
+    id: 'tpl_official_scifi_1',
+    name: 'Starlight Orbit',
+    theme: 'Science Fiction',
+    thumbnailKey: 'scifi',
+    words: ['STAR', 'SHIP', 'WRECK', 'DIVER', 'DOWN'],
+  },
+  {
+    id: 'tpl_official_myth_1',
+    name: 'Thunder Olympus',
+    theme: 'Mythology',
+    thumbnailKey: 'myth',
+    words: ['THUNDER', 'GOD', 'FATHER', 'TIME', 'KEEPER'],
+  },
+  {
+    id: 'tpl_official_horror_1',
+    name: 'Midnight Manor',
+    theme: 'Horror',
+    thumbnailKey: 'horror',
+    words: ['GHOST', 'TOWN', 'HALL', 'MIRROR', 'IMAGE'],
+  },
+  {
+    id: 'tpl_official_nature_1',
+    name: 'Wild River',
+    theme: 'Nature',
+    thumbnailKey: 'nature',
+    words: ['WATER', 'FALL', 'RIVER', 'BANK', 'VAULT'],
+  },
+  {
+    id: 'tpl_official_food_1',
+    name: 'Ice Cream Social',
+    theme: 'Food',
+    thumbnailKey: 'burger',
+    words: ['ICE', 'CREAM', 'CONE', 'CAKE', 'WALK'],
+  },
+  {
+    id: 'tpl_official_food_2',
+    name: 'Morning Cafe',
+    theme: 'Food',
+    thumbnailKey: 'burger',
+    words: ['COFFEE', 'BEAN', 'BAG', 'PIPE', 'DREAM'],
+  },
+  {
+    id: 'tpl_official_food_3',
+    name: 'Diner Classic',
+    theme: 'Food',
+    thumbnailKey: 'burger',
+    words: ['HOT', 'DOG', 'HOUSE', 'BOAT', 'RACE'],
+  },
+  {
+    id: 'tpl_official_food_4',
+    name: 'Bakery Treat',
+    theme: 'Food',
+    thumbnailKey: 'burger',
+    words: ['APPLE', 'PIE', 'PAN', 'CAKE', 'SHOP'],
+  },
+  {
+    id: 'tpl_official_sports_1',
+    name: 'Stadium Dash',
+    theme: 'Sports',
+    thumbnailKey: 'custom',
+    words: ['FOOT', 'BALL', 'PARK', 'BENCH', 'MARK'],
+  },
+  {
+    id: 'tpl_official_sports_2',
+    name: 'Winter Slopes',
+    theme: 'Sports',
+    thumbnailKey: 'nature',
+    words: ['SNOW', 'BALL', 'GAME', 'PLAN', 'OUT'],
+  },
+  {
+    id: 'tpl_official_sports_3',
+    name: 'Speed Track',
+    theme: 'Sports',
+    thumbnailKey: 'custom',
+    words: ['SPEED', 'BOAT', 'YARD', 'STICK', 'SHIFT'],
+  },
+  {
+    id: 'tpl_official_nature_2',
+    name: 'Sunshine Meadow',
+    theme: 'Nature',
+    thumbnailKey: 'nature',
+    words: ['SUN', 'FLOWER', 'POT', 'LUCK', 'CHARM'],
+  },
+  {
+    id: 'tpl_official_nature_3',
+    name: 'Deep Tide',
+    theme: 'Nature',
+    thumbnailKey: 'nature',
+    words: ['OCEAN', 'WAVE', 'LENGTH', 'SPAN', 'BRIDGE'],
+  },
+  {
+    id: 'tpl_official_nature_4',
+    name: 'Forest Trail',
+    theme: 'Nature',
+    thumbnailKey: 'nature',
+    words: ['RAIN', 'BOW', 'TIE', 'BREAKER', 'WALL'],
+  },
+  {
+    id: 'tpl_official_scifi_2',
+    name: 'Moonbase Alpha',
+    theme: 'Science Fiction',
+    thumbnailKey: 'scifi',
+    words: ['MOON', 'LIGHT', 'YEAR', 'BOOK', 'MARK'],
+  },
+  {
+    id: 'tpl_official_scifi_3',
+    name: 'Orbital Power',
+    theme: 'Science Fiction',
+    thumbnailKey: 'scifi',
+    words: ['SPACE', 'STATION', 'WAGON', 'WHEEL', 'HOUSE'],
+  },
+  {
+    id: 'tpl_official_scifi_4',
+    name: 'Neon Grid',
+    theme: 'Science Fiction',
+    thumbnailKey: 'scifi',
+    words: ['POWER', 'GRID', 'LOCK', 'SMITH', 'SHOP'],
+  },
+  {
+    id: 'tpl_official_fantasy_2',
+    name: 'Royal Crown',
+    theme: 'Fantasy',
+    thumbnailKey: 'castle',
+    words: ['GOLD', 'RUSH', 'HOUR', 'GLASS', 'HOUSE'],
+  },
+  {
+    id: 'tpl_official_fantasy_3',
+    name: 'Sorcerer Tower',
+    theme: 'Fantasy',
+    thumbnailKey: 'castle',
+    words: ['MAGIC', 'WAND', 'TRICK', 'SHOT', 'GUN'],
+  },
+  {
+    id: 'tpl_official_horror_2',
+    name: 'Dusk Watch',
+    theme: 'Horror',
+    thumbnailKey: 'horror',
+    words: ['NIGHT', 'MARE', 'SHADOW', 'BOX', 'OFFICE'],
+  },
+  {
+    id: 'tpl_official_everyday_1',
+    name: 'Desk & Office',
+    theme: 'Everyday',
+    thumbnailKey: 'school',
+    words: ['PAPER', 'CLIP', 'BOARD', 'GAME', 'TIME'],
+  },
+  {
+    id: 'tpl_official_everyday_2',
+    name: 'Backyard Jam',
+    theme: 'Everyday',
+    thumbnailKey: 'custom',
+    words: ['ROCK', 'BAND', 'AID', 'KEY', 'HOLE'],
+  },
+  {
+    id: 'tpl_official_everyday_3',
+    name: 'City Commute',
+    theme: 'Everyday',
+    thumbnailKey: 'custom',
+    words: ['STREET', 'CAR', 'WASH', 'CYCLE', 'LANE'],
+  },
+  {
+    id: 'tpl_official_everyday_4',
+    name: 'Backstage Pass',
+    theme: 'Everyday',
+    thumbnailKey: 'custom',
+    words: ['BACK', 'PACK', 'STAGE', 'FRIGHT', 'NIGHT'],
+  },
+  {
+    id: 'tpl_official_everyday_5',
+    name: 'Greenhouse Walk',
+    theme: 'Everyday',
+    thumbnailKey: 'nature',
+    words: ['GREEN', 'HOUSE', 'WORK', 'BENCH', 'PRESS'],
+  },
+];
+
 export function seedInitialData(repo: StorageRepository): void {
-  const existingOfficials = repo.listTemplates().filter((t) => t.status === 'official');
-  if (existingOfficials.length > 0) {
+  const now = Date.now();
+  const missing = OFFICIAL_CHAIN_CATALOG.filter((t) => !repo.getTemplate(t.id));
+  if (missing.length === 0) {
     return;
   }
 
-  const now = Date.now();
-
   repo.runInTransaction(() => {
-    const officialTemplates = [
-      {
-        id: 'tpl_official_school_ext',
+    missing.forEach((t, idx) => {
+      repo.saveTemplate({
+        id: t.id,
         ownerId: 'system',
-        name: 'Campus Express',
-        theme: 'School Life',
-        thumbnailKey: 'school' as const,
-        words: ['HIGH', 'SCHOOL', 'BUS', 'STOP', 'SIGN', 'LANGUAGE', 'ARTS', 'CENTER'],
-        status: 'official' as const,
-        createdAt: now - 450000,
-        updatedAt: now - 6000,
-      },
-      {
-        id: 'tpl_official_fantasy_1',
-        ownerId: 'system',
-        name: 'Dragon Keep',
-        theme: 'Fantasy',
-        thumbnailKey: 'castle' as const,
-        words: ['DRAGON', 'FIRE', 'STORM', 'CLOUD', 'CASTLE'],
-        status: 'official' as const,
-        createdAt: now - 440000,
-        updatedAt: now - 7000,
-      },
-      {
-        id: 'tpl_official_scifi_1',
-        ownerId: 'system',
-        name: 'Starlight Orbit',
-        theme: 'Science Fiction',
-        thumbnailKey: 'scifi' as const,
-        words: ['STAR', 'SHIP', 'WRECK', 'DIVER', 'DOWN'],
-        status: 'official' as const,
-        createdAt: now - 430000,
-        updatedAt: now - 8000,
-      },
-      {
-        id: 'tpl_official_myth_1',
-        ownerId: 'system',
-        name: 'Thunder Olympus',
-        theme: 'Mythology',
-        thumbnailKey: 'myth' as const,
-        words: ['THUNDER', 'GOD', 'FATHER', 'TIME', 'KEEPER'],
-        status: 'official' as const,
-        createdAt: now - 420000,
-        updatedAt: now - 9000,
-      },
-      {
-        id: 'tpl_official_horror_1',
-        ownerId: 'system',
-        name: 'Midnight Manor',
-        theme: 'Horror',
-        thumbnailKey: 'horror' as const,
-        words: ['GHOST', 'TOWN', 'HALL', 'MIRROR', 'IMAGE'],
-        status: 'official' as const,
-        createdAt: now - 410000,
-        updatedAt: now - 10000,
-      },
-      {
-        id: 'tpl_official_nature_1',
-        ownerId: 'system',
-        name: 'Wild River',
-        theme: 'Nature',
-        thumbnailKey: 'nature' as const,
-        words: ['WATER', 'FALL', 'RIVER', 'BANK', 'VAULT'],
-        status: 'official' as const,
-        createdAt: now - 400000,
-        updatedAt: now - 11000,
-      },
-    ];
-
-    for (const t of officialTemplates) {
-      repo.saveTemplate(t);
-    }
+        name: t.name,
+        theme: t.theme,
+        thumbnailKey: t.thumbnailKey,
+        words: t.words,
+        status: 'official',
+        createdAt: now - 450000 + idx * 1000,
+        updatedAt: now - 100000 + idx * 1000,
+      });
+    });
   });
 }

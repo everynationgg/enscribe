@@ -90,6 +90,11 @@ export const api = {
     }),
   deleteTemplate: (id: string) =>
     request<{ ok: boolean }>(`/api/templates/${id}`, { method: 'DELETE' }),
+  generateChain: (theme: string, length: number) =>
+    request<{ name: string; theme: string; words: string[] }>('/api/ai/generate-chain', {
+      method: 'POST',
+      body: JSON.stringify({ theme, length }),
+    }),
 
   listPublicRooms: () => request<Room[]>('/api/rooms/public'),
   getRoom: (idOrCode: string) => request<Room>(`/api/rooms/${encodeURIComponent(idOrCode)}`),
