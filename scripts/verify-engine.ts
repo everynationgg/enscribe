@@ -139,6 +139,7 @@ assert.equal(w1.revealedLetterAdded, false);
 const w2 = engine.submitGuess(match.id, 'player_alex', 'TRAIN');
 assert.equal(w2.revealedLetterAdded, true);
 assert.equal(w2.match.boards['player_alex'].words[2].revealedLetters, 2); // B U _
+assert.equal(w2.match.boards['player_alex'].words[2].clueWord, 'SHUTTLE');
 
 // Alex passes turn -> NovaRex gets turn, Alex's word BUS stays unresolved (index 2)
 const passed = engine.passTurn(match.id, 'player_alex');
@@ -252,6 +253,46 @@ engine.processExpiredTimers();
 viewA = engine.sanitizeForViewer(repo.getMatch(clueMatch.id)!, 'player_alex');
 assert.equal(viewA.boards['player_alex'].words[2].revealedLetters, 2);
 assert.equal(viewA.boards['player_alex'].words[2].clueWord, 'SHUTTLE');
+
+console.log('6. Testing Solo wrong-guess clues & mixed Classic wrong-guess + pass clues...');
+const soloMatch = engine.createMatch({
+  roomId: null,
+  mode: 'solo',
+  title: 'Solo Clue Test',
+  rules: { ...DEFAULT_ROOM_RULES, maxPlayers: 1, timerEnabled: false },
+  assignments: [
+    { recipientPlayerId: 'player_alex', authorPlayerId: null, words: ['HIGH', 'SCHOOL', 'BUS'] },
+  ],
+});
+const soloWrong1 = engine.submitGuess(soloMatch.id, 'player_alex', 'COLLEGE');
+assert.equal(soloWrong1.revealedLetterAdded, false);
+assert.equal(soloWrong1.match.boards['player_alex'].words[1].revealedLetters, 1);
+assert.equal(soloWrong1.match.boards['player_alex'].words[1].clueWord, null);
+
+const soloWrong2 = engine.submitGuess(soloMatch.id, 'player_alex', 'SYSTEM');
+assert.equal(soloWrong2.revealedLetterAdded, true);
+assert.equal(soloWrong2.match.boards['player_alex'].words[1].revealedLetters, 2);
+assert.equal(soloWrong2.match.boards['player_alex'].words[1].clueWord, 'ACADEMY');
+
+// Mixed Classic failure: 1 wrong guess + 1 pass on same word triggers both clues
+const mixedMatch = engine.createMatch({
+  roomId: null,
+  mode: 'classic',
+  title: 'Mixed Failure Clue Test',
+  rules: { ...DEFAULT_ROOM_RULES, maxPlayers: 2 },
+  assignments: [
+    { recipientPlayerId: 'player_alex', authorPlayerId: 'player_novarex', words: ['HIGH', 'SCHOOL', 'BUS', 'STOP'] },
+    { recipientPlayerId: 'player_novarex', authorPlayerId: 'player_alex', words: ['WATER', 'FALL', 'RIVER', 'BANK'] },
+  ],
+});
+engine.submitGuess(mixedMatch.id, 'player_alex', 'SCHOOL');
+const mixedWrong = engine.submitGuess(mixedMatch.id, 'player_alex', 'CAR');
+assert.equal(mixedWrong.match.boards['player_alex'].words[2].revealedLetters, 1);
+assert.equal(mixedWrong.match.boards['player_alex'].words[2].clueWord, null);
+engine.passTurn(mixedMatch.id, 'player_alex');
+const mixedView = engine.sanitizeForViewer(repo.getMatch(mixedMatch.id)!, 'player_alex');
+assert.equal(mixedView.boards['player_alex'].words[2].revealedLetters, 2);
+assert.equal(mixedView.boards['player_alex'].words[2].clueWord, 'SHUTTLE');
 
 console.log('ALL BACKEND ENGINE ACCEPTANCE TESTS PASSED!');
 db.close();

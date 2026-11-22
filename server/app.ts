@@ -213,20 +213,26 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     return updatedMatches;
   };
 
-  async function ensureActiveWordClue(matchId: string, playerId: string): Promise<void> {
+  async function ensureActiveWordClue(matchId: string, playerId: string): Promise<boolean> {
     const m = repo.getMatch(matchId);
-    if (!m) return;
+    if (!m) return false;
     const b = m.boards[playerId];
-    if (!b || b.completedAtMs !== null) return;
+    if (!b || b.completedAtMs !== null) return false;
     const idx = b.currentWordIndex;
     const targetWord = b.words[idx];
-    if (!targetWord) return;
+    if (!targetWord) return false;
     const revealed = b.revealedCounts[idx] ?? 1;
-    if ((revealed >= 2 || b.passesCurrentWord >= 2) && !b.wordClues?.[idx]) {
+    const totalMisses = b.wrongAttemptsCurrentWord + b.passesCurrentWord;
+    const clueThreshold =
+      m.rules.autoRevealAfterFailedTurns ??
+      (m.rules.autoRevealAfterAttempts > 0 ? m.rules.autoRevealAfterAttempts : 2);
+    if ((revealed >= 2 || (clueThreshold > 0 && totalMisses >= clueThreshold)) && !b.wordClues?.[idx]) {
       const clue = await resolveOneWordClue(targetWord);
       b.wordClues = { ...(b.wordClues ?? {}), [idx]: clue };
       repo.updateMatchBoard(b);
+      return true;
     }
+    return false;
   }
 
   function generateRoomCode(): string {
@@ -1036,8 +1042,9 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
           puzzleSource: 'curated_db',
           chainVisibility: 'full_chain',
           wordLengthVisible: true,
-          autoRevealAfterAttempts: 0,
+          autoRevealAfterAttempts: 2,
           autoRevealAfterPasses: 0,
+          autoRevealAfterFailedTurns: 2,
           opponentVisibility: 'words_only',
           difficultyPreset: 'competitive',
         };
@@ -1165,9 +1172,10 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
 
   app.get(
     '/api/matches/:id',
-    handleApi(false, (req, res, markDirty) => {
+    handleApi(false, async (req, res, markDirty) => {
+      const matchId = String(req.params.id);
       const playerId = String(req.query.playerId || '');
-      const match = repo.getMatch(String(req.params.id));
+      const match = repo.getMatch(matchId);
       if (!match) {
         res.status(404).json({ error: 'Match not found' });
         return;
@@ -1181,10 +1189,14 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
 
       const wasAwaiting = match.turnAwaitingOnline;
       const activated = engine.activateAwaitingTurnIfOnline(match.id, playerId) ?? match;
-      const sanitized = engine.sanitizeForViewer(activated, playerId);
-      if (wasAwaiting && !activated.turnAwaitingOnline) {
+      const clueAdded = await ensureActiveWordClue(activated.id, playerId);
+      const latest = clueAdded ? (repo.getMatch(activated.id) ?? activated) : activated;
+      const sanitized = engine.sanitizeForViewer(latest, playerId);
+      if ((wasAwaiting && !activated.turnAwaitingOnline) || clueAdded) {
         markDirty();
-        broadcastMatchState(activated);
+        if (wasAwaiting && !activated.turnAwaitingOnline) {
+          broadcastMatchState(latest);
+        }
       }
       res.json(sanitized);
     })
@@ -1223,18 +1235,28 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
 
   app.post(
     '/api/matches/:id/guess',
-    handleApi(true, (req, res) => {
+    handleApi(true, async (req, res) => {
       try {
         const { playerId, guess, soloStageId } = req.body ?? {};
         if (!playerId) {
           res.status(400).json({ error: 'playerId required' });
           return;
         }
-        const result = engine.submitGuess(String(req.params.id), String(playerId), String(guess || ''));
-        const fullMatch = repo.getMatch(String(req.params.id));
+        const matchId = String(req.params.id);
+        const pid = String(playerId);
+        const result = engine.submitGuess(matchId, pid, String(guess || ''));
+        if (!result.correct) {
+          await ensureActiveWordClue(matchId, pid);
+        }
+        const fullMatch = repo.getMatch(matchId);
         if (fullMatch) {
           if (result.matchWon && fullMatch.mode === 'solo' && soloStageId) {
-            repo.markSoloStageCompleted(String(playerId), String(soloStageId));
+            repo.markSoloStageCompleted(pid, String(soloStageId));
+          }
+          result.match = engine.sanitizeForViewer(fullMatch, pid);
+          const activeIdx = fullMatch.boards[pid]?.currentWordIndex ?? -1;
+          if (result.revealedLetterAdded && result.match.boards[pid]?.words[activeIdx]?.clueWord) {
+            result.message = 'Not quite — next letter & 1-word clue revealed!';
           }
           broadcastMatchState(fullMatch);
         }

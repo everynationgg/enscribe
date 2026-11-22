@@ -179,8 +179,10 @@ export class ChainClashEngine {
           }
         }
 
+        const totalMisses = board.wrongAttemptsCurrentWord + board.passesCurrentWord;
+        const clueThreshold = this.getClueThreshold(match);
         const clueWord =
-          isSelf && isActive && (revealed >= 2 || board.passesCurrentWord >= 2)
+          isSelf && isActive && (revealed >= 2 || (clueThreshold > 0 && totalMisses >= clueThreshold))
             ? board.wordClues?.[idx] ?? getSyncOneWordClue(word)
             : null;
 
@@ -449,11 +451,12 @@ export class ChainClashEngine {
 
       // Wrong guess: do NOT deduct points, do NOT add cooldown, do NOT end turn
       board.wrongAttemptsCurrentWord += 1;
+      const totalMisses = board.wrongAttemptsCurrentWord + board.passesCurrentWord;
       let revealedLetterAdded = false;
-      const threshold = match.rules.autoRevealAfterAttempts;
+      const threshold = this.getClueThreshold(match);
       if (
         threshold > 0 &&
-        board.wrongAttemptsCurrentWord % threshold === 0 &&
+        totalMisses % threshold === 0 &&
         board.revealedCounts[targetIndex] < targetWord.length - 1
       ) {
         board.revealedCounts[targetIndex] += 1;
@@ -464,17 +467,28 @@ export class ChainClashEngine {
       this.repo.saveMatch(match);
 
       const refreshed = this.repo.getMatch(match.id)!;
+      const sanitized = this.sanitizeForViewer(refreshed, playerId);
+      const hasClueNow = Boolean(sanitized.boards[playerId]?.words[targetIndex]?.clueWord);
       return {
         correct: false,
         wordCompleted: false,
         matchWon: false,
         revealedLetterAdded,
         message: revealedLetterAdded
-          ? 'Not quite — a bonus letter was revealed!'
+          ? hasClueNow
+            ? 'Not quite — next letter & 1-word clue revealed!'
+            : 'Not quite — a bonus letter was revealed!'
           : 'Not a match — try again!',
-        match: this.sanitizeForViewer(refreshed, playerId),
+        match: sanitized,
       };
     });
+  }
+
+  private getClueThreshold(match: StoredMatch): number {
+    return (
+      match.rules.autoRevealAfterFailedTurns ??
+      (match.rules.autoRevealAfterAttempts > 0 ? match.rules.autoRevealAfterAttempts : 2)
+    );
   }
 
   passTurn(matchId: string, playerId: string): StoredMatch {
@@ -514,10 +528,11 @@ export class ChainClashEngine {
     const targetWord = board.words[targetIndex];
     if (!targetWord) return;
 
-    const failedThreshold = match.rules.autoRevealAfterFailedTurns ?? 2;
+    const totalMisses = board.wrongAttemptsCurrentWord + board.passesCurrentWord;
+    const failedThreshold = this.getClueThreshold(match);
     const passThreshold = match.rules.autoRevealAfterPasses || 0;
     const shouldReveal =
-      (failedThreshold > 0 && board.passesCurrentWord % failedThreshold === 0) ||
+      (failedThreshold > 0 && totalMisses % failedThreshold === 0) ||
       (passThreshold > 0 && board.passesCurrentWord % passThreshold === 0);
 
     if (shouldReveal && board.revealedCounts[targetIndex] < targetWord.length - 1) {
@@ -650,12 +665,9 @@ export class ChainClashEngine {
             const b = fresh.boards[pid];
             if (!b || b.completedAtMs !== null) continue;
             if (dl !== null && now >= dl) {
-              // Reset word countdown and optionally reveal 1 letter without skipping
-              const targetWord = b.words[b.currentWordIndex];
-              if (targetWord && b.revealedCounts[b.currentWordIndex] < targetWord.length - 1) {
-                b.revealedCounts[b.currentWordIndex] += 1;
-                this.repo.updateMatchBoard(b);
-              }
+              // Reset word countdown and record failed turn (reveals letter + clue every threshold misses)
+              this.recordFailedTurnForActiveWord(fresh, b);
+              this.repo.updateMatchBoard(b);
               fresh.speedRaceDeadlines[pid] =
                 fresh.rules.timerEnabled && fresh.rules.timePerWordSeconds > 0
                   ? now + fresh.rules.timePerWordSeconds * 1000

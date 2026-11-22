@@ -12,7 +12,7 @@ export const DEFAULT_ROOM_RULES: RoomRules = {
   puzzleSource: 'saved_templates',
   chainVisibility: 'full_chain',
   wordLengthVisible: true,
-  autoRevealAfterAttempts: 0,
+  autoRevealAfterAttempts: 2,
   autoRevealAfterPasses: 0,
   autoRevealAfterFailedTurns: 2,
   opponentVisibility: 'full_live',
