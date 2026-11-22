@@ -1,0 +1,18 @@
+{
+  "name": "Enscribe — Word Games Platform",
+  "short_name": "Enscribe",
+  "description": "Mobile-first competitive multiplayer word games platform featuring Chain Clash.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1548",
+  "theme_color": "#0b1548",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
