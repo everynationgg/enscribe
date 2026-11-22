@@ -63,7 +63,6 @@ export class SupabaseCloudSync {
 
   async loadSnapshot(): Promise<MemorySnapshot | null> {
     if (!this.isConfigured()) return null;
-    await this.ensureBucket();
     const res = await fetch(`${this.url}/storage/v1/object/${BUCKET_NAME}/${OBJECT_NAME}`, {
       headers: this.headers({ 'Cache-Control': 'no-cache' }),
     });
@@ -74,22 +73,26 @@ export class SupabaseCloudSync {
       const text = await res.text().catch(() => '');
       throw new Error(`Failed loading Supabase snapshot: ${res.status} ${text}`);
     }
+    this.bucketReady = true;
     return (await res.json()) as MemorySnapshot;
   }
 
   async saveSnapshot(snapshot: MemorySnapshot): Promise<void> {
     if (!this.isConfigured()) return;
-    await this.ensureBucket();
     const payload = JSON.stringify(snapshot);
-    let res = await fetch(`${this.url}/storage/v1/object/${BUCKET_NAME}/${OBJECT_NAME}`, {
-      method: 'PUT',
-      headers: this.headers({
-        'Content-Type': 'application/json',
-        'x-upsert': 'true',
-      }),
-      body: payload,
-    });
+    const putAttempt = async () =>
+      fetch(`${this.url}/storage/v1/object/${BUCKET_NAME}/${OBJECT_NAME}`, {
+        method: 'PUT',
+        headers: this.headers({
+          'Content-Type': 'application/json',
+          'x-upsert': 'true',
+        }),
+        body: payload,
+      });
+
+    let res = await putAttempt();
     if (res.status === 404 || res.status === 400) {
+      await this.ensureBucket();
       res = await fetch(`${this.url}/storage/v1/object/${BUCKET_NAME}/${OBJECT_NAME}`, {
         method: 'POST',
         headers: this.headers({
@@ -103,6 +106,7 @@ export class SupabaseCloudSync {
       const text = await res.text().catch(() => '');
       throw new Error(`Failed saving Supabase snapshot: ${res.status} ${text}`);
     }
+    this.bucketReady = true;
   }
 
   async broadcastRealtime(events: RealtimeBroadcastEvent[]): Promise<void> {

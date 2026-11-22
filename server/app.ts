@@ -109,7 +109,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
       // Vercel serverless containers refresh if stale (> 400ms on mutations or > 1500ms on reads)
       if (initialized) {
         if (!isServerless) return;
-        const maxAge = forceRefresh ? 300 : 1500;
+        const maxAge = forceRefresh ? 500 : 1500;
         if (now - lastCloudSyncAt < maxAge) return;
       }
 
@@ -147,20 +147,27 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     }
   };
 
+  let cloudSaveChain: Promise<void> = Promise.resolve();
   const flushSideEffects = async (persistSnapshot = false): Promise<void> => {
     const events = [...pendingBroadcasts];
     pendingBroadcasts = [];
+    const tasks: Array<Promise<any>> = [];
     if (persistSnapshot) {
       const snapshot = repo.toSnapshot();
       lastCloudSyncAt = Date.now();
       if (cloudSync.isConfigured()) {
-        await cloudSync.saveSnapshot(snapshot);
+        const saveTask = cloudSaveChain.then(() => cloudSync.saveSnapshot(snapshot));
+        cloudSaveChain = saveTask.catch(() => undefined);
+        tasks.push(saveTask);
       } else {
         saveLocalFileIfUnconfigured(snapshot);
       }
     }
     if (events.length > 0 && cloudSync.isConfigured()) {
-      await cloudSync.broadcastRealtime(events);
+      tasks.push(cloudSync.broadcastRealtime(events));
+    }
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
     }
   };
 
@@ -260,13 +267,17 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
   let mutationChain: Promise<void> = Promise.resolve();
   const handleApi = (
     mutating: boolean,
-    fn: (req: Request, res: Response) => Promise<void> | void
+    fn: (req: Request, res: Response, markDirty: () => void) => Promise<void> | void
   ) => {
     return (req: Request, res: Response) => {
       const runRequest = async () => {
         const origJson = res.json.bind(res);
         let capturedBody: any = undefined;
         let jsonCaptured = false;
+        let isDirty = mutating;
+        const markDirty = () => {
+          isDirty = true;
+        };
         (res as any).json = (body: any) => {
           capturedBody = body;
           jsonCaptured = true;
@@ -290,13 +301,21 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
             broadcastMatchState(m);
           }
 
-          await fn(req, res);
+          await fn(req, res, markDirty);
 
-          const shouldPersist = mutating || expired.length > 0;
-          await flushSideEffects(shouldPersist);
-
-          if (jsonCaptured && !res.headersSent) {
-            origJson(capturedBody);
+          const shouldPersist = isDirty || expired.length > 0;
+          if (isServerless) {
+            await flushSideEffects(shouldPersist);
+            if (jsonCaptured && !res.headersSent) {
+              origJson(capturedBody);
+            }
+          } else {
+            if (jsonCaptured && !res.headersSent) {
+              origJson(capturedBody);
+            }
+            flushSideEffects(shouldPersist).catch((e) =>
+              console.error('[BackgroundFlush] warning:', e)
+            );
           }
         } catch (err: any) {
           console.error('[API Error]', req.method, req.originalUrl, err);
@@ -343,6 +362,61 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     '/api/games',
     handleApi(false, (_req, res) => {
       res.json(getRegisteredGames());
+    })
+  );
+
+  // Single-request player bootstrap (replaces 6 separate GETs on mount/tab refresh)
+  app.get(
+    '/api/bootstrap/:playerId',
+    handleApi(false, (req, res) => {
+      const playerId = String(req.params.playerId);
+      const profile = repo.getProfile(playerId);
+      if (!profile) {
+        res.status(404).json({ error: 'Profile not found' });
+        return;
+      }
+      const matches = repo.listMatchesForPlayer(playerId);
+      const ongoingMatches: OngoingMatchSummary[] = matches
+        .filter((m) => m.status !== 'finished' || m.boards[playerId]?.completedAtMs === null)
+        .map((m) => {
+          const board = m.boards[playerId];
+          const opponentNames = Object.keys(m.boards)
+            .filter((pid) => pid !== playerId)
+            .map((pid) => repo.getProfile(pid)?.username ?? pid);
+          const isYourTurn =
+            m.mode === 'solo' ||
+            m.mode === 'speed_race' ||
+            m.status === 'opening' ||
+            m.activeTurnPlayerId === playerId;
+          return {
+            matchId: m.id,
+            gameType: m.gameType,
+            mode: m.mode,
+            title: m.title,
+            status: m.status,
+            isYourTurn,
+            opponentNames,
+            opponentPrimaryName: opponentNames[0] ?? 'Solo',
+            progressLabel: board ? `${board.currentWordIndex}/${board.words.length} words` : 'Active',
+            updatedAt: m.updatedAt,
+          };
+        });
+
+      const completed = new Set(repo.getCompletedSoloStages(playerId));
+      const soloStages: SoloStage[] = SOLO_STAGES_CATALOG.map((s) => ({
+        ...s,
+        completed: completed.has(s.id),
+      }));
+
+      res.json({
+        profile,
+        history: repo.listMatchHistory(playerId),
+        templates: repo.listTemplates(playerId),
+        ongoingMatches,
+        publicRooms: repo.listPublicRooms(),
+        soloStages,
+        notifications: repo.listNotifications(playerId),
+      });
     })
   );
 
@@ -1070,7 +1144,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
 
   app.get(
     '/api/matches/:id',
-    handleApi(true, (req, res) => {
+    handleApi(false, (req, res, markDirty) => {
       const playerId = String(req.query.playerId || '');
       const match = repo.getMatch(String(req.params.id));
       if (!match) {
@@ -1088,6 +1162,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
       const activated = engine.activateAwaitingTurnIfOnline(match.id, playerId) ?? match;
       const sanitized = engine.sanitizeForViewer(activated, playerId);
       if (wasAwaiting && !activated.turnAwaitingOnline) {
+        markDirty();
         broadcastMatchState(activated);
       }
       res.json(sanitized);
@@ -1096,7 +1171,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
 
   app.post(
     '/api/matches/:id/tick',
-    handleApi(true, (req, res) => {
+    handleApi(false, (req, res) => {
       const { playerId } = req.body ?? {};
       const match = repo.getMatch(String(req.params.id));
       if (!match || !playerId || !match.boards[String(playerId)]) {

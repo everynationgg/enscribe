@@ -29,6 +29,16 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   getHealth: () => request<{ ok: boolean; platform: string; games: GameModuleDescriptor[] }>('/api/health'),
+  getBootstrap: (playerId: string) =>
+    request<{
+      profile: Profile;
+      history: MatchHistorySummary[];
+      templates: Template[];
+      ongoingMatches: OngoingMatchSummary[];
+      publicRooms: Room[];
+      soloStages: SoloStage[];
+      notifications: InAppNotification[];
+    }>(`/api/bootstrap/${encodeURIComponent(playerId)}`),
   signIn: (username: string, avatarId: string) =>
     request<{ profile: Profile; isNew: boolean }>('/api/auth/signin', {
       method: 'POST',

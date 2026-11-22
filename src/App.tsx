@@ -98,21 +98,14 @@ export const App: React.FC = () => {
 
   const refreshPlatformData = useCallback(async (pid: string) => {
     try {
-      const [detail, tpls, ongoing, pubRooms, stages, notifs] = await Promise.all([
-        api.getProfileDetail(pid),
-        api.listTemplates(pid),
-        api.listOngoingMatches(pid),
-        api.listPublicRooms(),
-        api.listSoloStages(pid),
-        api.listNotifications(pid),
-      ]);
-      setCurrentProfile(detail.profile);
-      setMatchHistory(detail.history);
-      setTemplates(tpls);
-      setOngoingMatches(ongoing);
-      setPublicRooms(pubRooms);
-      setSoloStages(stages);
-      setNotifications(notifs);
+      const data = await api.getBootstrap(pid);
+      setCurrentProfile(data.profile);
+      setMatchHistory(data.history);
+      setTemplates(data.templates);
+      setOngoingMatches(data.ongoingMatches);
+      setPublicRooms(data.publicRooms);
+      setSoloStages(data.soloStages);
+      setNotifications(data.notifications);
     } catch (err: any) {
       console.error('Failed loading profile:', err);
       setCurrentProfile(null);
@@ -239,7 +232,7 @@ export const App: React.FC = () => {
       } else if (route.view === 'match') {
         api.getMatch(route.matchId, activeProfileId).then(setActiveMatch).catch(() => undefined);
       }
-    }, 2500);
+    }, 5000);
     return () => window.clearInterval(interval);
   }, [route, activeProfileId]);
 
@@ -432,6 +425,16 @@ export const App: React.FC = () => {
             setRoute({ view: 'tab', tab: 'home' });
           }}
           onToggleReady={async (nextReady) => {
+            setActiveRoom((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    players: prev.players.map((p) =>
+                      p.playerId === currentProfile.id ? { ...p, isReady: nextReady } : p
+                    ),
+                  }
+                : prev
+            );
             const updated = await api.setRoomReady(activeRoom.id, currentProfile.id, nextReady);
             setActiveRoom(updated);
           }}
@@ -448,7 +451,28 @@ export const App: React.FC = () => {
             }
           }}
           onSendChat={async (text) => {
-            const updated = await api.sendRoomChat(activeRoom.id, currentProfile.id, text);
+            const clean = text.trim();
+            if (!clean) return;
+            setActiveRoom((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    messages: [
+                      ...prev.messages,
+                      {
+                        id: `temp_${Date.now()}`,
+                        roomId: prev.id,
+                        senderId: currentProfile.id,
+                        senderName: currentProfile.username,
+                        senderAvatar: currentProfile.avatarId,
+                        text: clean,
+                        createdAt: Date.now(),
+                      },
+                    ],
+                  }
+                : prev
+            );
+            const updated = await api.sendRoomChat(activeRoom.id, currentProfile.id, clean);
             setActiveRoom(updated);
           }}
           onStartMatch={async () => {
@@ -592,17 +616,20 @@ export const App: React.FC = () => {
               status: 'saved' | 'draft';
             }) => {
               const saved = await api.saveTemplate(tplData);
-              await refreshPlatformData(currentProfile.id);
+              setTemplates((prev) => {
+                const rest = prev.filter((t) => t.id !== saved.id);
+                return [saved, ...rest];
+              });
               return saved;
             }}
             onDuplicateTemplate={async (id) => {
               const dup = await api.duplicateTemplate(id, currentProfile.id);
-              await refreshPlatformData(currentProfile.id);
+              setTemplates((prev) => [dup, ...prev]);
               return dup;
             }}
             onDeleteTemplate={async (id) => {
+              setTemplates((prev) => prev.filter((t) => t.id !== id));
               await api.deleteTemplate(id);
-              await refreshPlatformData(currentProfile.id);
             }}
             onPlayWithTemplate={handlePlayWithTemplate}
             onNotify={notify}

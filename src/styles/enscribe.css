@@ -17,6 +17,13 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+button,
+input,
+select,
+[role="button"] {
+  touch-action: manipulation;
+}
+
 html,
 body,
 #root {
