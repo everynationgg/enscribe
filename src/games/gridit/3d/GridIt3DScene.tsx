@@ -17,7 +17,6 @@ interface GridIt3DSceneProps {
   isShaking: boolean;
   isHost?: boolean;
   resetViewTrigger: number;
-  rotateStepTrigger?: number;
   readOnly?: boolean;
   editorMode?: boolean;
   activeRainbowIds?: Set<string>;
@@ -38,7 +37,6 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
   isShaking,
   isHost = true,
   resetViewTrigger,
-  rotateStepTrigger = 0,
   readOnly = false,
   editorMode = false,
   activeRainbowIds,
@@ -186,12 +184,11 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
         position={[0, -0.74, 0]}
       />
 
-      {/* Free 3D Camera Controller during gameplay */}
+      {/* Top-down locked Camera Controller during gameplay */}
       <GridIt3DCameraController
         board={board}
         isShaking={isShaking}
         resetViewTrigger={resetViewTrigger}
-        rotateStepTrigger={rotateStepTrigger}
         readOnly={readOnly}
         isDraggingWordRef={isDraggingWordRef}
       />

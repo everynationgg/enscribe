@@ -7,7 +7,6 @@ interface GridIt3DCameraControllerProps {
   board: GridItBoard;
   isShaking: boolean;
   resetViewTrigger: number;
-  rotateStepTrigger?: number;
   readOnly?: boolean;
   isDraggingWordRef?: React.MutableRefObject<boolean>;
 }
@@ -16,7 +15,6 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
   board,
   isShaking,
   resetViewTrigger,
-  rotateStepTrigger = 0,
   readOnly = false,
   isDraggingWordRef,
 }) => {
@@ -26,7 +24,7 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
   const hh = board.bounds.height / (2 * 64);
   const boardRadius = Math.hypot(hw, hh);
 
-  // Compute optimal default distance based on aspect ratio
+  // Compute optimal default distance for a top-down orthographic-like fit
   const computeFitDistance = useCallback(() => {
     const size = gl.domElement.getBoundingClientRect();
     const aspect = size.width / Math.max(1, size.height);
@@ -35,19 +33,25 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
   }, [boardRadius, gl.domElement]);
 
   const defaultDistance = computeFitDistance();
-  const defaultPolar = 0.76; // ~43.5 degrees overhead angle (clear board readability with 3D depth)
+  // Lock to a slight overhead angle — close to top-down but with enough 3D
+  // depth that dice, box walls, and shadows remain visible.
+  const LOCKED_POLAR = 0.18; // ~10° from straight-down
   const defaultAzimuth = 0;
 
-  // Spherical coordinates
-  const currentSpherical = useRef(new THREE.Spherical(defaultDistance, defaultPolar, defaultAzimuth));
-  const targetSpherical = useRef(new THREE.Spherical(defaultDistance, defaultPolar, defaultAzimuth));
+  // Camera state: radius (zoom), fixed polar, free azimuth (yaw rotation),
+  // and an XZ pan offset.
+  const currentSpherical = useRef(new THREE.Spherical(defaultDistance, LOCKED_POLAR, defaultAzimuth));
+  const targetSpherical = useRef(new THREE.Spherical(defaultDistance, LOCKED_POLAR, defaultAzimuth));
+  const panOffset = useRef(new THREE.Vector2(0, 0));
+  const targetPan = useRef(new THREE.Vector2(0, 0));
   const isResetting = useRef(false);
 
-  // Reset view to default overhead perspective
+  // Reset view to default top-down, centered, default zoom
   const triggerReset = useCallback(() => {
     targetSpherical.current.radius = computeFitDistance();
-    targetSpherical.current.phi = defaultPolar;
+    targetSpherical.current.phi = LOCKED_POLAR;
     targetSpherical.current.theta = defaultAzimuth;
+    targetPan.current.set(0, 0);
     isResetting.current = true;
   }, [computeFitDistance]);
 
@@ -57,15 +61,7 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
     }
   }, [resetViewTrigger, triggerReset]);
 
-  // Rotate camera by a 90-degree step when rotateStepTrigger increments
-  useEffect(() => {
-    if (rotateStepTrigger > 0) {
-      targetSpherical.current.theta += Math.PI / 2;
-      isResetting.current = true;
-    }
-  }, [rotateStepTrigger]);
-
-  // Adjust on canvas resize
+  // Adjust zoom on canvas resize
   useEffect(() => {
     const onResize = () => {
       if (!isShaking) {
@@ -76,47 +72,58 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
     return () => window.removeEventListener('resize', onResize);
   }, [computeFitDistance, isShaking]);
 
-  // Touch and Mouse gesture bindings for camera orbit & zoom
+  // Gesture bindings: 1-finger rotate / pan, scroll-wheel zoom, 2-finger pinch-zoom + rotate
   useEffect(() => {
     const dom = gl.domElement;
     if (!dom) return;
 
-    let isOrbiting = false;
+    let gestureType: 'none' | 'rotate' | 'pan' = 'none';
     let lastX = 0;
     let lastY = 0;
     let initialPinchDist = 0;
+    let initialPinchAngle = 0;
 
     const onPointerDown = (e: PointerEvent) => {
       if (isShaking) return;
-      const isRightOrMiddle = e.button === 2 || e.button === 1 || e.shiftKey || e.altKey;
-      // If the user just started dragging a word (die was hit by R3F raycast
-      // in its handler which fires before this one), skip camera orbit for
-      // primary button so word tracing works. Right/middle always orbit.
-      if (isRightOrMiddle || readOnly || !isDraggingWordRef?.current) {
-        isOrbiting = true;
-        lastX = e.clientX;
-        lastY = e.clientY;
-      }
+      const isSecondary = e.button === 2 || e.button === 1 || e.shiftKey || e.altKey;
+
+      // If the user tapped a die (R3F handler fires first and sets the ref),
+      // don't start camera gesture — word tracing takes priority.
+      const hitDie = !readOnly && isDraggingWordRef?.current;
+      if (hitDie && !isSecondary) return;
+
+      // Secondary buttons (right/middle) or shift/alt = pan; primary on
+      // empty space = rotate.
+      gestureType = isSecondary ? 'pan' : 'rotate';
+      lastX = e.clientX;
+      lastY = e.clientY;
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!isOrbiting) return;
+      if (gestureType === 'none') return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
 
-      targetSpherical.current.theta -= dx * 0.007;
-      targetSpherical.current.phi = THREE.MathUtils.clamp(
-        targetSpherical.current.phi + dy * 0.007,
-        0.22, // near top-down
-        1.52  // near horizontal side view
-      );
+      if (gestureType === 'rotate') {
+        // Horizontal drag rotates the board around Y (theta only)
+        targetSpherical.current.theta -= dx * 0.007;
+        // phi stays locked — no vertical tilt changes
+      } else {
+        // Pan: shift the lookAt target on the XZ plane
+        const theta = currentSpherical.current.theta;
+        const cosT = Math.cos(theta);
+        const sinT = Math.sin(theta);
+        const panSpeed = 0.006 * (currentSpherical.current.radius / defaultDistance);
+        targetPan.current.x += (-dx * cosT - dy * sinT) * panSpeed;
+        targetPan.current.y += (dx * sinT - dy * cosT) * panSpeed;
+      }
       isResetting.current = false;
     };
 
     const onPointerUp = () => {
-      isOrbiting = false;
+      gestureType = 'none';
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -125,43 +132,64 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
       const fitD = computeFitDistance();
       targetSpherical.current.radius = THREE.MathUtils.clamp(
         targetSpherical.current.radius * zoomFactor,
-        fitD * 0.6,
-        fitD * 2.2
+        fitD * 0.45,
+        fitD * 2.4
       );
       isResetting.current = false;
     };
 
-    // Mobile 2-finger pinch zoom and rotate
+    // Mobile 2-finger: pinch-zoom + rotation
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        initialPinchDist = Math.max(10, Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY));
+        initialPinchAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
+        lastX = (t1.clientX + t2.clientX) / 2;
+        lastY = (t1.clientY + t2.clientY) / 2;
+      }
+    };
+
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 2) {
         e.preventDefault();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
-        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const dist = Math.max(10, Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY));
+        const angle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX);
 
+        // Pinch zoom
         if (initialPinchDist > 0) {
           const factor = initialPinchDist / dist;
           const fitD = computeFitDistance();
           targetSpherical.current.radius = THREE.MathUtils.clamp(
             targetSpherical.current.radius * factor,
-            fitD * 0.6,
-            fitD * 2.2
+            fitD * 0.45,
+            fitD * 2.4
           );
         }
-        initialPinchDist = dist;
 
-        // 2-finger pan/orbit
+        // Two-finger twist → board rotation (theta only)
+        if (initialPinchAngle !== 0) {
+          const dAngle = angle - initialPinchAngle;
+          targetSpherical.current.theta -= dAngle;
+        }
+
+        initialPinchDist = dist;
+        initialPinchAngle = angle;
+
+        // Two-finger pan
         const midX = (t1.clientX + t2.clientX) / 2;
         const midY = (t1.clientY + t2.clientY) / 2;
         if (lastX !== 0 && lastY !== 0) {
           const dx = midX - lastX;
           const dy = midY - lastY;
-          targetSpherical.current.theta -= dx * 0.008;
-          targetSpherical.current.phi = THREE.MathUtils.clamp(
-            targetSpherical.current.phi + dy * 0.008,
-            0.22,
-            1.52
-          );
+          const theta = currentSpherical.current.theta;
+          const cosT = Math.cos(theta);
+          const sinT = Math.sin(theta);
+          const panSpeed = 0.006 * (currentSpherical.current.radius / defaultDistance);
+          targetPan.current.x += (-dx * cosT - dy * sinT) * panSpeed;
+          targetPan.current.y += (dx * sinT - dy * cosT) * panSpeed;
         }
         lastX = midX;
         lastY = midY;
@@ -171,6 +199,7 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
 
     const onTouchEnd = () => {
       initialPinchDist = 0;
+      initialPinchAngle = 0;
       lastX = 0;
       lastY = 0;
     };
@@ -179,6 +208,7 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
     dom.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     dom.addEventListener('wheel', onWheel, { passive: false });
+    dom.addEventListener('touchstart', onTouchStart, { passive: true });
     dom.addEventListener('touchmove', onTouchMove, { passive: false });
     dom.addEventListener('touchend', onTouchEnd);
 
@@ -187,10 +217,11 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
       dom.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       dom.removeEventListener('wheel', onWheel);
+      dom.removeEventListener('touchstart', onTouchStart);
       dom.removeEventListener('touchmove', onTouchMove);
       dom.removeEventListener('touchend', onTouchEnd);
     };
-  }, [computeFitDistance, gl.domElement, isShaking, readOnly, isDraggingWordRef]);
+  }, [computeFitDistance, defaultDistance, gl.domElement, isShaking, readOnly, isDraggingWordRef]);
 
   useFrame((_, delta) => {
     const lerpSpeed = isResetting.current ? 12 : 9;
@@ -202,9 +233,10 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
       lerpSpeed,
       delta
     );
+    // Phi is always locked to top-down
     currentSpherical.current.phi = THREE.MathUtils.damp(
       currentSpherical.current.phi,
-      targetSpherical.current.phi,
+      LOCKED_POLAR,
       lerpSpeed,
       delta
     );
@@ -215,9 +247,17 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
       delta
     );
 
-    // Apply to Three.js camera
+    // Smooth pan offset
+    panOffset.current.x = THREE.MathUtils.damp(panOffset.current.x, targetPan.current.x, lerpSpeed, delta);
+    panOffset.current.y = THREE.MathUtils.damp(panOffset.current.y, targetPan.current.y, lerpSpeed, delta);
+
+    // Apply camera position from spherical + pan
     camera.position.setFromSpherical(currentSpherical.current);
-    camera.lookAt(0, 0.2, 0);
+    camera.position.x += panOffset.current.x;
+    camera.position.z += panOffset.current.y;
+
+    const lookTarget = new THREE.Vector3(panOffset.current.x, 0.2, panOffset.current.y);
+    camera.lookAt(lookTarget);
   });
 
   return null;
