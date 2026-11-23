@@ -18,7 +18,7 @@ class UnifiedRealtimeClient {
 
   constructor() {
     this.initSupabase();
-    this.initLocalSocketIfLocalhost();
+    this.initGameSocket();
   }
 
   private syncConnectedState(): void {
@@ -95,19 +95,31 @@ class UnifiedRealtimeClient {
     this.supabaseChannel = channel;
   }
 
-  private initLocalSocketIfLocalhost(): void {
+  private initGameSocket(): void {
     if (Capacitor.isNativePlatform()) {
+      // On Android/iOS always use Fly.io server
+      const flyUrl = (import.meta as any).env?.VITE_GAME_SERVER_URL || 'https://enscribe-game.fly.dev';
+      this.connectSocket(flyUrl);
       return;
     }
     const host = window.location.hostname;
-    if (host !== 'localhost' && host !== '127.0.0.1') {
-      return;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      // Local dev — connect to local server
+      this.connectSocket(undefined);
+    } else {
+      // Production web — connect to Fly.io
+      const flyUrl = (import.meta as any).env?.VITE_GAME_SERVER_URL || 'https://enscribe-game.fly.dev';
+      this.connectSocket(flyUrl);
     }
-    const sock = io({
+  }
+
+  private connectSocket(url: string | undefined): void {
+    const sock = io(url as any, {
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 600,
+      transports: ['websocket'],
     });
     sock.on('connect', () => {
       this.localSocketConnected = true;

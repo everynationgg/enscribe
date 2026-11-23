@@ -110,7 +110,7 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, '127.0.0.1', () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(
     `Enscribe authoritative backend listening on http://localhost:${PORT} (cloudSync: ${
       runtime.cloudSync.isConfigured() ? 'Supabase ON' : 'Local Mode'
