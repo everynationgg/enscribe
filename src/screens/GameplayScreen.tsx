@@ -778,6 +778,7 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
                 type="button"
                 className="ens-pass-btn"
                 disabled={
+                  submitting ||
                   !canAct ||
                   match.mode === 'solo' ||
                   match.mode === 'speed_race' ||
@@ -790,10 +791,10 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
               <button
                 type="button"
                 className="ens-submit-btn"
-                disabled={!canAct}
+                disabled={submitting || !canAct}
                 onClick={handleSubmit}
               >
-                <span>Submit</span>
+                <span>{submitting ? 'Checking...' : 'Submit'}</span>
                 <Check size={18} strokeWidth={3} />
               </button>
             </div>

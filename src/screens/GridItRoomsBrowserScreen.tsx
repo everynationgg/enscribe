@@ -17,8 +17,8 @@ interface GridItRoomsBrowserScreenProps {
   isOffline: boolean;
   onBack: () => void;
   onRefresh: () => void;
-  onQuickMatch: () => void;
-  onJoinRoom: (codeOrId: string, asSpectator?: boolean) => void;
+  onQuickMatch: () => Promise<void> | void;
+  onJoinRoom: (codeOrId: string, asSpectator?: boolean) => Promise<void> | void;
   onOpenCreateRoom: (mode: 'classic' | 'board_battle') => void;
 }
 
@@ -33,6 +33,17 @@ export const GridItRoomsBrowserScreen: React.FC<GridItRoomsBrowserScreenProps> =
   onOpenCreateRoom,
 }) => {
   const [codeDraft, setCodeDraft] = useState('');
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+
+  const runAction = async (key: string, fn: () => Promise<void> | void) => {
+    if (pendingAction) return;
+    setPendingAction(key);
+    try {
+      await fn();
+    } finally {
+      setPendingAction(null);
+    }
+  };
 
   return (
     <div className="ens-fantasy-page ens-gridit-page">
@@ -101,12 +112,16 @@ export const GridItRoomsBrowserScreen: React.FC<GridItRoomsBrowserScreenProps> =
           <button
             type="button"
             className="ens-grad-btn is-purple is-full"
-            disabled={isOffline}
-            onClick={onQuickMatch}
+            disabled={isOffline || pendingAction !== null}
+            onClick={() => runAction('quick', onQuickMatch)}
           >
             <Shuffle size={16} />
             <span>
-              {quickQueued ? 'Searching Random Opponent...' : 'Quick Random Match (1v1)'}
+              {pendingAction === 'quick'
+                ? 'Connecting...'
+                : quickQueued
+                  ? 'Searching Random Opponent...'
+                  : 'Quick Random Match (1v1)'}
             </span>
           </button>
 
@@ -130,21 +145,21 @@ export const GridItRoomsBrowserScreen: React.FC<GridItRoomsBrowserScreenProps> =
                 type="button"
                 className="ens-gridit-submit-btn"
                 style={{ minHeight: 38, minWidth: 70 }}
-                disabled={!codeDraft.trim() || isOffline}
-                onClick={() => onJoinRoom(codeDraft.trim(), false)}
+                disabled={!codeDraft.trim() || isOffline || pendingAction !== null}
+                onClick={() => runAction('code_join', () => onJoinRoom(codeDraft.trim(), false))}
               >
-                Join
+                {pendingAction === 'code_join' ? 'Joining...' : 'Join'}
               </button>
               <button
                 type="button"
                 className="ens-gridit-tool-btn"
                 style={{ padding: '0 10px' }}
-                disabled={!codeDraft.trim() || isOffline}
-                onClick={() => onJoinRoom(codeDraft.trim(), true)}
+                disabled={!codeDraft.trim() || isOffline || pendingAction !== null}
+                onClick={() => runAction('code_watch', () => onJoinRoom(codeDraft.trim(), true))}
                 title="Watch room as read-only spectator"
               >
                 <Eye size={14} color="#7dd3fc" />
-                <span>Watch</span>
+                <span>{pendingAction === 'code_watch' ? 'Opening...' : 'Watch'}</span>
               </button>
             </div>
           </section>
@@ -190,19 +205,21 @@ export const GridItRoomsBrowserScreen: React.FC<GridItRoomsBrowserScreenProps> =
                           <button
                             type="button"
                             className="ens-gridit-mini-action"
-                            onClick={() => onJoinRoom(room.id, true)}
+                            disabled={pendingAction !== null}
+                            onClick={() => runAction(`watch_${room.id}`, () => onJoinRoom(room.id, true))}
                             title="Join as Spectator"
                           >
-                            <Eye size={12} /> Watch
+                            <Eye size={12} /> {pendingAction === `watch_${room.id}` ? 'Opening...' : 'Watch'}
                           </button>
                         )}
                         <button
                           type="button"
                           className="ens-gridit-submit-btn"
                           style={{ minHeight: 32, minWidth: 58, padding: '0 11px', fontSize: 12 }}
-                          onClick={() => onJoinRoom(room.id, false)}
+                          disabled={pendingAction !== null}
+                          onClick={() => runAction(`join_${room.id}`, () => onJoinRoom(room.id, false))}
                         >
-                          Join
+                          {pendingAction === `join_${room.id}` ? 'Joining...' : 'Join'}
                         </button>
                       </div>
                     </div>

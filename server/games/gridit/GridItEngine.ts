@@ -503,7 +503,7 @@ export class GridItEngine {
   }): StoredGridItMatch {
     const now = Date.now();
     const seed = Math.floor(Math.random() * 0x7fffffff);
-    const revealAtMs = now + 250;
+    const revealAtMs = now;
     const startedAtMs = revealAtMs + SHAKE_WINDOW_MS;
     const durMs =
       params.settings.durationSeconds > 0

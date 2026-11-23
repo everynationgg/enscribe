@@ -24,10 +24,18 @@ import {
 } from '../../shared/types';
 import { GridItCustomTemplate } from '../../shared/gridit/editor';
 
-const DEFAULT_NATIVE_API_BASE_URL = 'https://enscribe.vercel.app';
-const envApiBase = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
+const DEFAULT_PROD_API_BASE_URL = 'https://enscribe-game.fly.dev';
+const envApiBase = (
+  (import.meta as any).env?.VITE_API_BASE_URL ||
+  (import.meta as any).env?.VITE_GAME_SERVER_URL ||
+  ''
+).trim();
+const isLocalBrowser =
+  !Capacitor.isNativePlatform() &&
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 export const API_BASE_URL = (
-  envApiBase || (Capacitor.isNativePlatform() ? DEFAULT_NATIVE_API_BASE_URL : '')
+  envApiBase || (isLocalBrowser ? '' : DEFAULT_PROD_API_BASE_URL)
 ).replace(/\/+$/, '');
 
 let activeGuestSessionToken: string | null = null;

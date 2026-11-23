@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useRef } from 'react';
+import React, { memo, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -82,31 +82,11 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
     const faceMaterials = useMemo(() => {
       const topLetter = tile.letter || '·';
       const altPool = BOGGLE_DIE_FACES[tileIndex % BOGGLE_DIE_FACES.length];
-
-      // Material properties matching the whole cube body (Gold, Rainbow, or Classic Ivory)
-      const matProps: THREE.MeshStandardMaterialParameters = isGolden
-        ? {
-            roughness: 0.22,
-            metalness: 0.15,
-            color: isSelected ? '#fffbeb' : '#ffffff',
-            emissive: isSelected ? '#f59e0b' : '#d97706',
-            emissiveIntensity: isSelected ? 0.65 : 0.1,
-          }
+      const baseProps: THREE.MeshStandardMaterialParameters = isGolden
+        ? { roughness: 0.22, metalness: 0.15 }
         : isRainbow
-        ? {
-            roughness: 0.25,
-            metalness: 0.08,
-            color: '#ffffff',
-            emissive: isSelected ? '#ec4899' : '#c084fc',
-            emissiveIntensity: isSelected ? 0.75 : 0.18,
-          }
-        : {
-            roughness: 0.28,
-            metalness: 0.04,
-            color: isSelected ? '#fef08a' : '#ffffff',
-            emissive: isSelected ? '#f59e0b' : isHinted ? '#38bdf8' : '#000000',
-            emissiveIntensity: isSelected ? 0.65 : isHinted ? 0.5 : 0,
-          };
+          ? { roughness: 0.25, metalness: 0.08 }
+          : { roughness: 0.28, metalness: 0.04 };
 
       const makeFaceMat = (letter: string, isTop: boolean) => {
         const tex = getLetterTexture(letter, {
@@ -117,11 +97,11 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
         });
         return new THREE.MeshStandardMaterial({
           map: tex,
-          ...matProps,
+          ...baseProps,
         });
       };
 
-      // 6 materials for [+X, -X, +Y (TOP), -Y, +Z, -Z] — the entire cube body shares the modifier color!
+      // 6 materials for [+X, -X, +Y (TOP), -Y, +Z, -Z] — reused across selection/hint changes
       return [
         makeFaceMat(altPool[0] ?? 'A', false),
         makeFaceMat(altPool[1] ?? 'B', false),
@@ -130,7 +110,60 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
         makeFaceMat(altPool[3] ?? 'D', false),
         makeFaceMat(altPool[4] ?? 'E', false),
       ];
-    }, [tile.letter, tileIndex, isRainbow, isGolden, isPaused, isEmptySlot, isSelected, isHinted]);
+    }, [tile.letter, tileIndex, isRainbow, isGolden, isPaused, isEmptySlot]);
+
+    useEffect(() => {
+      return () => {
+        for (const mat of faceMaterials) {
+          mat.dispose();
+        }
+      };
+    }, [faceMaterials]);
+
+    // Update color/emissive highlight in place without re-allocating GPU materials
+    useEffect(() => {
+      const colorHex = isGolden
+        ? isSelected
+          ? '#fffbeb'
+          : '#ffffff'
+        : isRainbow
+          ? '#ffffff'
+          : isSelected
+            ? '#fef08a'
+            : '#ffffff';
+      const emissiveHex = isGolden
+        ? isSelected
+          ? '#f59e0b'
+          : '#d97706'
+        : isRainbow
+          ? isSelected
+            ? '#ec4899'
+            : '#c084fc'
+          : isSelected
+            ? '#f59e0b'
+            : isHinted
+              ? '#38bdf8'
+              : '#000000';
+      const emissiveIntensity = isGolden
+        ? isSelected
+          ? 0.65
+          : 0.1
+        : isRainbow
+          ? isSelected
+            ? 0.75
+            : 0.18
+          : isSelected
+            ? 0.65
+            : isHinted
+              ? 0.5
+              : 0;
+
+      for (const mat of faceMaterials) {
+        mat.color.set(colorHex);
+        mat.emissive.set(emissiveHex);
+        mat.emissiveIntensity = emissiveIntensity;
+      }
+    }, [faceMaterials, isGolden, isRainbow, isSelected, isHinted]);
 
     // Target home resting transform
     const homePos = useMemo(
@@ -143,6 +176,11 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
       const tilt = ((tile.tiltDeg ?? 0) * Math.PI) / 180;
       return new THREE.Euler(tilt * 0.7, -yaw, tilt * 0.5, 'YXZ');
     }, [tile.rotationDeg, tile.tiltDeg]);
+
+    const targetQuaternion = useMemo(
+      () => new THREE.Quaternion().setFromEuler(baseRotationEuler),
+      [baseRotationEuler]
+    );
 
     useFrame((_, delta) => {
       const grp = groupRef.current;
@@ -159,7 +197,7 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
         if (!Number.isNaN(physicsState.rot.x) && !Number.isNaN(physicsState.rot.w)) {
           grp.quaternion.copy(physicsState.rot);
         } else {
-          grp.quaternion.setFromEuler(baseRotationEuler);
+          grp.quaternion.copy(targetQuaternion);
         }
       } else {
         // Stable gameplay mode: smooth lift when selected
@@ -170,11 +208,10 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
         grp.position.y = THREE.MathUtils.damp(currentY, targetY, 14, safeDelta);
 
         // Align smoothly to target resting orientation
-        const targetQ = new THREE.Quaternion().setFromEuler(baseRotationEuler);
         if (Number.isNaN(grp.quaternion.x) || Number.isNaN(grp.quaternion.w)) {
-          grp.quaternion.copy(targetQ);
+          grp.quaternion.copy(targetQuaternion);
         } else {
-          grp.quaternion.slerp(targetQ, THREE.MathUtils.clamp(safeDelta * 10, 0, 1));
+          grp.quaternion.slerp(targetQuaternion, THREE.MathUtils.clamp(safeDelta * 10, 0, 1));
         }
       }
     });

@@ -21,6 +21,22 @@ const runtime = createEnscribeApp({
   emitPlayer: (playerId, event, payload) => {
     ioRef?.to(`player:${playerId}`).emit(event, payload);
   },
+  emitPlayers: (playerIds, event, payload) => {
+    if (!ioRef || playerIds.length === 0) return;
+    let target = ioRef.to(`player:${playerIds[0]}`);
+    for (let i = 1; i < playerIds.length; i++) {
+      target = target.to(`player:${playerIds[i]}`);
+    }
+    target.emit(event, payload);
+  },
+  emitRoomAndPlayers: (roomId, playerIds, event, payload) => {
+    if (!ioRef) return;
+    let target = ioRef.to(`room:${roomId}`);
+    for (const pid of playerIds) {
+      target = target.to(`player:${pid}`);
+    }
+    target.emit(event, payload);
+  },
 });
 
 const httpServer = http.createServer(runtime.app);
@@ -32,11 +48,19 @@ const io = new SocketIOServer(httpServer, {
 });
 ioRef = io;
 
-// Authoritative 250ms timer loop for localhost
+// Authoritative 250ms timer loop with re-entrancy guard
+let timerLoopBusy = false;
 setInterval(() => {
-  runtime.processTimersAndFlush().catch((err) => {
-    console.error('[TimerLoop] Error processing timers:', err);
-  });
+  if (timerLoopBusy) return;
+  timerLoopBusy = true;
+  runtime
+    .processTimersAndFlush()
+    .catch((err) => {
+      console.error('[TimerLoop] Error processing timers:', err);
+    })
+    .finally(() => {
+      timerLoopBusy = false;
+    });
 }, 250);
 
 io.on('connection', (socket) => {
@@ -64,11 +88,19 @@ io.on('connection', (socket) => {
   });
 
   socket.on('room:join_channel', (roomId: string) => {
-    socket.join(`room:${roomId}`);
+    if (roomId) socket.join(`room:${roomId}`);
   });
 
   socket.on('room:leave_channel', (roomId: string) => {
-    socket.leave(`room:${roomId}`);
+    if (roomId) socket.leave(`room:${roomId}`);
+  });
+
+  socket.on('gridit:join_match', (matchId: string) => {
+    if (matchId) socket.join(`match:${matchId}`);
+  });
+
+  socket.on('gridit:leave_match', (matchId: string) => {
+    if (matchId) socket.leave(`match:${matchId}`);
   });
 
   socket.on('match:join_channel', ({ matchId, playerId }: { matchId: string; playerId: string }) => {
@@ -80,15 +112,24 @@ io.on('connection', (socket) => {
     socket.join(`match:${matchId}`);
     const activated = runtime.engine.activateAwaitingTurnIfOnline(matchId, playerId) ?? match;
     socket.emit('match:state', runtime.engine.sanitizeForViewer(activated, playerId));
-    runtime.broadcastMatchState(activated);
-    runtime.flushSideEffects(true).catch(() => undefined);
+    if (activated !== match && !activated.turnAwaitingOnline && match.turnAwaitingOnline) {
+      runtime.broadcastMatchState(activated);
+      runtime.flushSideEffects(true).catch(() => undefined);
+    }
   });
 
   socket.on('match:typing', ({ matchId, playerId, preview }: { matchId: string; playerId: string; preview: string }) => {
+    if (!matchId || !playerId) return;
     const updated = runtime.engine.updateLiveInputPreview(matchId, playerId, preview ?? '');
-    if (updated) {
-      runtime.broadcastMatchState(updated);
-      runtime.flushSideEffects(false).catch(() => undefined);
+    if (updated && updated.rules.opponentVisibility === 'full_live') {
+      const board = updated.boards[playerId];
+      if (board) {
+        socket.to(`match:${matchId}`).emit('match:typing_live', {
+          matchId,
+          playerId,
+          preview: board.liveInputPreview,
+        });
+      }
     }
   });
 
@@ -116,4 +157,9 @@ httpServer.listen(PORT, '0.0.0.0', () => {
       runtime.cloudSync.isConfigured() ? 'Supabase ON' : 'Local Mode'
     })`
   );
+  setTimeout(() => {
+    runtime.prewarm().catch((err) => {
+      console.warn('[Prewarm] warning:', err?.message || err);
+    });
+  }, 20);
 });

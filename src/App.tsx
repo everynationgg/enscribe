@@ -365,6 +365,8 @@ export const App: React.FC = () => {
   const routeRef = useRef(route);
   const showNotifModalRef = useRef(showNotifModal);
   const currentProfileRef = useRef(currentProfile);
+  const pendingChainMatchByIdRef = useRef<Map<string, MatchStateClient>>(new Map());
+  const pendingGridItMatchByIdRef = useRef<Map<string, GridItMatchStateClient>>(new Map());
   routeRef.current = route;
   showNotifModalRef.current = showNotifModal;
   currentProfileRef.current = currentProfile;
@@ -469,7 +471,7 @@ export const App: React.FC = () => {
     }
   }, [activeProfileId, playerSession?.isOffline, route.view]);
 
-  // Realtime connection & events (Supabase Realtime everywhere + Socket.IO on localhost)
+  // Realtime connection via Fly.io Socket.IO WebSocket (listeners bound once per active player)
   useEffect(() => {
     if (!activeProfileId || playerSession?.isOffline) return;
     const socket = getSocket();
@@ -477,11 +479,15 @@ export const App: React.FC = () => {
 
     const identify = () => {
       socket.emit('auth:identify', activeProfileId);
-      if (route.view === 'lobby' || route.view === 'gridit_lobby') {
-        socket.emit('room:join_channel', route.roomId);
+      const curr = routeRef.current;
+      if (curr.view === 'lobby' || curr.view === 'gridit_lobby') {
+        socket.emit('room:join_channel', curr.roomId);
       }
-      if (route.view === 'match' && !isOfflineSoloMatchId(route.matchId)) {
-        socket.emit('match:join_channel', { matchId: route.matchId, playerId: activeProfileId });
+      if (curr.view === 'match' && !isOfflineSoloMatchId(curr.matchId)) {
+        socket.emit('match:join_channel', { matchId: curr.matchId, playerId: activeProfileId });
+      }
+      if (curr.view === 'gridit_match') {
+        socket.emit('gridit:join_match', curr.matchId);
       }
     };
 
@@ -493,6 +499,11 @@ export const App: React.FC = () => {
     };
 
     const onRoomMatchStarted = ({ roomId, matchId }: { roomId: string; matchId: string }) => {
+      const pending = pendingChainMatchByIdRef.current.get(matchId);
+      if (pending) {
+        pendingChainMatchByIdRef.current.delete(matchId);
+        setActiveMatch(pending);
+      }
       setRoute((prev) => {
         if (prev.view === 'lobby' && prev.roomId === roomId) {
           return { view: 'match', matchId };
@@ -502,8 +513,11 @@ export const App: React.FC = () => {
     };
 
     const onMatchState = (match: MatchStateClient) => {
-      if (route.view === 'match' && route.matchId === match.id) {
+      const curr = routeRef.current;
+      if (curr.view === 'match' && curr.matchId === match.id) {
         setActiveMatch(match);
+      } else {
+        pendingChainMatchByIdRef.current.set(match.id, match);
       }
       if (match.status === 'finished') {
         refreshPlatformData(activeProfileId);
@@ -528,7 +542,10 @@ export const App: React.FC = () => {
     };
 
     const onPublicUpdated = () => {
-      api.listPublicRooms().then(setPublicRooms).catch(() => undefined);
+      const curr = routeRef.current;
+      if (curr.view === 'rooms' || (curr.view === 'tab' && curr.tab === 'play')) {
+        api.listPublicRooms().then(setPublicRooms).catch(() => undefined);
+      }
     };
 
     const onRankedMatched = ({ matchId }: { matchId: string }) => {
@@ -547,10 +564,17 @@ export const App: React.FC = () => {
     };
 
     const onGridItRoomsUpdated = () => {
-      api.listGridItPublicRooms().then(setGridItPublicRooms).catch(() => undefined);
+      if (routeRef.current.view === 'gridit_rooms') {
+        api.listGridItPublicRooms().then(setGridItPublicRooms).catch(() => undefined);
+      }
     };
 
     const onGridItMatchStarted = ({ roomId, matchId }: { roomId: string; matchId: string }) => {
+      const pending = pendingGridItMatchByIdRef.current.get(matchId);
+      if (pending) {
+        pendingGridItMatchByIdRef.current.delete(matchId);
+        setActiveGridItMatch(pending);
+      }
       setRoute((prev) => {
         if (prev.view === 'gridit_lobby' && prev.roomId === roomId) {
           return { view: 'gridit_match', matchId };
@@ -560,6 +584,11 @@ export const App: React.FC = () => {
     };
 
     const onGridItMatched = ({ matchId }: { matchId: string }) => {
+      const pending = pendingGridItMatchByIdRef.current.get(matchId);
+      if (pending) {
+        pendingGridItMatchByIdRef.current.delete(matchId);
+        setActiveGridItMatch(pending);
+      }
       setGridItQuickQueued(false);
       setGridItRankedQueued(false);
       notify('GridIt opponent found!');
@@ -567,12 +596,12 @@ export const App: React.FC = () => {
     };
 
     const onGridItMatchState = (match: GridItMatchStateClient) => {
-      setRoute((prev) => {
-        if (prev.view === 'gridit_match' && prev.matchId === match.id) {
-          setActiveGridItMatch(match);
-        }
-        return prev;
-      });
+      const curr = routeRef.current;
+      if (curr.view === 'gridit_match' && curr.matchId === match.id) {
+        setActiveGridItMatch(match);
+      } else {
+        pendingGridItMatchByIdRef.current.set(match.id, match);
+      }
     };
 
     const onGridItMatchDelta = (delta: GridItMatchDelta) => {
@@ -645,12 +674,43 @@ export const App: React.FC = () => {
       socket.off('gridit:match_delta', onGridItMatchDelta);
       socket.off('gridit:rematch', onGridItRematch);
     };
-  }, [activeProfileId, playerSession?.isOffline, route.view, (route as any).roomId, (route as any).matchId, notify, refreshPlatformData]);
+  }, [activeProfileId, playerSession?.isOffline, notify, refreshPlatformData]);
+
+  // Lightweight channel join/leave sync when navigating between lobbies and matches
+  useEffect(() => {
+    if (!activeProfileId || playerSession?.isOffline) return;
+    const socket = getSocket();
+    if (route.view === 'lobby' || route.view === 'gridit_lobby') {
+      const rid = route.roomId;
+      socket.emit('room:join_channel', rid);
+      return () => {
+        socket.emit('room:leave_channel', rid);
+      };
+    }
+    if (route.view === 'match' && !isOfflineSoloMatchId(route.matchId)) {
+      socket.emit('match:join_channel', { matchId: route.matchId, playerId: activeProfileId });
+      return;
+    }
+    if (route.view === 'gridit_match') {
+      const mid = route.matchId;
+      socket.emit('gridit:join_match', mid);
+      return () => {
+        socket.emit('gridit:leave_match', mid);
+      };
+    }
+  }, [activeProfileId, playerSession?.isOffline, route.view, (route as any).roomId, (route as any).matchId]);
 
   const activeGridItRoomRef = useRef(activeGridItRoom);
   const activeGridItMatchRef = useRef(activeGridItMatch);
+  const activeRoomRef = useRef(activeRoom);
+  const activeMatchRef = useRef(activeMatch);
+  const typingThrottleTimerRef = useRef<number | null>(null);
+  const lastTypingEmitAtRef = useRef(0);
+  const pendingTypingPayloadRef = useRef<{ matchId: string; playerId: string; preview: string } | null>(null);
   activeGridItRoomRef.current = activeGridItRoom;
   activeGridItMatchRef.current = activeGridItMatch;
+  activeRoomRef.current = activeRoom;
+  activeMatchRef.current = activeMatch;
 
   // Adaptive fallback sync for ChainIt lobbies/matches (18s drift check when WebSocket connected, 4s fallback when disconnected)
   useEffect(() => {
@@ -698,7 +758,15 @@ export const App: React.FC = () => {
           setRoute({ view: 'gridit_rooms' });
         });
     } else if (route.view === 'gridit_match') {
-      if (activeGridItMatchRef.current?.id === route.matchId) return;
+      const pending = pendingGridItMatchByIdRef.current.get(route.matchId);
+      if (pending) {
+        pendingGridItMatchByIdRef.current.delete(route.matchId);
+        setActiveGridItMatch(pending);
+        if (pending.board) return;
+      }
+      if (activeGridItMatchRef.current?.id === route.matchId && activeGridItMatchRef.current.board) {
+        return;
+      }
       api
         .getGridItMatch(route.matchId, activeProfileId)
         .then(setActiveGridItMatch)
@@ -709,6 +777,25 @@ export const App: React.FC = () => {
         });
     }
   }, [route, activeProfileId, playerSession?.isOffline, notify]);
+
+  // One-shot board reveal fetch if match arrived before revealAtMs
+  useEffect(() => {
+    if (!activeProfileId || playerSession?.isOffline || route.view !== 'gridit_match') return;
+    if (!activeGridItMatch || activeGridItMatch.id !== route.matchId || activeGridItMatch.board) return;
+    const serverNowApprox = activeGridItMatch.serverNowMs;
+    const delayMs = Math.max(60, activeGridItMatch.revealAtMs - serverNowApprox + 30);
+    const t = window.setTimeout(() => {
+      api
+        .getGridItMatch(
+          route.matchId,
+          activeProfileId,
+          activeGridItMatchRef.current?.spectatingPlayerId ?? undefined
+        )
+        .then(setActiveGridItMatch)
+        .catch(() => undefined);
+    }, delayMs);
+    return () => window.clearTimeout(t);
+  }, [activeProfileId, playerSession?.isOffline, route, activeGridItMatch]);
 
   // Adaptive fallback sync for GridIt lobbies/matches (15s safety reconciliation when realtime connected, 3s fallback when disconnected)
   useEffect(() => {
@@ -721,7 +808,7 @@ export const App: React.FC = () => {
     }
     let timer: number | null = null;
     const scheduleTick = () => {
-      const delayMs = route.view === 'gridit_lobby' ? 2000 : (getSocket().connected ? 15000 : 3000);
+      const delayMs = getSocket().connected ? 15000 : 3000;
       timer = window.setTimeout(() => {
         if (route.view === 'gridit_lobby') {
           api
@@ -752,17 +839,16 @@ export const App: React.FC = () => {
     };
   }, [route, activeProfileId, playerSession?.isOffline]);
 
-  // Restore room or match state cleanly on route change or browser refresh
+  // Restore room or match state cleanly on route change or browser refresh (skips duplicate fetch when state is already populated)
   useEffect(() => {
     if (!activeProfileId) return;
     if (route.view === 'lobby') {
       if (playerSession?.isOffline) return;
-      const socket = getSocket();
+      if (activeRoomRef.current?.id === route.roomId) return;
       api
         .getRoom(route.roomId)
         .then((room) => {
           setActiveRoom(room);
-          socket.emit('room:join_channel', room.id);
         })
         .catch((err) => {
           notify(err.message);
@@ -779,12 +865,17 @@ export const App: React.FC = () => {
         return;
       }
       if (playerSession?.isOffline) return;
-      const socket = getSocket();
+      const pending = pendingChainMatchByIdRef.current.get(route.matchId);
+      if (pending) {
+        pendingChainMatchByIdRef.current.delete(route.matchId);
+        setActiveMatch(pending);
+        return;
+      }
+      if (activeMatchRef.current?.id === route.matchId) return;
       api
         .getMatch(route.matchId, activeProfileId)
         .then((match) => {
           setActiveMatch(match);
-          socket.emit('match:join_channel', { matchId: match.id, playerId: activeProfileId });
         })
         .catch((err) => {
           notify(err.message);
@@ -1163,20 +1254,43 @@ export const App: React.FC = () => {
           room={activeGridItRoom}
           session={playerSession}
           onBack={() => setRoute({ view: 'gridit_rooms' })}
-          onLeave={async () => {
-            await api.leaveGridItRoom(activeGridItRoom.id, playerSession.playerId).catch(() => undefined);
+          onLeave={() => {
+            const rid = activeGridItRoom.id;
             setActiveGridItRoom(null);
             setRoute({ view: 'gridit_rooms' });
+            api.leaveGridItRoom(rid, playerSession.playerId).catch(() => undefined);
           }}
           onToggleReady={async (isReady) => {
+            const roomId = activeGridItRoom.id;
+            const prevReady = !isReady;
+            setActiveGridItRoom((prev) =>
+              prev && prev.id === roomId
+                ? {
+                    ...prev,
+                    players: prev.players.map((p) =>
+                      p.playerId === playerSession.playerId ? { ...p, isReady } : p
+                    ),
+                  }
+                : prev
+            );
             try {
               const updated = await api.setGridItRoomReady(
-                activeGridItRoom.id,
+                roomId,
                 playerSession.playerId,
                 isReady
               );
               setActiveGridItRoom(updated);
             } catch (err: any) {
+              setActiveGridItRoom((prev) =>
+                prev && prev.id === roomId
+                  ? {
+                      ...prev,
+                      players: prev.players.map((p) =>
+                        p.playerId === playerSession.playerId ? { ...p, isReady: prevReady } : p
+                      ),
+                    }
+                  : prev
+              );
               notify(err.message);
             }
           }}
@@ -1196,15 +1310,43 @@ export const App: React.FC = () => {
             setRoute({ view: 'gridit_editor', returnToLobbyRoomId: activeGridItRoom.id })
           }
           onSendChat={async (text, kind) => {
+            const clean = text.trim();
+            if (!clean) return;
+            const roomId = activeGridItRoom.id;
+            const tempId = `temp_gmsg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            setActiveGridItRoom((prev) =>
+              prev && prev.id === roomId
+                ? {
+                    ...prev,
+                    messages: [
+                      ...prev.messages,
+                      {
+                        id: tempId,
+                        senderId: playerSession.playerId,
+                        senderName: playerSession.nickname,
+                        senderAvatar: playerSession.avatarId,
+                        text: clean,
+                        kind,
+                        createdAt: Date.now(),
+                      },
+                    ],
+                  }
+                : prev
+            );
             try {
               const updated = await api.sendGridItRoomChat(
-                activeGridItRoom.id,
+                roomId,
                 playerSession.playerId,
-                text,
+                clean,
                 kind
               );
               setActiveGridItRoom(updated);
             } catch (err: any) {
+              setActiveGridItRoom((prev) =>
+                prev && prev.id === roomId
+                  ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) }
+                  : prev
+              );
               notify(err.message);
             }
           }}
@@ -1274,19 +1416,51 @@ export const App: React.FC = () => {
             };
           }}
           onSendChat={async (text, kind) => {
+            const clean = text.trim();
+            if (!clean) return;
+            const matchId = activeGridItMatch.id;
+            const tempId = `temp_gm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            setActiveGridItMatch((prev) =>
+              prev && prev.id === matchId
+                ? {
+                    ...prev,
+                    messages: [
+                      ...prev.messages,
+                      {
+                        id: tempId,
+                        senderId: playerSession.playerId,
+                        senderName:
+                          prev.players[playerSession.playerId]?.username || playerSession.nickname,
+                        senderAvatar: playerSession.avatarId,
+                        text: clean,
+                        kind,
+                        createdAt: Date.now(),
+                      },
+                    ],
+                  }
+                : prev
+            );
             try {
               const msg = await api.sendGridItMatchChat(
-                activeGridItMatch.id,
+                matchId,
                 playerSession.playerId,
-                text,
+                clean,
                 kind
               );
+              setActiveGridItMatch((prev) => {
+                if (!prev || prev.id !== matchId) return prev;
+                const withoutTemp = prev.messages.filter((m) => m.id !== tempId);
+                if (withoutTemp.some((m) => m.id === msg.id)) {
+                  return { ...prev, messages: withoutTemp };
+                }
+                return { ...prev, messages: [...withoutTemp, msg] };
+              });
+            } catch (err: any) {
               setActiveGridItMatch((prev) =>
-                prev && prev.id === activeGridItMatch.id && !prev.messages.some((m) => m.id === msg.id)
-                  ? { ...prev, messages: [...prev.messages, msg] }
+                prev && prev.id === matchId
+                  ? { ...prev, messages: prev.messages.filter((m) => m.id !== tempId) }
                   : prev
               );
-            } catch (err: any) {
               notify(err.message);
             }
           }}
@@ -1419,10 +1593,11 @@ export const App: React.FC = () => {
           currentProfile={currentProfile}
           templates={templates}
           onBack={() => setRoute({ view: 'tab', tab: 'home' })}
-          onLeave={async () => {
-            await api.leaveRoom(activeRoom.id, currentProfile.id).catch(() => undefined);
+          onLeave={() => {
+            const rid = activeRoom.id;
             setActiveRoom(null);
             setRoute({ view: 'tab', tab: 'home' });
+            api.leaveRoom(rid, currentProfile.id).catch(() => undefined);
           }}
           onToggleReady={async (nextReady) => {
             setActiveRoom((prev) =>
@@ -1534,11 +1709,35 @@ export const App: React.FC = () => {
           }}
           onTypingPreview={(preview) => {
             if (offlineMatch) return;
-            getSocket().emit('match:typing', {
+            const payload = {
               matchId: activeMatch.id,
               playerId: currentProfile.id,
               preview,
-            });
+            };
+            const now = Date.now();
+            const elapsed = now - lastTypingEmitAtRef.current;
+            if (elapsed >= 100) {
+              lastTypingEmitAtRef.current = now;
+              pendingTypingPayloadRef.current = null;
+              if (typingThrottleTimerRef.current !== null) {
+                window.clearTimeout(typingThrottleTimerRef.current);
+                typingThrottleTimerRef.current = null;
+              }
+              getSocket().emit('match:typing', payload);
+            } else {
+              pendingTypingPayloadRef.current = payload;
+              if (typingThrottleTimerRef.current === null) {
+                typingThrottleTimerRef.current = window.setTimeout(() => {
+                  typingThrottleTimerRef.current = null;
+                  const latest = pendingTypingPayloadRef.current;
+                  pendingTypingPayloadRef.current = null;
+                  if (latest) {
+                    lastTypingEmitAtRef.current = Date.now();
+                    getSocket().emit('match:typing', latest);
+                  }
+                }, 100 - elapsed);
+              }
+            }
           }}
           onSendChat={async (text) => {
             if (offlineMatch) return;

@@ -43,6 +43,7 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
   const panOffset = useRef(new THREE.Vector2(0, 0));
   const targetPan = useRef(new THREE.Vector2(0, 0));
   const isResetting = useRef(false);
+  const lookTargetRef = useRef(new THREE.Vector3());
 
   // ── Reset ──────────────────────────────────────────────────────────
   const triggerReset = useCallback(() => {
@@ -237,8 +238,8 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
     camera.position.x += panOffset.current.x;
     camera.position.z += panOffset.current.y;
 
-    const lookTarget = new THREE.Vector3(panOffset.current.x, 0.2, panOffset.current.y);
-    camera.lookAt(lookTarget);
+    lookTargetRef.current.set(panOffset.current.x, 0.2, panOffset.current.y);
+    camera.lookAt(lookTargetRef.current);
   });
 
   return null;

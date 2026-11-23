@@ -35,13 +35,18 @@ import {
 import { GridItUnavailableError, StoredGridItMatch } from './games/gridit/GridItStateStore.js';
 import { GridItRoom } from '../shared/gridit/multiplayerTypes.js';
 import { suggestTemplateFillerLettersWithGemini } from './games/gridit/geminiFiller.js';
+import { getServerDictionary } from './games/gridit/serverDictionary.js';
 import {
   AssignedPuzzle,
   assignCustomPuzzlesDeranged,
   pickCuratedChainsForPlayers,
   validateChainWords,
 } from './games/chain-clash/puzzleAssignment.js';
-import { generateWordChain, resolveOneWordClue } from './games/chain-clash/clueProvider.js';
+import {
+  generateWordChain,
+  getSyncOneWordClue,
+  resolveOneWordClue,
+} from './games/chain-clash/clueProvider.js';
 import { MemorySnapshot, MemoryStorageRepository } from './repositories/MemoryStorageRepository.js';
 import { StoredMatch } from './repositories/types.js';
 import { RealtimeBroadcastEvent, SupabaseCloudSync } from './db/supabaseCloud.js';
@@ -56,6 +61,13 @@ export interface LocalRealtimeHooks {
   emitGlobal?: (event: string, payload?: any) => void;
   emitRoom?: (roomId: string, event: string, payload?: any) => void;
   emitPlayer?: (playerId: string, event: string, payload?: any) => void;
+  emitPlayers?: (playerIds: string[], event: string, payload?: any) => void;
+  emitRoomAndPlayers?: (
+    roomId: string,
+    playerIds: string[],
+    event: string,
+    payload?: any
+  ) => void;
   isSocketOnline?: (playerId: string) => boolean;
 }
 
@@ -75,6 +87,7 @@ export interface EnscribeBackendRuntime {
   ) => Promise<void>;
   flushSideEffects: (persistSnapshot?: boolean) => Promise<void>;
   processTimersAndFlush: () => Promise<StoredMatch[]>;
+  prewarm: () => Promise<void>;
 }
 
 export function createEnscribeApp(
@@ -222,7 +235,7 @@ export function createEnscribeApp(
         saveLocalFileIfUnconfigured(snapshot);
       }
     }
-    if (events.length > 0 && cloudSync.isConfigured()) {
+    if (events.length > 0 && isServerless && cloudSync.isConfigured()) {
       tasks.push(cloudSync.broadcastRealtime(events));
     }
     if (tasks.length > 0) {
@@ -231,7 +244,9 @@ export function createEnscribeApp(
   };
 
   const queueEvent = (event: string, payload: any, targetPlayerId?: string) => {
-    pendingBroadcasts.push({ event, payload, targetPlayerId });
+    if (isServerless) {
+      pendingBroadcasts.push({ event, payload, targetPlayerId });
+    }
     if (targetPlayerId) {
       hooks.emitPlayer?.(targetPlayerId, event, payload);
     } else {
@@ -242,9 +257,16 @@ export function createEnscribeApp(
   const broadcastRoomUpdate = (roomId: string): void => {
     const room = repo.getRoomById(roomId);
     if (!room) return;
-    pendingBroadcasts.push({ event: 'room:updated', payload: room });
-    pendingBroadcasts.push({ event: 'rooms:public_updated', payload: {} });
-    hooks.emitRoom?.(roomId, 'room:updated', room);
+    if (isServerless) {
+      pendingBroadcasts.push({ event: 'room:updated', payload: room });
+      pendingBroadcasts.push({ event: 'rooms:public_updated', payload: {} });
+    }
+    const memberIds = room.players.map((p) => p.playerId);
+    if (hooks.emitRoomAndPlayers) {
+      hooks.emitRoomAndPlayers(roomId, memberIds, 'room:updated', room);
+    } else {
+      hooks.emitRoom?.(roomId, 'room:updated', room);
+    }
     hooks.emitGlobal?.('rooms:public_updated');
   };
 
@@ -258,9 +280,19 @@ export function createEnscribeApp(
   const broadcastGridItRoom = async (roomId: string, roomSnapshot?: GridItRoom): Promise<void> => {
     try {
       const room = roomSnapshot ?? (await gridItEngine.getRoom(roomId));
-      pendingBroadcasts.push({ event: 'gridit:room_updated', payload: room });
-      pendingBroadcasts.push({ event: 'gridit:rooms_updated', payload: {} });
-      hooks.emitRoom?.(roomId, 'gridit:room_updated', room);
+      if (isServerless) {
+        pendingBroadcasts.push({ event: 'gridit:room_updated', payload: room });
+        pendingBroadcasts.push({ event: 'gridit:rooms_updated', payload: {} });
+      }
+      const audience = [
+        ...room.players.map((p) => p.playerId),
+        ...room.spectators.map((s) => s.playerId),
+      ];
+      if (hooks.emitRoomAndPlayers) {
+        hooks.emitRoomAndPlayers(roomId, audience, 'gridit:room_updated', room);
+      } else {
+        hooks.emitRoom?.(roomId, 'gridit:room_updated', room);
+      }
       hooks.emitGlobal?.('gridit:rooms_updated');
     } catch {
       queueEvent('gridit:rooms_updated', {});
@@ -278,7 +310,15 @@ export function createEnscribeApp(
       const isFinished = record.status === 'finished' || nowMs >= record.endsAtMs;
       if (mode === 'delta' && !isFinished) {
         const delta = gridItEngine.buildMatchDeltaFromRecord(record, nowMs);
-        queueEvent('gridit:match_delta', delta);
+        const audience = gridItEngine.getMatchAudienceIdsFromRecord(record);
+        if (isServerless) {
+          pendingBroadcasts.push({ event: 'gridit:match_delta', payload: delta });
+        }
+        if (hooks.emitPlayers) {
+          hooks.emitPlayers(audience, 'gridit:match_delta', delta);
+        } else {
+          hooks.emitGlobal?.('gridit:match_delta', delta);
+        }
         if (record.spectators.length > 0) {
           for (const spec of record.spectators) {
             try {
@@ -348,6 +388,7 @@ export function createEnscribeApp(
     return updatedMatches;
   };
 
+  const pendingClueLookups = new Set<string>();
   async function ensureActiveWordClue(matchId: string, playerId: string): Promise<boolean> {
     const m = repo.getMatch(matchId);
     if (!m) return false;
@@ -362,6 +403,34 @@ export function createEnscribeApp(
       m.rules.autoRevealAfterFailedTurns ??
       (m.rules.autoRevealAfterAttempts > 0 ? m.rules.autoRevealAfterAttempts : 2);
     if ((revealed >= 2 || (clueThreshold > 0 && totalMisses >= clueThreshold)) && !b.wordClues?.[idx]) {
+      const syncClue = getSyncOneWordClue(targetWord);
+      if (syncClue) {
+        b.wordClues = { ...(b.wordClues ?? {}), [idx]: syncClue };
+        repo.updateMatchBoard(b);
+        return true;
+      }
+      if (!isServerless) {
+        const lookupKey = `${matchId}:${playerId}:${idx}`;
+        if (!pendingClueLookups.has(lookupKey)) {
+          pendingClueLookups.add(lookupKey);
+          resolveOneWordClue(targetWord)
+            .then((clue) => {
+              const latestMatch = repo.getMatch(matchId);
+              const latestBoard = latestMatch?.boards[playerId];
+              if (latestMatch && latestBoard && latestBoard.currentWordIndex === idx && !latestBoard.wordClues?.[idx]) {
+                latestBoard.wordClues = { ...(latestBoard.wordClues ?? {}), [idx]: clue };
+                repo.updateMatchBoard(latestBoard);
+                broadcastMatchState(latestMatch);
+                flushSideEffects(true).catch(() => undefined);
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              pendingClueLookups.delete(lookupKey);
+            });
+        }
+        return false;
+      }
       const clue = await resolveOneWordClue(targetWord);
       b.wordClues = { ...(b.wordClues ?? {}), [idx]: clue };
       repo.updateMatchBoard(b);
@@ -1212,11 +1281,21 @@ export function createEnscribeApp(
         });
 
         const refreshedRoom = repo.getRoomById(room.id)!;
-        pendingBroadcasts.push({
-          event: 'room:match_started',
-          payload: { roomId: room.id, matchId: match.id },
-        });
-        hooks.emitRoom?.(room.id, 'room:match_started', { roomId: room.id, matchId: match.id });
+        if (isServerless) {
+          pendingBroadcasts.push({
+            event: 'room:match_started',
+            payload: { roomId: room.id, matchId: match.id },
+          });
+        }
+        const memberIds = refreshedRoom.players.map((p) => p.playerId);
+        if (hooks.emitRoomAndPlayers) {
+          hooks.emitRoomAndPlayers(room.id, memberIds, 'room:match_started', {
+            roomId: room.id,
+            matchId: match.id,
+          });
+        } else {
+          hooks.emitRoom?.(room.id, 'room:match_started', { roomId: room.id, matchId: match.id });
+        }
         broadcastRoomUpdate(room.id);
         broadcastMatchState(match);
 
@@ -1834,11 +1913,11 @@ export function createEnscribeApp(
         aiHintsByPlayer
       );
       await broadcastGridItRoom(room.id, room);
-      await broadcastGridItMatch(match.id, match, 'full');
       const audience = gridItEngine.getMatchAudienceIdsFromRecord(match);
       for (const vid of audience) {
         queueEvent('gridit:match_started', { roomId: room.id, matchId: match.id }, vid);
       }
+      await broadcastGridItMatch(match.id, match, 'full');
       res.status(201).json({
         room,
         match: gridItEngine.sanitizeMatchForViewerFromRecord(match, String(playerId || '')),
@@ -2038,6 +2117,11 @@ export function createEnscribeApp(
     })
   );
 
+  const prewarm = async (): Promise<void> => {
+    await ensureHydrated(false);
+    getServerDictionary('en');
+  };
+
   return {
     app,
     repo,
@@ -2050,5 +2134,6 @@ export function createEnscribeApp(
     broadcastGridItMatch,
     flushSideEffects,
     processTimersAndFlush,
+    prewarm,
   };
 }

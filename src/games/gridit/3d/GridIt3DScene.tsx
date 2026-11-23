@@ -181,8 +181,11 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
       <directionalLight position={[-6, 8, -6]} intensity={0.5} color="#c084fc" />
       <directionalLight position={[0, -4, 6]} intensity={0.3} color="#93c5fd" />
 
-      {/* Realistic Tabletop Contact Shadows */}
+      {/* Realistic Tabletop Contact Shadows (baked once per shake/settled state instead of every frame) */}
       <ContactShadows
+        key={isShaking ? 'shaking' : 'settled'}
+        frames={1}
+        resolution={256}
         opacity={0.55}
         scale={16}
         blur={2.4}
@@ -209,10 +212,10 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
         onEmitOrientation={onEmitOrientation}
         onShakeSettled={onShakeSettled}
       >
-        {({ boxRotation, physicsStates, lidOpenAmount }) => (
+        {({ boxGroupRef, physicsStates, lidOpenAmount }) => (
           <group
+            ref={boxGroupRef}
             name="entire-3d-box-unit"
-            rotation={boxRotation}
           >
             {/* 3D Box Geometry (Tray, Gold Trim, Tall Lid, Latch, Nameplate, Crystals, Feet) */}
             <GridIt3DBox

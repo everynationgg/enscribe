@@ -19,7 +19,7 @@ interface GridIt3DShakerProps {
   onEmitOrientation?: (payload: HostShakePayload) => void;
   onShakeSettled?: () => void;
   children: (props: {
-    boxRotation: THREE.Euler;
+    boxGroupRef: React.RefObject<THREE.Group>;
     physicsStates: Map<string, DiePhysicalState>;
     lidOpenAmount: number;
     shakeProgress: number;
@@ -180,12 +180,12 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
     };
   }, [isHost, isShaking]);
 
-  const [boxEulerState, setBoxEulerState] = useState<THREE.Euler>(boxEulerRef.current);
-  const [lidOpenAmountState, setLidOpenAmountState] = useState(0);
+  const boxGroupRef = useRef<THREE.Group>(null);
+  const lastLidQuantizedRef = useRef(isShaking ? 0 : 1);
+  const [lidOpenAmountState, setLidOpenAmountState] = useState(isShaking ? 0 : 1);
 
   useFrame((_, delta) => {
     const elapsed = Date.now() - startTimeRef.current;
-    const progress = Math.min(1.0, elapsed / TOTAL_SHAKE_MS);
     const safeDelta = Math.min(0.05, Math.max(0.001, delta));
 
     if (isShaking) {
@@ -328,7 +328,10 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
           }
         });
 
-        if (lidOpenAmountState !== 0) setLidOpenAmountState(0);
+        if (lastLidQuantizedRef.current !== 0) {
+          lastLidQuantizedRef.current = 0;
+          setLidOpenAmountState(0);
+        }
       } else {
         // Automatic Settlement phase (3.8s to 5.0s)
         const settleProgress = (elapsed - SETTLE_START_MS) / (TOTAL_SHAKE_MS - SETTLE_START_MS);
@@ -348,9 +351,12 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
           st.angVel.set(0, 0, 0);
         });
 
-        // Lid opens slightly or becomes crystal clear for gameplay
-        const nextLid = THREE.MathUtils.clamp(ease * 0.4, 0, 1);
-        setLidOpenAmountState(nextLid);
+        // Lid opens smoothly without forcing 60Hz React reconciliation
+        const nextLid = Math.round(THREE.MathUtils.clamp(ease * 0.4, 0, 1) * 20) / 20;
+        if (Math.abs(nextLid - lastLidQuantizedRef.current) >= 0.05) {
+          lastLidQuantizedRef.current = nextLid;
+          setLidOpenAmountState(nextLid);
+        }
       }
 
       // Check for completion
@@ -364,24 +370,31 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
           st.vel.set(0, 0, 0);
           st.angVel.set(0, 0, 0);
         });
+        lastLidQuantizedRef.current = 1.0;
         setLidOpenAmountState(1.0);
         onShakeSettled?.();
       }
 
-      setBoxEulerState(boxEulerRef.current);
+      if (boxGroupRef.current) {
+        boxGroupRef.current.rotation.copy(boxEulerRef.current);
+      }
     } else {
       // Stable gameplay state
-      if (lidOpenAmountState !== 1.0) {
+      if (lastLidQuantizedRef.current !== 1.0) {
+        lastLidQuantizedRef.current = 1.0;
         setLidOpenAmountState(1.0);
       }
       boxEulerRef.current.set(0, 0, 0);
+      if (boxGroupRef.current) {
+        boxGroupRef.current.rotation.set(0, 0, 0);
+      }
     }
   });
 
   return (
     <>
       {children({
-        boxRotation: boxEulerState,
+        boxGroupRef,
         physicsStates: physicsStatesRef.current,
         lidOpenAmount: lidOpenAmountState,
         shakeProgress: Math.min(1.0, (Date.now() - startTimeRef.current) / TOTAL_SHAKE_MS),

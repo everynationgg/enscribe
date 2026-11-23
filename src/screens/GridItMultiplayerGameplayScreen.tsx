@@ -182,7 +182,7 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
     if (delay === null) return;
     const timer = window.setTimeout(() => {
       setNowMs(Date.now());
-    }, delay);
+    }, delay + 15);
     return () => window.clearTimeout(timer);
   }, [
     match.status,
@@ -199,8 +199,7 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
   const primaryOpp = opponentPlayers[0] ?? null;
 
   const isShaking =
-    match.status === 'shaking' ||
-    (match.status !== 'finished' && liveServerNow < match.startedAtMs);
+    match.status !== 'finished' && liveServerNow < match.startedAtMs;
   const isFinished = match.status === 'finished' || liveServerNow >= match.endsAtMs;
 
   const modStateKey = useMemo(

@@ -31,7 +31,7 @@ export const GridItTimerDisplay: React.FC<GridItTimerDisplayProps> = memo((props
     if (props.mode !== 'multiplayer') return props.secondsLeft;
     if (props.durationSeconds <= 0) return 0;
     const now = Date.now() + props.serverOffsetMs;
-    if (props.status === 'shaking' || (props.status !== 'finished' && now < props.startedAtMs)) {
+    if (props.status !== 'finished' && now < props.startedAtMs) {
       return props.durationSeconds;
     }
     return Math.max(0, Math.ceil((props.endsAtMs - now) / 1000));
@@ -64,8 +64,8 @@ export const GridItTimerDisplay: React.FC<GridItTimerDisplayProps> = memo((props
   const isUntimed = props.durationSeconds <= 0;
   const isShaking =
     props.mode === 'multiplayer' &&
-    (props.status === 'shaking' ||
-      (props.status !== 'finished' && Date.now() + props.serverOffsetMs < props.startedAtMs));
+    props.status !== 'finished' &&
+    Date.now() + props.serverOffsetMs < props.startedAtMs;
   const isLow = !isUntimed && !isShaking && seconds <= 15;
 
   return (

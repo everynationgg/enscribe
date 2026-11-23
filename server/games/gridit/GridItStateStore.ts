@@ -69,11 +69,17 @@ export class GridItStateStore {
   private readonly forceLocalMemory: boolean;
   private readonly isServerless: boolean;
 
-  // Fallback atomic memory stores for local tests / unconfigured dev
-  private memRooms = new Map<string, { version: number; data: StoredGridItRoom }>();
-  private memMatches = new Map<string, { version: number; data: StoredGridItMatch }>();
+  // Authoritative in-memory stores (used directly on persistent server with async Postgres write-through)
+  private memRooms = new Map<string, { version: number; expiresAtMs: number; data: StoredGridItRoom }>();
+  private memMatches = new Map<string, { version: number; expiresAtMs: number; data: StoredGridItMatch }>();
   private memQueues: Record<'quick' | 'ranked', string[]> = { quick: [], ranked: [] };
   private memStats = new Map<string, GridItSessionLeaderboardEntry>();
+
+  // Write-through serialization chains & hydration flags for persistent server (!isServerless)
+  private roomPersistChain = new Map<string, Promise<void>>();
+  private matchPersistChain = new Map<string, Promise<void>>();
+  private publicRoomsHydrated = false;
+  private initialExpiredSweepDone = false;
 
   constructor(options: { forceLocalMemory?: boolean; isServerless?: boolean } = {}) {
     this.forceLocalMemory = Boolean(options.forceLocalMemory);
@@ -147,8 +153,74 @@ export class GridItStateStore {
     return JSON.parse(JSON.stringify(match)) as StoredGridItMatch;
   }
 
+  private purgeExpiredInMemory(now = Date.now()): void {
+    for (const [id, rec] of this.memRooms.entries()) {
+      if (rec.expiresAtMs <= now) {
+        this.memRooms.delete(id);
+      }
+    }
+    for (const [id, rec] of this.memMatches.entries()) {
+      if (rec.expiresAtMs <= now) {
+        this.memMatches.delete(id);
+      }
+    }
+  }
+
+  private enqueueRoomPersist(roomId: string, task: () => Promise<void>): void {
+    if (!this.usePostgres()) return;
+    const prev = this.roomPersistChain.get(roomId) ?? Promise.resolve();
+    const next = prev
+      .then(task)
+      .catch((err) => {
+        console.error(`[GridItStateStore] Async room persist error (${roomId}):`, err?.message || err);
+      })
+      .finally(() => {
+        if (this.roomPersistChain.get(roomId) === next) {
+          this.roomPersistChain.delete(roomId);
+        }
+      });
+    this.roomPersistChain.set(roomId, next);
+  }
+
+  private enqueueMatchPersist(matchId: string, task: () => Promise<void>): void {
+    if (!this.usePostgres()) return;
+    const prev = this.matchPersistChain.get(matchId) ?? Promise.resolve();
+    const next = prev
+      .then(task)
+      .catch((err) => {
+        console.error(`[GridItStateStore] Async match persist error (${matchId}):`, err?.message || err);
+      })
+      .finally(() => {
+        if (this.matchPersistChain.get(matchId) === next) {
+          this.matchPersistChain.delete(matchId);
+        }
+      });
+    this.matchPersistChain.set(matchId, next);
+  }
+
+  private findMemRoomEntry(idOrCode: string): { id: string; rec: { version: number; expiresAtMs: number; data: StoredGridItRoom } } | null {
+    const now = Date.now();
+    const trimmed = idOrCode.trim();
+    const upper = trimmed.toUpperCase();
+    const direct = this.memRooms.get(trimmed);
+    if (direct) {
+      if (direct.expiresAtMs > now) return { id: trimmed, rec: direct };
+      this.memRooms.delete(trimmed);
+    }
+    for (const [id, rec] of this.memRooms.entries()) {
+      if (rec.expiresAtMs <= now) {
+        this.memRooms.delete(id);
+        continue;
+      }
+      if (rec.data.id === trimmed || rec.data.code === upper) {
+        return { id, rec };
+      }
+    }
+    return null;
+  }
+
   async listPublicRooms(): Promise<GridItRoom[]> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       const { data, error } = await this.supabase!
         .from('gridit_rooms')
         .select('room_data')
@@ -164,6 +236,33 @@ export class GridItStateStore {
       }
     }
 
+    if (this.usePostgres() && !this.isServerless && !this.publicRoomsHydrated) {
+      const { data, error } = await this.supabase!
+        .from('gridit_rooms')
+        .select('id, version, expires_at, room_data, battle_templates')
+        .eq('is_public', true)
+        .neq('status', 'finished')
+        .gt('expires_at', new Date().toISOString())
+        .order('updated_at', { ascending: false })
+        .limit(40);
+      if (error) {
+        this.handleDbError(error, 'listPublicRooms.hydrate');
+      } else {
+        this.publicRoomsHydrated = true;
+        for (const row of data || []) {
+          const room = this.rowToRoom(row);
+          if (!this.memRooms.has(room.id) && !this.roomPersistChain.has(room.id)) {
+            this.memRooms.set(room.id, {
+              version: Number(row.version || 1),
+              expiresAtMs: Date.parse(row.expires_at) || Date.now() + ROOM_TTL_MS,
+              data: room,
+            });
+          }
+        }
+      }
+    }
+
+    this.purgeExpiredInMemory();
     return Array.from(this.memRooms.values())
       .map((r) => r.data)
       .filter((r) => r.settings.isPublic && r.status !== 'finished')
@@ -175,12 +274,17 @@ export class GridItStateStore {
     const trimmed = idOrCode.trim();
     const upper = trimmed.toUpperCase();
 
+    if (!this.isServerless) {
+      const hit = this.findMemRoomEntry(trimmed);
+      if (hit) return this.cloneRoom(hit.rec.data);
+    }
+
     if (this.usePostgres()) {
       const col = trimmed.startsWith('gr_room_') ? 'id' : 'code';
       const val = col === 'code' ? upper : trimmed;
       const { data, error } = await this.supabase!
         .from('gridit_rooms')
-        .select('room_data, battle_templates')
+        .select('id, version, expires_at, room_data, battle_templates')
         .eq(col, val)
         .gt('expires_at', new Date().toISOString())
         .maybeSingle();
@@ -188,20 +292,25 @@ export class GridItStateStore {
       if (error) {
         this.handleDbError(error, 'getRoom');
       } else {
-        return data ? this.rowToRoom(data) : null;
+        if (!data) return null;
+        const room = this.rowToRoom(data);
+        if (!this.isServerless) {
+          this.memRooms.set(room.id, {
+            version: Number(data.version || 1),
+            expiresAtMs: Date.parse(data.expires_at) || Date.now() + ROOM_TTL_MS,
+            data: room,
+          });
+        }
+        return this.cloneRoom(room);
       }
     }
 
-    for (const rec of this.memRooms.values()) {
-      if (rec.data.id === trimmed || rec.data.code === upper) {
-        return this.cloneRoom(rec.data);
-      }
-    }
-    return null;
+    const memHit = this.findMemRoomEntry(trimmed);
+    return memHit ? this.cloneRoom(memHit.rec.data) : null;
   }
 
   async insertRoom(room: StoredGridItRoom): Promise<void> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       const { battleTemplates, ...publicRoom } = room;
       const nowIso = new Date().toISOString();
       const expIso = new Date(Date.now() + ROOM_TTL_MS).toISOString();
@@ -223,7 +332,32 @@ export class GridItStateStore {
       }
     }
 
-    this.memRooms.set(room.id, { version: 1, data: this.cloneRoom(room) });
+    const cloned = this.cloneRoom(room);
+    const expiresAtMs = Date.now() + ROOM_TTL_MS;
+    this.memRooms.set(room.id, { version: 1, expiresAtMs, data: cloned });
+
+    if (!this.isServerless && this.usePostgres()) {
+      const { battleTemplates, ...publicRoom } = cloned;
+      const nowIso = new Date().toISOString();
+      const expIso = new Date(expiresAtMs).toISOString();
+      this.enqueueRoomPersist(room.id, async () => {
+        const { error } = await this.supabase!.from('gridit_rooms').upsert(
+          {
+            id: room.id,
+            code: room.code,
+            status: room.status,
+            is_public: room.settings.isPublic,
+            version: 1,
+            room_data: publicRoom,
+            battle_templates: battleTemplates,
+            updated_at: nowIso,
+            expires_at: expIso,
+          },
+          { onConflict: 'id' }
+        );
+        if (error) this.handleDbError(error, 'insertRoom.async');
+      });
+    }
   }
 
   async mutateRoom<T = StoredGridItRoom>(
@@ -233,7 +367,7 @@ export class GridItStateStore {
     const trimmed = idOrCode.trim();
     const upper = trimmed.toUpperCase();
 
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       for (let attempt = 0; attempt < 5; attempt++) {
         const col = trimmed.startsWith('gr_room_') ? 'id' : 'code';
         const val = col === 'code' ? upper : trimmed;
@@ -287,26 +421,76 @@ export class GridItStateStore {
       }
     }
 
-    for (const [id, rec] of this.memRooms.entries()) {
-      if (rec.data.id === trimmed || rec.data.code === upper) {
-        const copy = this.cloneRoom(rec.data);
-        const outcome = mutator(copy);
-        if (outcome.deleteRoom) {
-          this.memRooms.delete(id);
-        } else {
-          this.memRooms.set(id, { version: rec.version + 1, data: copy });
-        }
-        return outcome.result;
-      }
+    // Persistent server (!isServerless) or local memory fallback:
+    // Hydrate from Postgres once on cache miss before atomic synchronous mutation.
+    let hit = this.findMemRoomEntry(trimmed);
+    if (!hit && !this.isServerless && this.usePostgres()) {
+      await this.getRoom(trimmed);
+      hit = this.findMemRoomEntry(trimmed);
     }
-    return null;
+    if (!hit) return null;
+
+    const copy = this.cloneRoom(hit.rec.data);
+    const outcome = mutator(copy);
+
+    if (outcome.deleteRoom) {
+      this.memRooms.delete(hit.id);
+      if (!this.isServerless && this.usePostgres()) {
+        const roomIdToDelete = hit.id;
+        this.enqueueRoomPersist(roomIdToDelete, async () => {
+          const { error } = await this.supabase!.from('gridit_rooms').delete().eq('id', roomIdToDelete);
+          if (error) this.handleDbError(error, 'mutateRoom.deleteAsync');
+        });
+      }
+      return outcome.result;
+    }
+
+    const nextVersion = hit.rec.version + 1;
+    const nextExpiresAtMs = Date.now() + ROOM_TTL_MS;
+    this.memRooms.set(hit.id, { version: nextVersion, expiresAtMs: nextExpiresAtMs, data: copy });
+
+    if (!this.isServerless && this.usePostgres()) {
+      const snapshot = this.cloneRoom(copy);
+      const { battleTemplates, ...publicRoom } = snapshot;
+      const nowIso = new Date().toISOString();
+      const expIso = new Date(nextExpiresAtMs).toISOString();
+      this.enqueueRoomPersist(snapshot.id, async () => {
+        const { error } = await this.supabase!.from('gridit_rooms').upsert(
+          {
+            id: snapshot.id,
+            code: snapshot.code,
+            status: snapshot.status,
+            is_public: snapshot.settings.isPublic,
+            version: nextVersion,
+            room_data: publicRoom,
+            battle_templates: battleTemplates,
+            updated_at: nowIso,
+            expires_at: expIso,
+          },
+          { onConflict: 'id' }
+        );
+        if (error) this.handleDbError(error, 'mutateRoom.writeAsync');
+      });
+    }
+
+    return outcome.result;
   }
 
   async getMatch(matchId: string): Promise<StoredGridItMatch | null> {
+    if (!this.isServerless) {
+      const rec = this.memMatches.get(matchId);
+      if (rec) {
+        if (rec.expiresAtMs > Date.now()) {
+          return this.cloneMatch(rec.data);
+        }
+        this.memMatches.delete(matchId);
+      }
+    }
+
     if (this.usePostgres()) {
       const { data, error } = await this.supabase!
         .from('gridit_matches')
-        .select('match_data')
+        .select('id, version, expires_at, match_data')
         .eq('id', matchId)
         .gt('expires_at', new Date().toISOString())
         .maybeSingle();
@@ -314,7 +498,16 @@ export class GridItStateStore {
       if (error) {
         this.handleDbError(error, 'getMatch');
       } else {
-        return data ? (data.match_data as StoredGridItMatch) : null;
+        if (!data) return null;
+        const match = data.match_data as StoredGridItMatch;
+        if (!this.isServerless) {
+          this.memMatches.set(matchId, {
+            version: Number(data.version || 1),
+            expiresAtMs: Date.parse(data.expires_at) || Date.now() + MATCH_TTL_MS,
+            data: match,
+          });
+        }
+        return this.cloneMatch(match);
       }
     }
 
@@ -323,7 +516,7 @@ export class GridItStateStore {
   }
 
   async insertMatch(match: StoredGridItMatch): Promise<void> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       const { error } = await this.supabase!.from('gridit_matches').insert({
         id: match.id,
         room_id: match.roomId,
@@ -341,14 +534,37 @@ export class GridItStateStore {
       }
     }
 
-    this.memMatches.set(match.id, { version: 1, data: this.cloneMatch(match) });
+    const cloned = this.cloneMatch(match);
+    const expiresAtMs = Date.now() + MATCH_TTL_MS;
+    this.memMatches.set(match.id, { version: 1, expiresAtMs, data: cloned });
+
+    if (!this.isServerless && this.usePostgres()) {
+      const nowIso = new Date().toISOString();
+      const expIso = new Date(expiresAtMs).toISOString();
+      this.enqueueMatchPersist(match.id, async () => {
+        const { error } = await this.supabase!.from('gridit_matches').upsert(
+          {
+            id: cloned.id,
+            room_id: cloned.roomId,
+            status: cloned.status,
+            version: 1,
+            match_data: cloned,
+            ends_at: new Date(cloned.endsAtMs).toISOString(),
+            updated_at: nowIso,
+            expires_at: expIso,
+          },
+          { onConflict: 'id' }
+        );
+        if (error) this.handleDbError(error, 'insertMatch.async');
+      });
+    }
   }
 
   async mutateMatch<T = StoredGridItMatch>(
     matchId: string,
     mutator: (match: StoredGridItMatch) => T
   ): Promise<{ match: StoredGridItMatch; result: T } | null> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       for (let attempt = 0; attempt < 6; attempt++) {
         const { data: row, error } = await this.supabase!
           .from('gridit_matches')
@@ -393,16 +609,46 @@ export class GridItStateStore {
       }
     }
 
-    const rec = this.memMatches.get(matchId);
+    let rec = this.memMatches.get(matchId);
+    if (!rec && !this.isServerless && this.usePostgres()) {
+      await this.getMatch(matchId);
+      rec = this.memMatches.get(matchId);
+    }
     if (!rec) return null;
+
     const copy = this.cloneMatch(rec.data);
     const result = mutator(copy);
-    this.memMatches.set(matchId, { version: rec.version + 1, data: copy });
+    const nextVersion = rec.version + 1;
+    const nextExpiresAtMs = Date.now() + MATCH_TTL_MS;
+    this.memMatches.set(matchId, { version: nextVersion, expiresAtMs: nextExpiresAtMs, data: copy });
+
+    if (!this.isServerless && this.usePostgres()) {
+      const snapshot = this.cloneMatch(copy);
+      const nowIso = new Date().toISOString();
+      const expIso = new Date(nextExpiresAtMs).toISOString();
+      this.enqueueMatchPersist(matchId, async () => {
+        const { error } = await this.supabase!.from('gridit_matches').upsert(
+          {
+            id: snapshot.id,
+            room_id: snapshot.roomId,
+            status: snapshot.status,
+            version: nextVersion,
+            match_data: snapshot,
+            ends_at: new Date(snapshot.endsAtMs).toISOString(),
+            updated_at: nowIso,
+            expires_at: expIso,
+          },
+          { onConflict: 'id' }
+        );
+        if (error) this.handleDbError(error, 'mutateMatch.writeAsync');
+      });
+    }
+
     return { match: copy, result };
   }
 
   async listExpiredMatches(nowIso: string): Promise<StoredGridItMatch[]> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       const { data, error } = await this.supabase!
         .from('gridit_matches')
         .select('match_data')
@@ -416,7 +662,32 @@ export class GridItStateStore {
       }
     }
 
+    // Persistent server: inspect in-memory matches synchronously (0ms, no 4x/sec Postgres polling).
+    // Perform a one-time sweep from Postgres on first run to catch orphaned matches across restarts.
+    if (this.usePostgres() && !this.isServerless && !this.initialExpiredSweepDone) {
+      this.initialExpiredSweepDone = true;
+      const { data, error } = await this.supabase!
+        .from('gridit_matches')
+        .select('id, version, expires_at, match_data')
+        .neq('status', 'finished')
+        .lte('ends_at', nowIso)
+        .limit(20);
+      if (!error && data) {
+        for (const row of data) {
+          const m = row.match_data as StoredGridItMatch;
+          if (!this.memMatches.has(m.id)) {
+            this.memMatches.set(m.id, {
+              version: Number(row.version || 1),
+              expiresAtMs: Date.parse(row.expires_at) || Date.now() + MATCH_TTL_MS,
+              data: m,
+            });
+          }
+        }
+      }
+    }
+
     const nowMs = Date.parse(nowIso);
+    this.purgeExpiredInMemory(nowMs);
     return Array.from(this.memMatches.values())
       .map((r) => r.data)
       .filter((m) => m.status !== 'finished' && nowMs >= m.endsAtMs)
@@ -427,7 +698,7 @@ export class GridItStateStore {
     queueType: 'quick' | 'ranked',
     playerId: string
   ): Promise<{ matched: boolean; opponentId?: string }> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       const { data, error } = await this.supabase!.rpc('dequeue_gridit_pair', {
         p_queue_type: queueType,
         p_player_id: playerId,
@@ -455,7 +726,7 @@ export class GridItStateStore {
   }
 
   async removeFromQueue(queueType: 'quick' | 'ranked', playerId: string): Promise<void> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       const { error } = await this.supabase!
         .from('gridit_matchmaking_queue')
         .delete()
@@ -479,7 +750,7 @@ export class GridItStateStore {
     bestWord: string | null;
     isGuest: boolean;
   }): Promise<void> {
-    if (this.usePostgres()) {
+    if (this.usePostgres() && this.isServerless) {
       const { error } = await this.supabase!.rpc('upsert_gridit_session_stat', {
         p_player_id: params.playerId,
         p_username: params.username,
@@ -518,6 +789,24 @@ export class GridItStateStore {
           ? params.bestWord
           : prev.bestWord,
     });
+
+    if (!this.isServerless && this.usePostgres()) {
+      void this.supabase!
+        .rpc('upsert_gridit_session_stat', {
+          p_player_id: params.playerId,
+          p_username: params.username,
+          p_avatar_id: params.avatarId,
+          p_score: params.score,
+          p_won: params.won,
+          p_best_word: params.bestWord,
+          p_is_guest: params.isGuest,
+        })
+        .then(({ error }) => {
+          if (error) {
+            console.error('[GridItStateStore] Async stat upsert warning:', error.message);
+          }
+        });
+    }
   }
 
   async listSessionStats(): Promise<GridItSessionLeaderboardEntry[]> {

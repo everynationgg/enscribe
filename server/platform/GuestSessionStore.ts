@@ -60,7 +60,7 @@ export function sanitizeGuestNickname(raw: string): string {
     .slice(0, 20);
 }
 
-const TOKEN_CACHE_TTL_MS = 20_000;
+const TOKEN_CACHE_TTL_MS = 60_000;
 const TOKEN_CACHE_MAX_SIZE = 500;
 
 export class GuestSessionStore {
@@ -69,6 +69,7 @@ export class GuestSessionStore {
   private localByNorm = new Map<string, string>(); // nicknameNormalized -> sessionToken
   private localById = new Map<string, string>(); // sessionId -> sessionToken
   private tokenCache = new Map<string, { session: GuestSession; cachedUntilMs: number }>();
+  private idCache = new Map<string, { session: GuestSession; cachedUntilMs: number }>();
   private localLock: Promise<void> = Promise.resolve();
   private postgresMigrationPending = false;
   private loggedMigrationWarning = false;
@@ -187,14 +188,25 @@ export class GuestSessionStore {
 
   private cacheVerifiedSession(session: GuestSession, now = Date.now()): void {
     if (!session.sessionToken || session.expiresAtMs <= now) return;
+    const cachedUntilMs = Math.min(now + TOKEN_CACHE_TTL_MS, session.expiresAtMs);
     if (this.tokenCache.size >= TOKEN_CACHE_MAX_SIZE && !this.tokenCache.has(session.sessionToken)) {
       const oldestKey = this.tokenCache.keys().next().value;
       if (oldestKey) this.tokenCache.delete(oldestKey);
     }
     this.tokenCache.set(session.sessionToken, {
       session,
-      cachedUntilMs: Math.min(now + TOKEN_CACHE_TTL_MS, session.expiresAtMs),
+      cachedUntilMs,
     });
+    if (session.sessionId) {
+      if (this.idCache.size >= TOKEN_CACHE_MAX_SIZE && !this.idCache.has(session.sessionId)) {
+        const oldestId = this.idCache.keys().next().value;
+        if (oldestId) this.idCache.delete(oldestId);
+      }
+      this.idCache.set(session.sessionId, {
+        session: { ...session, sessionToken: '' },
+        cachedUntilMs,
+      });
+    }
   }
 
   private getCachedSession(token: string, now = Date.now()): GuestSession | null {
@@ -202,6 +214,16 @@ export class GuestSessionStore {
     if (!hit) return null;
     if (hit.cachedUntilMs <= now || hit.session.expiresAtMs <= now) {
       this.tokenCache.delete(token);
+      return null;
+    }
+    return hit.session;
+  }
+
+  private getCachedSessionById(sessionId: string, now = Date.now()): GuestSession | null {
+    const hit = this.idCache.get(sessionId);
+    if (!hit) return null;
+    if (hit.cachedUntilMs <= now || hit.session.expiresAtMs <= now) {
+      this.idCache.delete(sessionId);
       return null;
     }
     return hit.session;
@@ -391,6 +413,9 @@ export class GuestSessionStore {
     const sid = String(sessionId || '').trim();
     if (!sid || !sid.startsWith('guest_')) return null;
 
+    const cached = this.getCachedSessionById(sid);
+    if (cached) return cached;
+
     if (this.supabase && !this.postgresMigrationPending) {
       const { data, error } = await this.supabase.rpc('get_guest_session_by_id', {
         p_session_id: sid,
@@ -403,7 +428,14 @@ export class GuestSessionStore {
         }
       } else {
         const res = data as RpcResult | null;
-        return res?.ok && res.session ? res.session : null;
+        if (res?.ok && res.session) {
+          this.idCache.set(sid, {
+            session: { ...res.session, sessionToken: '' },
+            cachedUntilMs: Math.min(Date.now() + TOKEN_CACHE_TTL_MS, res.session.expiresAtMs),
+          });
+          return res.session;
+        }
+        return null;
       }
     }
 
@@ -420,6 +452,10 @@ export class GuestSessionStore {
   async releaseSession(sessionToken: string): Promise<void> {
     const token = String(sessionToken || '').trim();
     if (!token) return;
+    const cachedTok = this.tokenCache.get(token);
+    if (cachedTok) {
+      this.idCache.delete(cachedTok.session.sessionId);
+    }
     this.tokenCache.delete(token);
 
     if (this.supabase && !this.postgresMigrationPending) {

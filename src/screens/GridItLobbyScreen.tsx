@@ -17,7 +17,7 @@ import { GridItCustomTemplate, validateCustomTemplate } from '../../shared/gridi
 import { GridItRoom } from '../../shared/gridit/multiplayerTypes';
 import { PlayerSession } from '../../shared/types';
 import { AvatarBadge } from '../components/Artwork';
-import { loadGridItDictionary, LoadedDictionary } from '../games/gridit/dictionary';
+import { loadGridItWordSet } from '../games/gridit/dictionary';
 import { buildSampleValidTemplate, localGridItTemplateStore } from '../games/gridit/templateStorage';
 import { api } from '../services/api';
 
@@ -48,20 +48,34 @@ export const GridItLobbyScreen: React.FC<GridItLobbyScreenProps> = ({
   onStartMatch,
   onNotify,
 }) => {
-  const [dict, setDict] = useState<LoadedDictionary | null>(null);
+  const [wordSet, setWordSet] = useState<Set<string> | null>(null);
   const [localTemplates, setLocalTemplates] = useState<GridItCustomTemplate[]>([]);
   const [chatDraft, setChatDraft] = useState('');
   const [translatedById, setTranslatedById] = useState<Record<string, string>>({});
   const [submittingTpl, setSubmittingTpl] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const meParticipant = room.players.find((p) => p.playerId === session.playerId);
   const isSpectator = !meParticipant;
   const isHost = room.hostId === session.playerId;
 
   useEffect(() => {
-    loadGridItDictionary(room.settings.language).then(setDict);
     localGridItTemplateStore.list().then(setLocalTemplates);
-  }, [room.settings.language]);
+  }, []);
+
+  useEffect(() => {
+    if (room.settings.mode !== 'board_battle') {
+      setWordSet(null);
+      return;
+    }
+    let cancelled = false;
+    loadGridItWordSet(room.settings.language).then((loaded) => {
+      if (!cancelled) setWordSet(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [room.settings.mode, room.settings.language]);
 
   const handleCopyCode = () => {
     navigator.clipboard?.writeText(room.code).catch(() => undefined);
@@ -69,13 +83,13 @@ export const GridItLobbyScreen: React.FC<GridItLobbyScreenProps> = ({
   };
 
   const handleQuickCreateBattleBoard = async () => {
-    if (!dict) return;
+    if (!wordSet) return;
     setSubmittingTpl(true);
     try {
       const generated = buildSampleValidTemplate(
         room.settings.shapeId,
         room.settings.sizeId,
-        dict.words,
+        wordSet,
         `${session.nickname}'s ${room.settings.shapeId} Battle`
       );
       await localGridItTemplateStore.save(generated);
@@ -227,7 +241,7 @@ export const GridItLobbyScreen: React.FC<GridItLobbyScreenProps> = ({
                 <button
                   type="button"
                   className="ens-gridit-mini-action"
-                  disabled={!dict || submittingTpl}
+                  disabled={!wordSet || submittingTpl}
                   onClick={handleQuickCreateBattleBoard}
                 >
                   <Wand2 size={12} />{' '}
@@ -242,10 +256,10 @@ export const GridItLobbyScreen: React.FC<GridItLobbyScreenProps> = ({
                 </button>
               </div>
 
-              {localTemplates.length > 0 && dict && (
+              {localTemplates.length > 0 && wordSet && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {localTemplates
-                    .filter((t) => validateCustomTemplate(t, dict.words).valid)
+                    .filter((t) => validateCustomTemplate(t, wordSet).valid)
                     .slice(0, 4)
                     .map((tpl) => (
                       <div key={tpl.id} className="ens-gridit-quota-row">
@@ -369,11 +383,19 @@ export const GridItLobbyScreen: React.FC<GridItLobbyScreenProps> = ({
                 type="button"
                 className="ens-gridit-green-cta"
                 style={{ flex: 1.4, minHeight: 44, fontSize: 15 }}
-                disabled={!canStart}
-                onClick={onStartMatch}
+                disabled={!canStart || starting}
+                onClick={async () => {
+                  if (!canStart || starting) return;
+                  setStarting(true);
+                  try {
+                    await onStartMatch();
+                  } finally {
+                    setStarting(false);
+                  }
+                }}
               >
                 <Play size={16} fill="#ffffff" />
-                <span>Start Match</span>
+                <span>{starting ? 'Starting...' : 'Start Match'}</span>
               </button>
             )}
           </div>
