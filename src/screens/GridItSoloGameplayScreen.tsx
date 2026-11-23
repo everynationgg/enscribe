@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
-  Clock,
   Crown,
   Flag,
   Lightbulb,
@@ -14,23 +13,17 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import {
-  DEFAULT_GRIDIT_SCORING,
-  findBoardWords,
-  generatePlayableBoard,
-  getWordFromPath,
-} from '../../shared/gridit/engine';
-import {
-  GridItCustomTemplate,
-  completeBoardFromTemplate,
-} from '../../shared/gridit/editor';
+import { DEFAULT_GRIDIT_SCORING } from '../../shared/gridit/engine';
+import { GridItCustomTemplate } from '../../shared/gridit/editor';
 import {
   DEFAULT_GRIDIT_MODS,
   GridItModConfig,
   GridItModSchedule,
   MAX_GRIDIT_MULTIPLIER,
   generateModSchedule,
+  getBoardModStateKey,
   getBoardSnapshotAtTime,
+  getNextScheduleTransitionDelayMs,
   resolveWordPathWithMods,
 } from '../../shared/gridit/mods';
 import { getShapeTemplate } from '../../shared/gridit/shapes';
@@ -42,12 +35,17 @@ import {
   PlayerSession,
 } from '../../shared/types';
 import { GridItDefinitionModal } from '../components/GridItDefinitionModal';
+import { GridItTimerDisplay } from '../components/GridItTimerDisplay';
 import { AvatarBadge } from '../components/Artwork';
 import {
   fetchWordDefinition,
-  loadGridItDictionary,
-  LoadedDictionary,
+  loadGridItWordSet,
 } from '../games/gridit/dictionary';
+import {
+  completeTemplateInWorker,
+  findHintWordsInWorker,
+  generatePlayableBoardInWorker,
+} from '../games/gridit/workerClient';
 import { GridItBoardCanvas } from '../games/gridit/GridItBoardCanvas';
 
 interface GridItSoloGameplayScreenProps {
@@ -62,12 +60,76 @@ interface GridItSoloGameplayScreenProps {
   onExitToHub: () => void;
 }
 
-function formatTime(seconds: number): string {
-  const safe = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(safe / 60);
-  const s = safe % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+interface SoloBottomPanelsProps {
+  foundWords: GridItFoundWord[];
+  score: number;
+  bestWord: GridItFoundWord | null;
+  maxMultiplierSeen: number;
+  tileCount: number;
+  onSelectWord: (word: string) => void;
 }
+
+const SoloBottomPanels: React.FC<SoloBottomPanelsProps> = memo(
+  ({ foundWords, score, bestWord, maxMultiplierSeen, tileCount, onSelectWord }) => (
+    <div className="ens-gridit-bottom-panels">
+      <div className="ens-gridit-panel">
+        <div className="ens-gridit-panel-title">Found Words ({foundWords.length})</div>
+        <div className="ens-gridit-found-list">
+          {foundWords.length === 0 ? (
+            <div className="ens-gridit-empty-hint">
+              Tap any found word here to read its dictionary definition.
+            </div>
+          ) : (
+            foundWords.map((fw) => (
+              <button
+                key={fw.word}
+                type="button"
+                className="ens-gridit-found-row"
+                onClick={() => onSelectWord(fw.word)}
+                title={`Look up ${fw.word}`}
+              >
+                <span className="ens-gridit-found-word">{fw.word.toLowerCase()}</span>
+                <span className="ens-gridit-found-right">
+                  <span className="ens-gridit-found-pts">+{fw.points}</span>
+                  <BookOpen size={13} color="#bae6fd" />
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="ens-gridit-panel">
+        <div className="ens-gridit-panel-title">Your Stats</div>
+        <div className="ens-gridit-stats-rows">
+          <div className="ens-gridit-stat-line">
+            <span>Score</span>
+            <strong>{score}</strong>
+          </div>
+          <div className="ens-gridit-stat-line">
+            <span>Words</span>
+            <strong>{foundWords.length}</strong>
+          </div>
+          <div className="ens-gridit-stat-line">
+            <span>Best</span>
+            <strong>{bestWord ? `${bestWord.word} (+${bestWord.points})` : '—'}</strong>
+          </div>
+          <div className="ens-gridit-stat-line">
+            <span>Max Mult</span>
+            <strong>
+              {maxMultiplierSeen}× (Cap {MAX_GRIDIT_MULTIPLIER}×)
+            </strong>
+          </div>
+          <div className="ens-gridit-stat-line">
+            <span>Tiles</span>
+            <strong>{tileCount}</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+);
+SoloBottomPanels.displayName = 'SoloBottomPanels';
 
 export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> = ({
   session,
@@ -80,7 +142,8 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
   onExitToSetup,
   onExitToHub,
 }) => {
-  const [dict, setDict] = useState<LoadedDictionary | null>(null);
+  const [wordSet, setWordSet] = useState<Set<string> | null>(null);
+  const [isFallbackDict, setIsFallbackDict] = useState(false);
   const [board, setBoard] = useState<GridItBoard | null>(null);
   const [schedule, setSchedule] = useState<GridItModSchedule | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -104,6 +167,7 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
   const shapeMeta = useMemo(() => getShapeTemplate(shapeId), [shapeId]);
   const feedbackTimerRef = useRef<number | null>(null);
   const shakeTimerRef = useRef<number | null>(null);
+  const genReqRef = useRef(0);
 
   const showFeedback = useCallback((text: string, tone: 'ok' | 'err' | 'info') => {
     setFeedback({ text, tone });
@@ -122,19 +186,25 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
     };
   }, []);
 
-  // Load dictionary lazily, generate complete board before reveal, then run synchronized physical shake
-  const startNewBoard = useCallback((loadedDict: LoadedDictionary) => {
-    const newBoard = customTemplate
-      ? completeBoardFromTemplate(customTemplate, {
-          dictionary: loadedDict.words,
-          prefixSet: loadedDict.prefixes,
-          stripAuthoredFlag: true,
-        }).board
-      : generatePlayableBoard(shapeId, sizeId, {
-          language,
-          dictionary: loadedDict.words,
-          prefixSet: loadedDict.prefixes,
-        });
+  // Generate complete board inside Web Worker off the main thread, while loading lightweight word set for O(1) validation
+  const startNewBoard = useCallback(async () => {
+    const reqId = ++genReqRef.current;
+    const [words, generated] = await Promise.all([
+      loadGridItWordSet(language),
+      customTemplate
+        ? completeTemplateInWorker({
+            template: customTemplate,
+            stripAuthoredFlag: true,
+          })
+        : generatePlayableBoardInWorker({
+            shapeId,
+            sizeId,
+            language,
+          }),
+    ]);
+    if (reqId !== genReqRef.current) return;
+
+    const newBoard = generated.board;
     const reduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -148,6 +218,8 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
       playStartAt
     );
 
+    setWordSet(words);
+    setIsFallbackDict(generated.isFallback);
     setBoard(newBoard);
     setSchedule(newSchedule);
     setNowMs(Date.now());
@@ -174,23 +246,22 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
   }, [customTemplate, durationSeconds, language, mods, shapeId, showFeedback, sizeId]);
 
   useEffect(() => {
-    let cancelled = false;
-    loadGridItDictionary(language).then((loaded) => {
-      if (cancelled) return;
-      setDict(loaded);
-      startNewBoard(loaded);
-    });
+    startNewBoard();
     return () => {
-      cancelled = true;
+      genReqRef.current++;
     };
-  }, [language, startNewBoard]);
+  }, [startNewBoard]);
 
-  // 250ms mod schedule clock + active countdown timer
+  // Schedule exact timeout only for the next mod window boundary (zero 250ms full-screen polling)
   useEffect(() => {
     if (!board || matchPhase !== 'playing' || paused || finished) return;
-    const modTick = window.setInterval(() => setNowMs(Date.now()), 250);
-    return () => window.clearInterval(modTick);
-  }, [board, matchPhase, paused, finished]);
+    const delay = getNextScheduleTransitionDelayMs(schedule, Date.now());
+    if (delay === null) return;
+    const timer = window.setTimeout(() => {
+      setNowMs(Date.now());
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [board, matchPhase, paused, finished, schedule, nowMs]);
 
   useEffect(() => {
     if (!board || matchPhase !== 'playing' || durationSeconds <= 0 || paused || finished) return;
@@ -207,10 +278,16 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
     return () => window.clearInterval(interval);
   }, [board, matchPhase, durationSeconds, paused, finished]);
 
+  const modStateKey = useMemo(
+    () => getBoardModStateKey(board?.id ?? '', schedule, nowMs),
+    [board?.id, schedule, nowMs]
+  );
+
   const boardSnapshot = useMemo(() => {
     if (!board) return null;
     return getBoardSnapshotAtTime(board, schedule, nowMs);
-  }, [board, schedule, nowMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board, schedule, modStateKey]);
 
   const activeBoard = boardSnapshot?.board ?? board;
 
@@ -244,9 +321,9 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
 
   const handleSubmitPath = useCallback(
     (path: string[]) => {
-      if (!board || !dict || matchPhase !== 'playing' || paused || finished) return;
+      if (!board || !wordSet || matchPhase !== 'playing' || paused || finished) return;
       const submitNow = Date.now();
-      const result = resolveWordPathWithMods(board, path, dict.words, foundWordSet, {
+      const result = resolveWordPathWithMods(board, path, wordSet, foundWordSet, {
         nowMs: submitNow,
         schedule,
         modConfig: mods,
@@ -284,15 +361,16 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
       const multNote = result.multiplier > 1 ? ` (${result.multiplier}×)` : '';
       showFeedback(`+${result.finalPoints} pts${multNote} • ${result.word}!`, 'ok');
     },
-    [board, comboCount, dict, finished, foundWordSet, lastWordAtMs, matchPhase, mods, paused, schedule, showFeedback]
+    [board, comboCount, finished, foundWordSet, lastWordAtMs, matchPhase, mods, paused, schedule, showFeedback, wordSet]
   );
 
-  const handleHint = () => {
-    if (!activeBoard || !dict || paused || finished) return;
-    const candidates = findBoardWords(activeBoard, dict.words, dict.prefixes, {
+  const handleHint = useCallback(async () => {
+    if (!activeBoard || paused || finished) return;
+    const { candidates } = await findHintWordsInWorker({
+      board: activeBoard,
+      language,
+      excludeWords: Array.from(foundWordSet),
       maxWords: 20,
-      maxVisits: 4000,
-      excludeWords: foundWordSet,
     });
     if (candidates.length === 0) {
       showFeedback('No more hints available on this board!', 'info');
@@ -302,19 +380,27 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
     const startId = pick.tilePath[0];
     setHintTileId(startId);
     showFeedback(`Hint: look for a ${pick.word.length}-letter word starting at glow!`, 'info');
-  };
+  }, [activeBoard, finished, foundWordSet, language, paused, showFeedback]);
+
+  const activeTileLetterMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (activeBoard) {
+      for (const t of activeBoard.tiles) map.set(t.id, t.letter);
+    }
+    return map;
+  }, [activeBoard]);
 
   const activeWordPreview = useMemo(() => {
     if (!activeBoard || selectedPath.length === 0) return '';
     return selectedPath
       .map((id) => {
         if (boardSnapshot?.activeRainbowIds.has(id)) return '★';
-        return activeBoard.tiles.find((t) => t.id === id)?.letter ?? '';
+        return activeTileLetterMap.get(id) ?? '';
       })
       .join('');
-  }, [activeBoard, boardSnapshot, selectedPath]);
+  }, [activeBoard, activeTileLetterMap, boardSnapshot?.activeRainbowIds, selectedPath]);
 
-  if (!activeBoard || !dict) {
+  if (!activeBoard || !wordSet) {
     return (
       <div className="ens-fantasy-page ens-gridit-page">
         <div className="ens-sky-sparkles" aria-hidden="true" />
@@ -361,14 +447,11 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
             </div>
           </div>
 
-          <div
-            className={`ens-gridit-hud-timer ${
-              durationSeconds > 0 && secondsLeft <= 15 ? 'is-low' : ''
-            }`}
-          >
-            <Clock size={14} />
-            <span>{durationSeconds > 0 ? formatTime(secondsLeft) : '∞'}</span>
-          </div>
+          <GridItTimerDisplay
+            mode="solo"
+            durationSeconds={durationSeconds}
+            secondsLeft={secondsLeft}
+          />
 
           <button
             type="button"
@@ -397,7 +480,7 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
                 +RING {boardSnapshot?.activeGrowthWaveCount}
               </span>
             )}
-            {dict.isFallback && <span className="ens-gridit-offline-chip">Offline Core Dict</span>}
+            {isFallbackDict && <span className="ens-gridit-offline-chip">Offline Core Dict</span>}
           </div>
         </div>
 
@@ -470,67 +553,14 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
           </div>
         )}
 
-        {/* Bottom 2-Column Found Words & Stats Panel matching Screen 3 */}
-        <div className="ens-gridit-bottom-panels">
-          <div className="ens-gridit-panel">
-            <div className="ens-gridit-panel-title">
-              Found Words ({foundWords.length})
-            </div>
-            <div className="ens-gridit-found-list">
-              {foundWords.length === 0 ? (
-                <div className="ens-gridit-empty-hint">
-                  Tap any found word here to read its dictionary definition.
-                </div>
-              ) : (
-                foundWords.map((fw) => (
-                  <button
-                    key={fw.word}
-                    type="button"
-                    className="ens-gridit-found-row"
-                    onClick={() => setDefinitionWord(fw.word)}
-                    title={`Look up ${fw.word}`}
-                  >
-                    <span className="ens-gridit-found-word">{fw.word.toLowerCase()}</span>
-                    <span className="ens-gridit-found-right">
-                      <span className="ens-gridit-found-pts">+{fw.points}</span>
-                      <BookOpen size={13} color="#bae6fd" />
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="ens-gridit-panel">
-            <div className="ens-gridit-panel-title">Your Stats</div>
-            <div className="ens-gridit-stats-rows">
-              <div className="ens-gridit-stat-line">
-                <span>Score</span>
-                <strong>{score}</strong>
-              </div>
-              <div className="ens-gridit-stat-line">
-                <span>Words</span>
-                <strong>{foundWords.length}</strong>
-              </div>
-              <div className="ens-gridit-stat-line">
-                <span>Best</span>
-                <strong>
-                  {bestWord ? `${bestWord.word} (+${bestWord.points})` : '—'}
-                </strong>
-              </div>
-              <div className="ens-gridit-stat-line">
-                <span>Max Mult</span>
-                <strong>
-                  {maxMultiplierSeen}× (Cap {MAX_GRIDIT_MULTIPLIER}×)
-                </strong>
-              </div>
-              <div className="ens-gridit-stat-line">
-                <span>Tiles</span>
-                <strong>{activeBoard.tiles.length}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SoloBottomPanels
+          foundWords={foundWords}
+          score={score}
+          bestWord={bestWord}
+          maxMultiplierSeen={maxMultiplierSeen}
+          tileCount={activeBoard.tiles.length}
+          onSelectWord={setDefinitionWord}
+        />
 
         {/* Bottom Solo Utility Bar */}
         <div className="ens-gridit-toolbar">
@@ -640,7 +670,7 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
               <button
                 type="button"
                 className="ens-gridit-green-cta"
-                onClick={() => startNewBoard(dict)}
+                onClick={() => startNewBoard()}
               >
                 <RotateCcw size={16} />
                 <span>Play Again</span>

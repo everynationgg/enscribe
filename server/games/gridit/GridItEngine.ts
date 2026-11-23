@@ -21,8 +21,10 @@ import {
 } from '../../../shared/gridit/mods.js';
 import {
   GridItChatMessage,
+  GridItMatchDelta,
   GridItMatchMode,
   GridItMatchPlayerClient,
+  GridItMatchPlayerDeltaSummary,
   GridItMatchStateClient,
   GridItRoom,
   GridItRoomParticipant,
@@ -38,7 +40,7 @@ import {
   StoredGridItPlayerState,
   StoredGridItRoom,
 } from './GridItStateStore.js';
-import { getServerDictionary } from './serverDictionary.js';
+import { getServerDictionary, getServerWordSet } from './serverDictionary.js';
 
 export class GridItForbiddenError extends Error {
   status = 403;
@@ -58,6 +60,19 @@ const UNTIMED_MAX_MS = 30 * 60 * 1000;
 export class GridItEngine {
   private store: GridItStateStore;
   private resolveProfileFn?: (playerId: string) => Promise<Profile | null>;
+  private recentMatches = new Map<string, StoredGridItMatch>();
+
+  private rememberMatch(match: StoredGridItMatch): void {
+    if (this.recentMatches.size >= 50 && !this.recentMatches.has(match.id)) {
+      const oldest = this.recentMatches.keys().next().value;
+      if (oldest) this.recentMatches.delete(oldest);
+    }
+    this.recentMatches.set(match.id, match);
+  }
+
+  getCachedMatchRecord(matchId: string): StoredGridItMatch | null {
+    return this.recentMatches.get(matchId) ?? null;
+  }
 
   constructor(
     private repo: StorageRepository,
@@ -465,6 +480,7 @@ export class GridItEngine {
     });
 
     await this.store.insertMatch(match);
+    this.rememberMatch(match);
 
     const updatedRoom = await this.store.mutateRoom(room.id, (r) => {
       r.status = 'in_progress';
@@ -661,6 +677,7 @@ export class GridItEngine {
       spectators: [],
     });
     await this.store.insertMatch(match);
+    this.rememberMatch(match);
     return { status: 'matched', match };
   }
 
@@ -700,6 +717,7 @@ export class GridItEngine {
       spectators: [],
     });
     await this.store.insertMatch(match);
+    this.rememberMatch(match);
     return { status: 'matched', match };
   }
 
@@ -789,7 +807,7 @@ export class GridItEngine {
     tilePath: string[],
     preferredWord?: string
   ) {
-    const dict = getServerDictionary('en');
+    const enWords = getServerWordSet('en');
     const nowMs = Date.now();
 
     const mutated = await this.store.mutateMatch(matchId, (match) => {
@@ -806,15 +824,15 @@ export class GridItEngine {
         throw new GridItBadRequestError('Match timer has finished.');
       }
 
-      const matchDict =
+      const matchWords =
         match.settings.language && match.settings.language !== 'en'
-          ? getServerDictionary(match.settings.language)
-          : dict;
+          ? getServerWordSet(match.settings.language)
+          : enWords;
       const already = new Set(playerState.foundWords.map((w) => w.word));
       const validation = resolveWordPathWithMods(
         playerState.assignedBoard,
         tilePath,
-        matchDict.words,
+        matchWords,
         already,
         {
           nowMs,
@@ -856,9 +874,11 @@ export class GridItEngine {
     });
 
     if (!mutated) throw new GridItNotFoundError('GridIt match not found.');
+    this.rememberMatch(mutated.match);
     return {
       validation: mutated.result.validation,
       match: this.buildSanitizedClientState(mutated.match, playerId, nowMs),
+      matchRecord: mutated.match,
     };
   }
 
@@ -893,6 +913,7 @@ export class GridItEngine {
     });
 
     if (!mutated) throw new GridItNotFoundError('GridIt match not found.');
+    this.rememberMatch(mutated.match);
     return mutated.result;
   }
 
@@ -913,6 +934,7 @@ export class GridItEngine {
       return true;
     });
     if (!mutated) throw new GridItNotFoundError('GridIt match not found.');
+    this.rememberMatch(mutated.match);
     if (shouldFinalizeStats) {
       await this.persistMatchFinalizationSideEffects(mutated.match);
     }
@@ -939,6 +961,7 @@ export class GridItEngine {
       battleTemplates: old.battleTemplatesSnapshot,
     });
     await this.store.insertMatch(next);
+    this.rememberMatch(next);
 
     if (old.roomId) {
       await this.store
@@ -953,10 +976,65 @@ export class GridItEngine {
     return next;
   }
 
+  getMatchAudienceIdsFromRecord(match: StoredGridItMatch): string[] {
+    return [...match.playerOrder, ...match.spectators.map((s) => s.playerId)];
+  }
+
   async getMatchAudienceIds(matchId: string): Promise<string[]> {
+    const cached = this.getCachedMatchRecord(matchId);
+    if (cached) return this.getMatchAudienceIdsFromRecord(cached);
     const match = await this.store.getMatch(matchId);
     if (!match) return [];
-    return [...match.playerOrder, ...match.spectators.map((s) => s.playerId)];
+    this.rememberMatch(match);
+    return this.getMatchAudienceIdsFromRecord(match);
+  }
+
+  sanitizeMatchForViewerFromRecord(
+    match: StoredGridItMatch,
+    viewerId: string,
+    nowMs = Date.now(),
+    spectatePlayerId?: string
+  ): GridItMatchStateClient {
+    return this.buildSanitizedClientState(match, viewerId, nowMs, spectatePlayerId);
+  }
+
+  buildMatchDeltaFromRecord(
+    match: StoredGridItMatch,
+    nowMs = Date.now()
+  ): GridItMatchDelta {
+    const effectiveStatus: StoredGridItMatch['status'] =
+      match.status === 'finished' || nowMs >= match.endsAtMs
+        ? 'finished'
+        : nowMs >= match.startedAtMs
+          ? 'active'
+          : 'shaking';
+    const players: Record<string, GridItMatchPlayerDeltaSummary> = {};
+    for (const pid of match.playerOrder) {
+      const ps = match.players[pid];
+      players[pid] = {
+        playerId: ps.playerId,
+        username: ps.username,
+        avatarId: ps.avatarId,
+        isOnline: this.isPlayerOnline(ps.playerId),
+        score: ps.rawScore,
+        rawScore: ps.rawScore,
+        normalizedScorePercent: ps.normalizedScorePercent,
+        wordsFoundCount: ps.foundWords.length,
+        bestWord: ps.bestWord,
+        comboCount: ps.comboCount,
+        isWinner: match.winnerIds.includes(ps.playerId),
+      };
+    }
+    return {
+      id: match.id,
+      status: effectiveStatus,
+      serverNowMs: nowMs,
+      endsAtMs: match.endsAtMs,
+      players,
+      spectators: match.spectators,
+      winnerIds: match.winnerIds,
+      messages: match.messages,
+    };
   }
 
   async sanitizeMatchForViewer(

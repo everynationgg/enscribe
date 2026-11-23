@@ -107,6 +107,31 @@ export interface GridItMatchStateClient {
   messages: GridItChatMessage[];
 }
 
+export interface GridItMatchPlayerDeltaSummary {
+  playerId: string;
+  username: string;
+  avatarId: string;
+  isOnline: boolean;
+  score: number;
+  rawScore: number;
+  normalizedScorePercent: number;
+  wordsFoundCount: number;
+  bestWord: GridItFoundWord | null;
+  comboCount: number;
+  isWinner: boolean;
+}
+
+export interface GridItMatchDelta {
+  id: string;
+  status: 'shaking' | 'active' | 'finished';
+  serverNowMs: number;
+  endsAtMs: number;
+  players: Record<string, GridItMatchPlayerDeltaSummary>;
+  spectators: GridItSpectator[];
+  winnerIds: string[];
+  messages: GridItChatMessage[];
+}
+
 export interface GridItSessionLeaderboardEntry {
   playerId: string;
   username: string;

@@ -21,14 +21,14 @@ import {
   GridItCustomTemplate,
   buildEditorPreviewBoard,
   canPlaceWordOnTemplate,
-  completeBoardFromTemplate,
   validateCustomTemplate,
 } from '../../shared/gridit/editor';
-import { analyzeBoardFairness } from '../../shared/gridit/fairness';
+import { BoardFairnessReport } from '../../shared/gridit/fairness';
 import { GRIDIT_SHAPES, getShapeTemplate } from '../../shared/gridit/shapes';
 import { GridItBoardSize, GridItShapeId } from '../../shared/gridit/types';
 import { GridItShapeMiniPreview } from '../components/GridItShapePreview';
-import { LoadedDictionary, loadGridItDictionary } from '../games/gridit/dictionary';
+import { loadGridItWordSet } from '../games/gridit/dictionary';
+import { analyzeTemplateFairnessInWorker } from '../games/gridit/workerClient';
 import { GridItBoardCanvas } from '../games/gridit/GridItBoardCanvas';
 import {
   buildSampleValidTemplate,
@@ -62,7 +62,7 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
   onSelectForBattle,
   selectModeLabel,
 }) => {
-  const [dict, setDict] = useState<LoadedDictionary | null>(null);
+  const [wordSet, setWordSet] = useState<Set<string> | null>(null);
   const [template, setTemplate] = useState<GridItCustomTemplate>(() =>
     createBlankTemplate('heart', 'medium', 'My Heart Board')
   );
@@ -75,6 +75,7 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
   const [showLibrary, setShowLibrary] = useState(false);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [fairnessPreview, setFairnessPreview] = useState<BoardFairnessReport | null>(null);
 
   const refreshSaved = useCallback(async () => {
     const list = await localGridItTemplateStore.list();
@@ -82,7 +83,7 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
   }, []);
 
   useEffect(() => {
-    loadGridItDictionary('en').then(setDict);
+    loadGridItWordSet('en').then(setWordSet);
     refreshSaved();
   }, [refreshSaved]);
 
@@ -96,21 +97,30 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
   );
 
   const validation = useMemo(() => {
-    if (!dict) {
+    if (!wordSet) {
       return null;
     }
-    return validateCustomTemplate(template, dict.words);
-  }, [dict, template]);
+    return validateCustomTemplate(template, wordSet);
+  }, [wordSet, template]);
 
-  const fairnessPreview = useMemo(() => {
-    if (!dict || !validation?.valid) return null;
-    const completed = completeBoardFromTemplate(template, {
-      seed: 1337,
-      dictionary: dict.words,
-      prefixSet: dict.prefixes,
-    });
-    return analyzeBoardFairness(completed.board, dict.words, dict.prefixes);
-  }, [dict, template, validation?.valid]);
+  useEffect(() => {
+    if (!validation?.valid) {
+      setFairnessPreview(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      analyzeTemplateFairnessInWorker({ template, seed: 1337 })
+        .then((res) => {
+          if (!cancelled) setFairnessPreview(res.fairness);
+        })
+        .catch(() => undefined);
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [template, validation?.valid]);
 
   const showStatus = (text: string, tone: 'ok' | 'err' | 'info') => {
     setStatusMsg({ text, tone });
@@ -148,7 +158,7 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
   };
 
   const handlePlaceWord = () => {
-    if (!dict) return;
+    if (!wordSet) return;
     const clean = wordDraft.trim().toUpperCase().replace(/[^A-Z]/g, '');
     if (selectedPath.length < 3) {
       showStatus('Trace or tap at least 3 neighboring empty/compatible tiles on the board first.', 'err');
@@ -161,7 +171,7 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
       template.authoredWords,
       clean,
       selectedPath,
-      dict.words
+      wordSet
     );
     if (!check.ok) {
       showStatus(check.reason || 'Cannot place word along selected path.', 'err');
@@ -208,11 +218,11 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
   };
 
   const handleFillSample = () => {
-    if (!dict) return;
+    if (!wordSet) return;
     const sample = buildSampleValidTemplate(
       template.shapeId,
       template.sizeId,
-      dict.words,
+      wordSet,
       template.name || `${shapeMeta.name} Custom`
     );
     setTemplate((prev) => ({
@@ -586,7 +596,7 @@ export const GridItBoardEditorScreen: React.FC<GridItBoardEditorScreenProps> = (
                 </div>
               ) : (
                 savedTemplates.map((item) => {
-                  const isValid = dict ? validateCustomTemplate(item, dict.words).valid : false;
+                  const isValid = wordSet ? validateCustomTemplate(item, wordSet).valid : false;
                   return (
                     <div key={item.id} className="ens-player-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 7 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>

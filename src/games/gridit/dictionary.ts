@@ -253,9 +253,49 @@ const FALLBACK_CORE_WORDS = [
 ];
 
 const dictionaryPromiseCache = new Map<string, Promise<LoadedDictionary>>();
+const wordSetPromiseCache = new Map<string, Promise<Set<string>>>();
 const definitionMemCache = new Map<string, WordDefinitionResult>();
 const DICT_CACHE_STORAGE_KEY = 'enscribe_dict_cache_en_v1';
 const MAX_LOCAL_DEF_CACHE = 200;
+
+/**
+ * Lightweight main-thread word set loader (skips building ~1.3M prefix strings).
+ * Used for instant <1ms O(1) word validation on main thread while board generation
+ * and DFS run inside the GridIt Web Worker.
+ */
+export function loadGridItWordSet(language = 'en'): Promise<Set<string>> {
+  const key = language.toLowerCase();
+  const cachedDict = dictionaryPromiseCache.get(key);
+  if (cachedDict) {
+    return cachedDict.then((d) => d.words);
+  }
+  const existing = wordSetPromiseCache.get(key);
+  if (existing) return existing;
+
+  const promise = (async (): Promise<Set<string>> => {
+    try {
+      const res = await fetch(`/dictionaries/${encodeURIComponent(key)}.txt`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      const words = new Set<string>();
+      for (const raw of text.split(/\r?\n/)) {
+        const clean = raw.trim().toUpperCase();
+        if (clean.length >= 3 && clean.length <= 15) {
+          words.add(clean);
+        }
+      }
+      if (words.size > 1000) return words;
+      throw new Error('Dictionary empty');
+    } catch {
+      const fallback = new Set<string>();
+      for (const w of FALLBACK_CORE_WORDS) fallback.add(w.toUpperCase());
+      return fallback;
+    }
+  })();
+
+  wordSetPromiseCache.set(key, promise);
+  return promise;
+}
 
 function buildDictionaryFromWords(
   language: string,

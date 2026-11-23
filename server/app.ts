@@ -32,7 +32,8 @@ import {
   GridItForbiddenError,
   GridItNotFoundError,
 } from './games/gridit/GridItEngine.js';
-import { GridItUnavailableError } from './games/gridit/GridItStateStore.js';
+import { GridItUnavailableError, StoredGridItMatch } from './games/gridit/GridItStateStore.js';
+import { GridItRoom } from '../shared/gridit/multiplayerTypes.js';
 import { suggestTemplateFillerLettersWithGemini } from './games/gridit/geminiFiller.js';
 import {
   AssignedPuzzle,
@@ -67,7 +68,11 @@ export interface EnscribeBackendRuntime {
   guestStore: GuestSessionStore;
   isPlayerOnline: (playerId: string) => boolean;
   broadcastMatchState: (match: StoredMatch) => void;
-  broadcastGridItMatch: (matchId: string) => Promise<void>;
+  broadcastGridItMatch: (
+    matchId: string,
+    matchRecord?: StoredGridItMatch | null,
+    mode?: 'full' | 'delta'
+  ) => Promise<void>;
   flushSideEffects: (persistSnapshot?: boolean) => Promise<void>;
   processTimersAndFlush: () => Promise<StoredMatch[]>;
 }
@@ -250,9 +255,9 @@ export function createEnscribeApp(
     }
   };
 
-  const broadcastGridItRoom = async (roomId: string): Promise<void> => {
+  const broadcastGridItRoom = async (roomId: string, roomSnapshot?: GridItRoom): Promise<void> => {
     try {
-      const room = await gridItEngine.getRoom(roomId);
+      const room = roomSnapshot ?? (await gridItEngine.getRoom(roomId));
       pendingBroadcasts.push({ event: 'gridit:room_updated', payload: room });
       pendingBroadcasts.push({ event: 'gridit:rooms_updated', payload: {} });
       hooks.emitRoom?.(roomId, 'gridit:room_updated', room);
@@ -262,7 +267,47 @@ export function createEnscribeApp(
     }
   };
 
-  const broadcastGridItMatch = async (matchId: string): Promise<void> => {
+  const broadcastGridItMatch = async (
+    matchId: string,
+    matchRecord?: StoredGridItMatch | null,
+    mode: 'full' | 'delta' = 'full'
+  ): Promise<void> => {
+    const record = matchRecord ?? gridItEngine.getCachedMatchRecord(matchId);
+    if (record) {
+      const nowMs = Date.now();
+      const isFinished = record.status === 'finished' || nowMs >= record.endsAtMs;
+      if (mode === 'delta' && !isFinished) {
+        const delta = gridItEngine.buildMatchDeltaFromRecord(record, nowMs);
+        queueEvent('gridit:match_delta', delta);
+        if (record.spectators.length > 0) {
+          for (const spec of record.spectators) {
+            try {
+              const sanitized = gridItEngine.sanitizeMatchForViewerFromRecord(
+                record,
+                spec.playerId,
+                nowMs
+              );
+              queueEvent('gridit:match_state', sanitized, spec.playerId);
+            } catch {
+              // ignore unauthorized viewer
+            }
+          }
+        }
+        return;
+      }
+
+      const audience = gridItEngine.getMatchAudienceIdsFromRecord(record);
+      for (const vid of audience) {
+        try {
+          const sanitized = gridItEngine.sanitizeMatchForViewerFromRecord(record, vid, nowMs);
+          queueEvent('gridit:match_state', sanitized, vid);
+        } catch {
+          // ignore unauthorized viewer
+        }
+      }
+      return;
+    }
+
     const audience = await gridItEngine.getMatchAudienceIds(matchId);
     for (const vid of audience) {
       try {
@@ -277,7 +322,7 @@ export function createEnscribeApp(
   const processTimersAndFlush = async (): Promise<StoredMatch[]> => {
     const gridItExpired = await gridItEngine.processExpiredMatches().catch(() => []);
     for (const gm of gridItExpired) {
-      await broadcastGridItMatch(gm.id);
+      await broadcastGridItMatch(gm.id, gm, 'full');
       if (gm.roomId) await broadcastGridItRoom(gm.roomId);
     }
 
@@ -1581,6 +1626,15 @@ export function createEnscribeApp(
     fn: (req: Request, res: Response) => Promise<void> | void
   ) => {
     return async (req: Request, res: Response) => {
+      const origJson = res.json.bind(res);
+      let capturedBody: any = undefined;
+      let jsonCaptured = false;
+      (res as any).json = (body: any) => {
+        capturedBody = body;
+        jsonCaptured = true;
+        return res;
+      };
+
       try {
         const guestTokenHeader =
           typeof req.headers['x-guest-session-token'] === 'string'
@@ -1600,14 +1654,22 @@ export function createEnscribeApp(
           (req.params?.playerId as string);
         if (activePid) {
           lastSeenByPlayer.set(String(activePid), Date.now());
-          await ensureGuestProfilesRegistered([String(activePid)]);
+          if (!repo.getProfile(String(activePid))) {
+            await ensureGuestProfilesRegistered([String(activePid)]);
+          }
         }
 
         await fn(req, res);
 
         if (isServerless) {
           await flushSideEffects(false);
+          if (jsonCaptured && !res.headersSent) {
+            origJson(capturedBody);
+          }
         } else {
+          if (jsonCaptured && !res.headersSent) {
+            origJson(capturedBody);
+          }
           flushSideEffects(false).catch(() => undefined);
         }
       } catch (err: any) {
@@ -1623,7 +1685,8 @@ export function createEnscribeApp(
                   ? 503
                   : 500;
         if (!res.headersSent) {
-          res.status(status).json({ error: err?.message || 'GridIt server error' });
+          res.status(status);
+          origJson({ error: err?.message || 'GridIt server error' });
         }
       }
     };
@@ -1666,7 +1729,7 @@ export function createEnscribeApp(
         String(playerId || ''),
         Boolean(asSpectator)
       );
-      await broadcastGridItRoom(result.room.id);
+      await broadcastGridItRoom(result.room.id, result.room);
       if (result.room.activeMatchId) {
         await broadcastGridItMatch(result.room.activeMatchId);
       }
@@ -1681,7 +1744,7 @@ export function createEnscribeApp(
       const roomId = String(req.params.id);
       const outcome = await gridItEngine.leaveRoom(roomId, String(playerId || ''));
       if (!outcome.deleted) {
-        await broadcastGridItRoom(roomId);
+        await broadcastGridItRoom(roomId, outcome.room);
       } else {
         queueEvent('gridit:rooms_updated', {});
       }
@@ -1698,7 +1761,7 @@ export function createEnscribeApp(
         String(playerId || ''),
         settings
       );
-      await broadcastGridItRoom(room.id);
+      await broadcastGridItRoom(room.id, room);
       res.json(room);
     })
   );
@@ -1712,7 +1775,7 @@ export function createEnscribeApp(
         String(playerId || ''),
         Boolean(isReady)
       );
-      await broadcastGridItRoom(room.id);
+      await broadcastGridItRoom(room.id, room);
       res.json(room);
     })
   );
@@ -1726,7 +1789,7 @@ export function createEnscribeApp(
         String(playerId || ''),
         template
       );
-      await broadcastGridItRoom(room.id);
+      await broadcastGridItRoom(room.id, room);
       res.json(room);
     })
   );
@@ -1741,7 +1804,7 @@ export function createEnscribeApp(
         String(text || ''),
         kind === 'emoji' ? 'emoji' : 'chat'
       );
-      await broadcastGridItRoom(room.id);
+      await broadcastGridItRoom(room.id, room);
       res.json(room);
     })
   );
@@ -1751,16 +1814,18 @@ export function createEnscribeApp(
     handleGridItApi(async (req, res) => {
       const { playerId } = req.body ?? {};
       const roomId = String(req.params.id);
-      const currentRoom = await gridItEngine.getRoom(roomId);
       let aiHintsByPlayer: Record<string, Record<string, string> | null> | undefined;
-      if (currentRoom.settings.mode === 'board_battle' && process.env.GEMINI_API_KEY) {
-        aiHintsByPlayer = {};
-        const battleTemplates = await gridItEngine.getRoomBattleTemplatesForAi(roomId);
-        await Promise.all(
-          Object.entries(battleTemplates).map(async ([pid, tpl]) => {
-            aiHintsByPlayer![pid] = await suggestTemplateFillerLettersWithGemini(tpl);
-          })
-        );
+      if (process.env.GEMINI_API_KEY) {
+        const currentRoom = await gridItEngine.getRoom(roomId);
+        if (currentRoom.settings.mode === 'board_battle') {
+          aiHintsByPlayer = {};
+          const battleTemplates = await gridItEngine.getRoomBattleTemplatesForAi(roomId);
+          await Promise.all(
+            Object.entries(battleTemplates).map(async ([pid, tpl]) => {
+              aiHintsByPlayer![pid] = await suggestTemplateFillerLettersWithGemini(tpl);
+            })
+          );
+        }
       }
 
       const { room, match } = await gridItEngine.startRoomMatch(
@@ -1768,15 +1833,15 @@ export function createEnscribeApp(
         String(playerId || ''),
         aiHintsByPlayer
       );
-      await broadcastGridItRoom(room.id);
-      await broadcastGridItMatch(match.id);
-      const audience = await gridItEngine.getMatchAudienceIds(match.id);
+      await broadcastGridItRoom(room.id, room);
+      await broadcastGridItMatch(match.id, match, 'full');
+      const audience = gridItEngine.getMatchAudienceIdsFromRecord(match);
       for (const vid of audience) {
         queueEvent('gridit:match_started', { roomId: room.id, matchId: match.id }, vid);
       }
       res.status(201).json({
         room,
-        match: await gridItEngine.sanitizeMatchForViewer(match.id, String(playerId || '')),
+        match: gridItEngine.sanitizeMatchForViewerFromRecord(match, String(playerId || '')),
       });
     })
   );
@@ -1787,13 +1852,16 @@ export function createEnscribeApp(
       const { playerId } = req.body ?? {};
       const outcome = await gridItEngine.joinQuickMatch(String(playerId || ''));
       if (outcome.status === 'matched' && outcome.match) {
-        await broadcastGridItMatch(outcome.match.id);
+        await broadcastGridItMatch(outcome.match.id, outcome.match, 'full');
         for (const pid of outcome.match.playerOrder) {
           queueEvent('gridit:matched', { matchId: outcome.match.id, mode: 'classic' }, pid);
         }
         res.json({
           status: 'matched',
-          match: await gridItEngine.sanitizeMatchForViewer(outcome.match.id, String(playerId || '')),
+          match: gridItEngine.sanitizeMatchForViewerFromRecord(
+            outcome.match,
+            String(playerId || '')
+          ),
         });
         return;
       }
@@ -1807,13 +1875,16 @@ export function createEnscribeApp(
       const { playerId } = req.body ?? {};
       const outcome = await gridItEngine.joinRankedQueue(String(playerId || ''));
       if (outcome.status === 'matched' && outcome.match) {
-        await broadcastGridItMatch(outcome.match.id);
+        await broadcastGridItMatch(outcome.match.id, outcome.match, 'full');
         for (const pid of outcome.match.playerOrder) {
           queueEvent('gridit:matched', { matchId: outcome.match.id, mode: 'ranked' }, pid);
         }
         res.json({
           status: 'matched',
-          match: await gridItEngine.sanitizeMatchForViewer(outcome.match.id, String(playerId || '')),
+          match: gridItEngine.sanitizeMatchForViewerFromRecord(
+            outcome.match,
+            String(playerId || '')
+          ),
         });
         return;
       }
@@ -1852,9 +1923,16 @@ export function createEnscribeApp(
         preferredWord
       );
       if (outcome.validation.valid) {
-        await broadcastGridItMatch(matchId);
+        await broadcastGridItMatch(
+          matchId,
+          outcome.matchRecord,
+          outcome.match.status === 'finished' ? 'full' : 'delta'
+        );
       }
-      res.json(outcome);
+      res.json({
+        validation: outcome.validation,
+        match: outcome.match,
+      });
     })
   );
 
@@ -1869,7 +1947,7 @@ export function createEnscribeApp(
         String(text || ''),
         kind === 'emoji' ? 'emoji' : 'chat'
       );
-      await broadcastGridItMatch(matchId);
+      await broadcastGridItMatch(matchId, gridItEngine.getCachedMatchRecord(matchId), 'delta');
       res.status(201).json(msg);
     })
   );
@@ -1880,7 +1958,7 @@ export function createEnscribeApp(
       const { playerId } = req.body ?? {};
       const matchId = String(req.params.id);
       const state = await gridItEngine.finishMatchEarly(matchId, String(playerId || ''));
-      await broadcastGridItMatch(matchId);
+      await broadcastGridItMatch(matchId, gridItEngine.getCachedMatchRecord(matchId), 'full');
       if (state.roomId) await broadcastGridItRoom(state.roomId);
       res.json(state);
     })
@@ -1891,14 +1969,14 @@ export function createEnscribeApp(
     handleGridItApi(async (req, res) => {
       const { playerId } = req.body ?? {};
       const next = await gridItEngine.rematch(String(req.params.id), String(playerId || ''));
-      await broadcastGridItMatch(next.id);
-      const audience = await gridItEngine.getMatchAudienceIds(next.id);
+      await broadcastGridItMatch(next.id, next, 'full');
+      const audience = gridItEngine.getMatchAudienceIdsFromRecord(next);
       for (const vid of audience) {
         queueEvent('gridit:rematch', { oldMatchId: String(req.params.id), newMatchId: next.id }, vid);
       }
       res
         .status(201)
-        .json(await gridItEngine.sanitizeMatchForViewer(next.id, String(playerId || '')));
+        .json(gridItEngine.sanitizeMatchForViewerFromRecord(next, String(playerId || '')));
     })
   );
 

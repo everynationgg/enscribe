@@ -4912,6 +4912,7 @@ body,
   align-items: center;
   justify-content: center;
   pointer-events: none;
+  contain: layout style;
   transition: transform 0.14s ease, filter 0.14s ease;
 }
 
@@ -5112,6 +5113,14 @@ body,
   z-index: 1;
 }
 
+.ens-gridit-board-shaker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+
+.ens-gridit-board-shaker.is-shaking-world,
 .ens-gridit-board-world.is-shaking-world {
   animation: ensTrayRattle 0.42s ease-in-out infinite;
 }
@@ -5160,20 +5169,16 @@ body,
 
 @keyframes ensTrayRattle {
   0%, 100% {
-    margin-left: 0;
-    margin-top: 0;
+    transform: translate3d(0, 0, 0);
   }
   25% {
-    margin-left: -3px;
-    margin-top: 2px;
+    transform: translate3d(-3px, 2px, 0);
   }
   50% {
-    margin-left: 3px;
-    margin-top: -2px;
+    transform: translate3d(3px, -2px, 0);
   }
   75% {
-    margin-left: -2px;
-    margin-top: -1px;
+    transform: translate3d(-2px, -1px, 0);
   }
 }
 

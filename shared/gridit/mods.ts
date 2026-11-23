@@ -369,6 +369,76 @@ export interface BoardModSnapshot {
   activeGrowthWaveCount: number;
 }
 
+/**
+ * Computes a compact deterministic string key representing which scheduled mod windows
+ * are active at `nowMs`. Used to memoize `getBoardSnapshotAtTime` so React components
+ * keep referential stability between mod transitions.
+ */
+export function getBoardModStateKey(
+  baseBoardId: string,
+  schedule: GridItModSchedule | null | undefined,
+  nowMs: number
+): string {
+  if (!schedule) return `${baseBoardId}:none`;
+  const r: string[] = [];
+  for (const rw of schedule.rainbowWindows) {
+    if (nowMs >= rw.startAtMs && nowMs <= rw.endAtMs) r.push(rw.tileId);
+  }
+  const g: string[] = [];
+  for (const gw of schedule.goldenWindows) {
+    if (nowMs >= gw.startAtMs && nowMs <= gw.endAtMs) g.push(gw.tileId);
+  }
+  let l = 0;
+  for (const lw of schedule.lightningWindows) {
+    if (nowMs >= lw.startAtMs && nowMs <= lw.endAtMs) {
+      l = lw.endAtMs;
+      break;
+    }
+  }
+  let w = 0;
+  for (const wave of schedule.growthWaves) {
+    if (nowMs >= wave.triggerAtMs) w++;
+  }
+  return `${baseBoardId}:w${w}:l${l}:r${r.join(',')}:g${g.join(',')}`;
+}
+
+/**
+ * Returns the delay in ms until the next scheduled mod/lifecycle transition after `nowMs`,
+ * or `null` if no future transitions remain. Eliminates 250ms full-screen React polling.
+ */
+export function getNextScheduleTransitionDelayMs(
+  schedule: GridItModSchedule | null | undefined,
+  nowMs: number,
+  extraBoundariesMs: number[] = []
+): number | null {
+  let nextAt = Infinity;
+  const consider = (ts: number) => {
+    if (ts > nowMs && ts < nextAt) {
+      nextAt = ts;
+    }
+  };
+  for (const b of extraBoundariesMs) consider(b);
+  if (schedule) {
+    for (const rw of schedule.rainbowWindows) {
+      consider(rw.startAtMs);
+      consider(rw.endAtMs + 1);
+    }
+    for (const gw of schedule.goldenWindows) {
+      consider(gw.startAtMs);
+      consider(gw.endAtMs + 1);
+    }
+    for (const lw of schedule.lightningWindows) {
+      consider(lw.startAtMs);
+      consider(lw.endAtMs + 1);
+    }
+    for (const wave of schedule.growthWaves) {
+      consider(wave.triggerAtMs);
+    }
+  }
+  if (!Number.isFinite(nextAt)) return null;
+  return Math.max(16, Math.min(60_000, nextAt - nowMs + 15));
+}
+
 export function getBoardSnapshotAtTime(
   baseBoard: GridItBoard,
   schedule: GridItModSchedule | null | undefined,

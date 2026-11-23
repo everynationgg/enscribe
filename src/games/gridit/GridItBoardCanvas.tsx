@@ -336,6 +336,7 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
   onSubmitPath,
 }) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const viewportRectRef = useRef<DOMRect | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
     width: 340,
     height: 290,
@@ -362,24 +363,35 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
   const cameraRef = useRef<CameraState>(camera);
   cameraRef.current = camera;
 
-  // Automatically fit the full board whenever board identity or viewport dimensions change
+  // Automatically fit the full board ONLY when board identity or viewport dimensions change
+  // (never reset user zoom/pan when Growing Grid expands board.bounds mid-match)
   useEffect(() => {
     setCamera(fitCamera);
-  }, [board.id, fitCamera]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.id, viewportSize.width, viewportSize.height]);
 
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const updateSize = () => {
       const rect = el.getBoundingClientRect();
+      viewportRectRef.current = rect;
       if (rect.width > 0 && rect.height > 0) {
-        setViewportSize({ width: rect.width, height: rect.height });
+        setViewportSize((prev) =>
+          Math.abs(prev.width - rect.width) > 0.5 || Math.abs(prev.height - rect.height) > 0.5
+            ? { width: rect.width, height: rect.height }
+            : prev
+        );
       }
     };
     updateSize();
     const ro = new ResizeObserver(updateSize);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener('scroll', updateSize, { passive: true });
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('scroll', updateSize);
+    };
   }, []);
 
   const tileMap = useMemo(() => {
@@ -432,11 +444,19 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
     [board.bounds, clampScale, viewportSize.height, viewportSize.width]
   );
 
+  const getCachedViewportRect = useCallback((): DOMRect | null => {
+    if (viewportRectRef.current) return viewportRectRef.current;
+    const el = viewportRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    viewportRectRef.current = rect;
+    return rect;
+  }, []);
+
   const zoomAtScreenPoint = useCallback(
     (clientX: number, clientY: number, factor: number) => {
-      const el = viewportRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
+      const rect = getCachedViewportRect();
+      if (!rect) return;
       const sx = clientX - rect.left;
       const sy = clientY - rect.top;
       setCamera((prev) => {
@@ -450,19 +470,21 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
         });
       });
     },
-    [clampCamera, clampScale]
+    [clampCamera, clampScale, getCachedViewportRect]
   );
 
-  const screenToBoard = useCallback((clientX: number, clientY: number) => {
-    const el = viewportRef.current;
-    if (!el) return { x: 0, y: 0 };
-    const rect = el.getBoundingClientRect();
-    const cam = cameraRef.current;
-    return {
-      x: (clientX - rect.left - cam.tx) / cam.scale,
-      y: (clientY - rect.top - cam.ty) / cam.scale,
-    };
-  }, []);
+  const screenToBoard = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = getCachedViewportRect();
+      if (!rect) return { x: 0, y: 0 };
+      const cam = cameraRef.current;
+      return {
+        x: (clientX - rect.left - cam.tx) / cam.scale,
+        y: (clientY - rect.top - cam.ty) / cam.scale,
+      };
+    },
+    [getCachedViewportRect]
+  );
 
   const hitTestTile = useCallback(
     (bx: number, by: number, radiusFactor: number): GridItTileNode | null => {
@@ -483,6 +505,9 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (paused || isShaking || readOnly) return;
+    if (viewportRef.current) {
+      viewportRectRef.current = viewportRef.current.getBoundingClientRect();
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -561,9 +586,8 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
       const dx = newMidX - prevPinch.midX;
       const dy = newMidY - prevPinch.midY;
 
-      const el = viewportRef.current;
-      if (el) {
-        const rect = el.getBoundingClientRect();
+      const rect = getCachedViewportRect();
+      if (rect) {
         const localX = newMidX - rect.left;
         const localY = newMidY - rect.top;
         setCamera((prev) => {
@@ -681,83 +705,85 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
       aria-label="GridIt interactive letter board"
     >
       <div
-        className={`ens-gridit-board-world ${isShaking ? 'is-shaking-world' : ''}`}
+        className="ens-gridit-board-world"
         style={{
           transform: `translate3d(${camera.tx}px, ${camera.ty}px, 0) scale(${camera.scale})`,
         }}
       >
-        {/* Glowing Board Backdrop Aura */}
-        <div
-          className="ens-gridit-board-aura"
-          style={{
-            left: board.bounds.minX - 18,
-            top: board.bounds.minY - 18,
-            width: board.bounds.width + 36,
-            height: board.bounds.height + 36,
-          }}
-          aria-hidden="true"
-        />
-
-        {/* Shape-Matching Physical Board Tray */}
-        <PhysicalBoardTraySvg board={board} />
-
-        {/* Selected Path Connector Beam */}
-        {selectedPath.length >= 2 && !paused && (
-          <svg
-            className="ens-gridit-path-svg"
+        <div className={`ens-gridit-board-shaker ${isShaking ? 'is-shaking-world' : ''}`}>
+          {/* Glowing Board Backdrop Aura */}
+          <div
+            className="ens-gridit-board-aura"
             style={{
-              left: board.bounds.minX,
-              top: board.bounds.minY,
-              width: board.bounds.width,
-              height: board.bounds.height,
+              left: board.bounds.minX - 18,
+              top: board.bounds.minY - 18,
+              width: board.bounds.width + 36,
+              height: board.bounds.height + 36,
             }}
-            viewBox={`${board.bounds.minX} ${board.bounds.minY} ${board.bounds.width} ${board.bounds.height}`}
             aria-hidden="true"
-          >
-            <polyline
-              points={selectedPointsString}
-              fill="none"
-              stroke="rgba(253, 224, 71, 0.92)"
-              strokeWidth="12"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <polyline
-              points={selectedPointsString}
-              fill="none"
-              stroke="#ffffff"
-              strokeWidth="4.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        )}
+          />
 
-        {/* Tactile 3D Physical Letter Dice */}
-        {board.tiles.map((tile, idx) => {
-          const isEmptySlot = !tile.letter || tile.letter.trim().length === 0;
-          const isRainbow =
-            activeRainbowIds?.has(tile.id) || tile.modifier?.type === 'rainbow';
-          const isGolden =
-            activeGoldenIds?.has(tile.id) || tile.modifier?.type === 'golden';
-          return (
-            <GridItTileNodeView
-              key={tile.id}
-              tile={tile}
-              tileIndex={idx}
-              radius={board.tileRadius}
-              selectedIndex={selectedIndexMap.get(tile.id) ?? -1}
-              isHinted={hintTileId === tile.id}
-              isPaused={paused}
-              isShaking={isShaking}
-              isEmptySlot={isEmptySlot}
-              isAuthored={Boolean(authoredTileIds?.has(tile.id))}
-              isActiveEditorTile={activeTileId === tile.id}
-              isRainbow={Boolean(isRainbow)}
-              isGolden={Boolean(isGolden)}
-            />
-          );
-        })}
+          {/* Shape-Matching Physical Board Tray */}
+          <PhysicalBoardTraySvg board={board} />
+
+          {/* Selected Path Connector Beam */}
+          {selectedPath.length >= 2 && !paused && (
+            <svg
+              className="ens-gridit-path-svg"
+              style={{
+                left: board.bounds.minX,
+                top: board.bounds.minY,
+                width: board.bounds.width,
+                height: board.bounds.height,
+              }}
+              viewBox={`${board.bounds.minX} ${board.bounds.minY} ${board.bounds.width} ${board.bounds.height}`}
+              aria-hidden="true"
+            >
+              <polyline
+                points={selectedPointsString}
+                fill="none"
+                stroke="rgba(253, 224, 71, 0.92)"
+                strokeWidth="12"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <polyline
+                points={selectedPointsString}
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="4.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+
+          {/* Tactile 3D Physical Letter Dice */}
+          {board.tiles.map((tile, idx) => {
+            const isEmptySlot = !tile.letter || tile.letter.trim().length === 0;
+            const isRainbow =
+              activeRainbowIds?.has(tile.id) || tile.modifier?.type === 'rainbow';
+            const isGolden =
+              activeGoldenIds?.has(tile.id) || tile.modifier?.type === 'golden';
+            return (
+              <GridItTileNodeView
+                key={tile.id}
+                tile={tile}
+                tileIndex={idx}
+                radius={board.tileRadius}
+                selectedIndex={selectedIndexMap.get(tile.id) ?? -1}
+                isHinted={hintTileId === tile.id}
+                isPaused={paused}
+                isShaking={isShaking}
+                isEmptySlot={isEmptySlot}
+                isAuthored={Boolean(authoredTileIds?.has(tile.id))}
+                isActiveEditorTile={activeTileId === tile.id}
+                isRainbow={Boolean(isRainbow)}
+                isGolden={Boolean(isGolden)}
+              />
+            );
+          })}
+        </div>
       </div>
 
       {isShaking && !paused && (

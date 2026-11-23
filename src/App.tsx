@@ -6,6 +6,7 @@ import {
   DEFAULT_GRIDIT_MODS,
   GameModuleId,
   GridItBoardSize,
+  GridItMatchDelta,
   GridItMatchMode,
   GridItMatchStateClient,
   GridItModConfig,
@@ -476,7 +477,7 @@ export const App: React.FC = () => {
 
     const identify = () => {
       socket.emit('auth:identify', activeProfileId);
-      if (route.view === 'lobby') {
+      if (route.view === 'lobby' || route.view === 'gridit_lobby') {
         socket.emit('room:join_channel', route.roomId);
       }
       if (route.view === 'match' && !isOfflineSoloMatchId(route.matchId)) {
@@ -574,6 +575,39 @@ export const App: React.FC = () => {
       });
     };
 
+    const onGridItMatchDelta = (delta: GridItMatchDelta) => {
+      setActiveGridItMatch((prev) => {
+        if (!prev || prev.id !== delta.id) return prev;
+        const nextPlayers: GridItMatchStateClient['players'] = { ...prev.players };
+        for (const [pid, summary] of Object.entries(delta.players)) {
+          const existing = prev.players[pid];
+          if (existing) {
+            nextPlayers[pid] = {
+              ...existing,
+              isOnline: summary.isOnline,
+              score: summary.score,
+              rawScore: summary.rawScore,
+              normalizedScorePercent: summary.normalizedScorePercent,
+              wordsFoundCount: summary.wordsFoundCount,
+              bestWord: summary.bestWord,
+              comboCount: summary.comboCount,
+              isWinner: summary.isWinner,
+            };
+          }
+        }
+        return {
+          ...prev,
+          status: delta.status,
+          serverNowMs: delta.serverNowMs,
+          endsAtMs: delta.endsAtMs,
+          players: nextPlayers,
+          spectators: delta.spectators,
+          winnerIds: delta.winnerIds,
+          messages: delta.messages,
+        };
+      });
+    };
+
     const onGridItRematch = ({ newMatchId }: { newMatchId: string }) => {
       notify('GridIt rematch started!');
       setRoute({ view: 'gridit_match', matchId: newMatchId });
@@ -591,6 +625,7 @@ export const App: React.FC = () => {
     socket.on('gridit:match_started', onGridItMatchStarted);
     socket.on('gridit:matched', onGridItMatched);
     socket.on('gridit:match_state', onGridItMatchState);
+    socket.on('gridit:match_delta', onGridItMatchDelta);
     socket.on('gridit:rematch', onGridItRematch);
 
     return () => {
@@ -607,33 +642,48 @@ export const App: React.FC = () => {
       socket.off('gridit:match_started', onGridItMatchStarted);
       socket.off('gridit:matched', onGridItMatched);
       socket.off('gridit:match_state', onGridItMatchState);
+      socket.off('gridit:match_delta', onGridItMatchDelta);
       socket.off('gridit:rematch', onGridItRematch);
     };
   }, [activeProfileId, playerSession?.isOffline, route.view, (route as any).roomId, (route as any).matchId, notify, refreshPlatformData]);
 
-  // Lightweight resilience sync for serverless/mobile networks when in an active lobby or match
+  const activeGridItRoomRef = useRef(activeGridItRoom);
+  const activeGridItMatchRef = useRef(activeGridItMatch);
+  activeGridItRoomRef.current = activeGridItRoom;
+  activeGridItMatchRef.current = activeGridItMatch;
+
+  // Adaptive fallback sync for ChainIt lobbies/matches (18s drift check when WebSocket connected, 4s fallback when disconnected)
   useEffect(() => {
     if (!activeProfileId || playerSession?.isOffline || (route.view !== 'lobby' && route.view !== 'match')) return;
     if (route.view === 'match' && isOfflineSoloMatchId(route.matchId)) return;
-    const interval = window.setInterval(() => {
-      if (route.view === 'lobby') {
-        api.getRoom(route.roomId).then((r) => {
-          setActiveRoom(r);
-          if (r.status === 'in_progress' && r.activeMatchId) {
-            setRoute({ view: 'match', matchId: r.activeMatchId });
-          }
-        }).catch(() => undefined);
-      } else if (route.view === 'match') {
-        api.getMatch(route.matchId, activeProfileId).then(setActiveMatch).catch(() => undefined);
-      }
-    }, 5000);
-    return () => window.clearInterval(interval);
+    let timer: number | null = null;
+    const scheduleTick = () => {
+      const delayMs = getSocket().connected ? 18000 : 4000;
+      timer = window.setTimeout(() => {
+        if (route.view === 'lobby') {
+          api.getRoom(route.roomId).then((r) => {
+            setActiveRoom(r);
+            if (r.status === 'in_progress' && r.activeMatchId) {
+              setRoute({ view: 'match', matchId: r.activeMatchId });
+            }
+          }).catch(() => undefined);
+        } else if (route.view === 'match') {
+          api.getMatch(route.matchId, activeProfileId).then(setActiveMatch).catch(() => undefined);
+        }
+        scheduleTick();
+      }, delayMs);
+    };
+    scheduleTick();
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
   }, [route, activeProfileId, playerSession?.isOffline]);
 
-  // Polling resilience & route restoration for GridIt Multiplayer lobbies and matches
+  // Route restoration for GridIt Multiplayer lobbies and matches (skips duplicate fetch when state is already populated)
   useEffect(() => {
     if (!activeProfileId || playerSession?.isOffline) return;
     if (route.view === 'gridit_lobby') {
+      if (activeGridItRoomRef.current?.id === route.roomId) return;
       api
         .getGridItRoom(route.roomId)
         .then((r) => {
@@ -648,6 +698,7 @@ export const App: React.FC = () => {
           setRoute({ view: 'gridit_rooms' });
         });
     } else if (route.view === 'gridit_match') {
+      if (activeGridItMatchRef.current?.id === route.matchId) return;
       api
         .getGridItMatch(route.matchId, activeProfileId)
         .then(setActiveGridItMatch)
@@ -659,6 +710,7 @@ export const App: React.FC = () => {
     }
   }, [route, activeProfileId, playerSession?.isOffline, notify]);
 
+  // Adaptive fallback sync for GridIt lobbies/matches (15s safety reconciliation when realtime connected, 3s fallback when disconnected)
   useEffect(() => {
     if (
       !activeProfileId ||
@@ -667,35 +719,38 @@ export const App: React.FC = () => {
     ) {
       return;
     }
-    const interval = window.setInterval(() => {
-      if (route.view === 'gridit_lobby') {
-        api
-          .getGridItRoom(route.roomId)
-          .then((r) => {
-            setActiveGridItRoom(r);
-            if (r.status === 'in_progress' && r.activeMatchId) {
-              setRoute({ view: 'gridit_match', matchId: r.activeMatchId });
-            }
-          })
-          .catch(() => undefined);
-      } else if (route.view === 'gridit_match') {
-        api
-          .getGridItMatch(
-            route.matchId,
-            activeProfileId,
-            activeGridItMatch?.spectatingPlayerId ?? undefined
-          )
-          .then(setActiveGridItMatch)
-          .catch(() => undefined);
-      }
-    }, 3000);
-    return () => window.clearInterval(interval);
-  }, [
-    route,
-    activeProfileId,
-    playerSession?.isOffline,
-    activeGridItMatch?.spectatingPlayerId,
-  ]);
+    let timer: number | null = null;
+    const scheduleTick = () => {
+      const delayMs = route.view === 'gridit_lobby' ? 2000 : (getSocket().connected ? 15000 : 3000);
+      timer = window.setTimeout(() => {
+        if (route.view === 'gridit_lobby') {
+          api
+            .getGridItRoom(route.roomId)
+            .then((r) => {
+              setActiveGridItRoom(r);
+              if (r.status === 'in_progress' && r.activeMatchId) {
+                setRoute({ view: 'gridit_match', matchId: r.activeMatchId });
+              }
+            })
+            .catch(() => undefined);
+        } else if (route.view === 'gridit_match') {
+          api
+            .getGridItMatch(
+              route.matchId,
+              activeProfileId,
+              activeGridItMatchRef.current?.spectatingPlayerId ?? undefined
+            )
+            .then(setActiveGridItMatch)
+            .catch(() => undefined);
+        }
+        scheduleTick();
+      }, delayMs);
+    };
+    scheduleTick();
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [route, activeProfileId, playerSession?.isOffline]);
 
   // Restore room or match state cleanly on route change or browser refresh
   useEffect(() => {
@@ -761,9 +816,9 @@ export const App: React.FC = () => {
     setCurrentProfile(res.profile);
     setActiveRoom(null);
     setActiveMatch(null);
-    await refreshPlatformData(nextSess.playerId, nextSess);
     setRoute({ view: 'hub' });
     notify(`Welcome, ${res.session.nickname}!`);
+    await refreshPlatformData(nextSess.playerId, nextSess);
   };
 
   const handleSwitchGuest = async () => {
@@ -1220,13 +1275,17 @@ export const App: React.FC = () => {
           }}
           onSendChat={async (text, kind) => {
             try {
-              await api.sendGridItMatchChat(activeGridItMatch.id, playerSession.playerId, text, kind);
-              const refreshed = await api.getGridItMatch(
+              const msg = await api.sendGridItMatchChat(
                 activeGridItMatch.id,
                 playerSession.playerId,
-                activeGridItMatch.spectatingPlayerId ?? undefined
+                text,
+                kind
               );
-              setActiveGridItMatch(refreshed);
+              setActiveGridItMatch((prev) =>
+                prev && prev.id === activeGridItMatch.id && !prev.messages.some((m) => m.id === msg.id)
+                  ? { ...prev, messages: [...prev.messages, msg] }
+                  : prev
+              );
             } catch (err: any) {
               notify(err.message);
             }

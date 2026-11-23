@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
@@ -10,17 +11,46 @@ fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const APP_URL = 'http://localhost:5173';
 
-async function waitForServer(url, timeoutMs = 25000) {
+function killTree(child) {
+  if (!child || !child.pid) return;
+  if (process.platform === 'win32') {
+    try {
+      execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' });
+      return;
+    } catch {}
+  }
+  try {
+    child.kill();
+  } catch {}
+}
+
+async function ensureServer(url, timeoutMs = 35000) {
+  try {
+    const res = await fetch(`${url}/api/health`);
+    if (res.ok) {
+      console.log('Existing dev server already running at', url);
+      return null;
+    }
+  } catch {}
+
+  console.log('Spawning dev server for Playwright verification...');
+  const child = spawn(process.execPath, [path.resolve(process.cwd(), 'scripts/dev.mjs')], {
+    stdio: 'ignore',
+    detached: false,
+  });
+
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(`${url}/api/health`);
-      if (res.ok) return;
-    } catch {
-      // retry
-    }
+      if (res.ok) {
+        console.log('Dev server ready at', url);
+        return child;
+      }
+    } catch {}
     await new Promise((r) => setTimeout(r, 400));
   }
+  killTree(child);
   throw new Error(`Server did not respond at ${url} within ${timeoutMs}ms`);
 }
 
@@ -36,14 +66,19 @@ async function checkNoOverflow(page, label) {
 }
 
 async function enterGuest(page, nickname) {
-  await page.waitForSelector('#enscribe-nickname');
+  await page.waitForSelector('#enscribe-nickname', { timeout: 15000 });
   await page.fill('#enscribe-nickname', nickname);
+  const bootstrapPromise = page
+    .waitForResponse((res) => res.url().includes('/api/bootstrap/'), { timeout: 8000 })
+    .catch(() => null);
   await page.getByRole('button', { name: /Enter Game Hub|Enter Offline Solo/i }).click();
-  await page.waitForSelector('text=Choose Your Game', { timeout: 15000 });
+  await page.waitForSelector('text=Choose Your Game', { timeout: 20000 });
+  await bootstrapPromise;
+  await page.waitForTimeout(200);
 }
 
 async function run() {
-  await waitForServer(APP_URL);
+  const serverChild = await ensureServer(APP_URL);
   console.log('Dev + Vite server ready at', APP_URL);
 
   const browser = await chromium.launch({
@@ -242,6 +277,7 @@ async function run() {
     console.log('ALL GRIDIT PLAYWRIGHT VISUAL & INTERACTIVE CHECKS PASSED!');
   } finally {
     await browser.close();
+    if (serverChild) killTree(serverChild);
   }
 }
 

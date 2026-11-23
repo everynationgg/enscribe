@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
-  Clock,
   Crown,
   Eye,
   Flag,
@@ -15,14 +14,21 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { getBoardSnapshotAtTime } from '../../shared/gridit/mods';
+import { DEFAULT_GRIDIT_SCORING } from '../../shared/gridit/engine';
+import {
+  getBoardModStateKey,
+  getBoardSnapshotAtTime,
+  getNextScheduleTransitionDelayMs,
+  resolveWordPathWithMods,
+} from '../../shared/gridit/mods';
 import { GridItMatchStateClient } from '../../shared/gridit/multiplayerTypes';
 import { getShapeTemplate } from '../../shared/gridit/shapes';
-import { PlayerSession } from '../../shared/types';
+import { GridItFoundWord, PlayerSession } from '../../shared/types';
 import { AvatarBadge } from '../components/Artwork';
 import { GridItDefinitionModal } from '../components/GridItDefinitionModal';
+import { GridItTimerDisplay } from '../components/GridItTimerDisplay';
 import { GridItBoardCanvas } from '../games/gridit/GridItBoardCanvas';
-import { fetchWordDefinition } from '../games/gridit/dictionary';
+import { fetchWordDefinition, loadGridItWordSet } from '../games/gridit/dictionary';
 import { api } from '../services/api';
 
 interface GridItMultiplayerGameplayScreenProps {
@@ -40,12 +46,67 @@ interface GridItMultiplayerGameplayScreenProps {
 
 const QUICK_EMOJIS = ['🔥', '⚡', '👏', '😮', '🎉'];
 
-function formatTime(seconds: number): string {
-  const safe = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(safe / 60);
-  const s = safe % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+interface MultiplayerBottomPanelsProps {
+  foundWords: GridItFoundWord[];
+  rawScore: number;
+  wordsFoundCount: number;
+  bestWord: GridItFoundWord | null;
+  maxMultiplier: number;
+  onSelectWord: (word: string) => void;
 }
+
+const MultiplayerBottomPanels: React.FC<MultiplayerBottomPanelsProps> = memo(
+  ({ foundWords, rawScore, wordsFoundCount, bestWord, maxMultiplier, onSelectWord }) => (
+    <div className="ens-gridit-bottom-panels" style={{ height: 108 }}>
+      <div className="ens-gridit-panel">
+        <div className="ens-gridit-panel-title">Found Words ({foundWords.length})</div>
+        <div className="ens-gridit-found-list">
+          {foundWords.length === 0 ? (
+            <div className="ens-gridit-empty-hint">Found words appear here cleanly.</div>
+          ) : (
+            foundWords.map((fw) => (
+              <button
+                key={fw.word}
+                type="button"
+                className="ens-gridit-found-row"
+                onClick={() => onSelectWord(fw.word)}
+              >
+                <span>{fw.word.toLowerCase()}</span>
+                <span className="ens-gridit-found-right">
+                  <span className="ens-gridit-found-pts">+{fw.points}</span>
+                  <BookOpen size={12} color="#bae6fd" />
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="ens-gridit-panel">
+        <div className="ens-gridit-panel-title">Stats</div>
+        <div className="ens-gridit-stats-rows">
+          <div className="ens-gridit-stat-line">
+            <span>Score</span>
+            <strong>{rawScore}</strong>
+          </div>
+          <div className="ens-gridit-stat-line">
+            <span>Words</span>
+            <strong>{wordsFoundCount}</strong>
+          </div>
+          <div className="ens-gridit-stat-line">
+            <span>Best</span>
+            <strong>{bestWord?.word || '—'}</strong>
+          </div>
+          <div className="ens-gridit-stat-line">
+            <span>Mult Cap</span>
+            <strong>{maxMultiplier}×</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+);
+MultiplayerBottomPanels.displayName = 'MultiplayerBottomPanels';
 
 export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplayScreenProps> = ({
   match,
@@ -60,8 +121,12 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
   onNotify,
 }) => {
   const [selectedPath, setSelectedPath] = useState<string[]>([]);
+  const [wordSet, setWordSet] = useState<Set<string> | null>(null);
+  const [optimisticWords, setOptimisticWords] = useState<GridItFoundWord[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [clockOffsetMs, setClockOffsetMs] = useState<number>(() => match.serverNowMs - Date.now());
   const clockOffsetRef = useRef<number>(match.serverNowMs - Date.now());
+  const feedbackTimerRef = useRef<number | null>(null);
   const [feedback, setFeedback] = useState<{ text: string; tone: 'ok' | 'err' | 'info' } | null>(
     null
   );
@@ -72,21 +137,62 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
   const [bestDefPreview, setBestDefPreview] = useState<string | null>(null);
 
   useEffect(() => {
-    clockOffsetRef.current = match.serverNowMs - Date.now();
+    const nextOffset = match.serverNowMs - Date.now();
+    clockOffsetRef.current = nextOffset;
+    setClockOffsetMs((prev) => (Math.abs(prev - nextOffset) > 250 ? nextOffset : prev));
   }, [match.serverNowMs]);
 
   useEffect(() => {
-    if (match.status === 'finished') return;
-    const interval = window.setInterval(() => setNowMs(Date.now()), 250);
-    return () => window.clearInterval(interval);
-  }, [match.status]);
+    let cancelled = false;
+    loadGridItWordSet(match.settings.language || 'en').then((loaded) => {
+      if (!cancelled) setWordSet(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [match.settings.language]);
 
-  const liveServerNow = nowMs + clockOffsetRef.current;
+  // Clear optimistic entries that have now been confirmed in authoritative match state
   const isSpectator = match.viewerRole === 'spectator';
   const focusPlayerId = isSpectator
     ? (match.spectatingPlayerId ?? Object.keys(match.players)[0])
     : session.playerId;
   const myPlayer = match.players[focusPlayerId];
+
+  useEffect(() => {
+    if (!myPlayer || optimisticWords.length === 0) return;
+    const confirmedSet = new Set(myPlayer.foundWords.map((w) => w.word));
+    setOptimisticWords((prev) => {
+      const remaining = prev.filter((w) => !confirmedSet.has(w.word));
+      return remaining.length === prev.length ? prev : remaining;
+    });
+  }, [myPlayer, optimisticWords.length]);
+
+  const liveServerNow = nowMs + clockOffsetRef.current;
+
+  // Schedule exact timeout only for the next mod window or lifecycle boundary (zero 250ms polling)
+  useEffect(() => {
+    if (match.status === 'finished') return;
+    const currentServerNow = Date.now() + clockOffsetRef.current;
+    const delay = getNextScheduleTransitionDelayMs(match.schedule, currentServerNow, [
+      match.revealAtMs,
+      match.startedAtMs,
+      match.endsAtMs,
+    ]);
+    if (delay === null) return;
+    const timer = window.setTimeout(() => {
+      setNowMs(Date.now());
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    match.status,
+    match.schedule,
+    match.revealAtMs,
+    match.startedAtMs,
+    match.endsAtMs,
+    nowMs,
+  ]);
+
   const opponentPlayers = Object.values(match.players).filter(
     (p) => p.playerId !== focusPlayerId
   );
@@ -96,16 +202,40 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
     match.status === 'shaking' ||
     (match.status !== 'finished' && liveServerNow < match.startedAtMs);
   const isFinished = match.status === 'finished' || liveServerNow >= match.endsAtMs;
-  const secondsRemaining = isShaking
-    ? match.settings.durationSeconds
-    : Math.max(0, Math.ceil((match.endsAtMs - liveServerNow) / 1000));
+
+  const modStateKey = useMemo(
+    () => getBoardModStateKey(match.board?.id ?? '', match.schedule, liveServerNow),
+    [match.board?.id, match.schedule, liveServerNow]
+  );
 
   const snapshot = useMemo(() => {
     if (!match.board) return null;
     return getBoardSnapshotAtTime(match.board, match.schedule, liveServerNow);
-  }, [match.board, match.schedule, liveServerNow]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match.board, match.schedule, modStateKey]);
 
   const activeBoard = snapshot?.board ?? match.board;
+
+  const effectiveFoundWords = useMemo(() => {
+    const authWords = myPlayer?.foundWords ?? [];
+    if (optimisticWords.length === 0) return authWords;
+    const authSet = new Set(authWords.map((w) => w.word));
+    const pending = optimisticWords.filter((w) => !authSet.has(w.word));
+    return pending.length > 0 ? [...pending, ...authWords] : authWords;
+  }, [myPlayer?.foundWords, optimisticWords]);
+
+  const optimisticPointsDelta = useMemo(() => {
+    if (optimisticWords.length === 0) return 0;
+    const authSet = new Set((myPlayer?.foundWords ?? []).map((w) => w.word));
+    return optimisticWords
+      .filter((w) => !authSet.has(w.word))
+      .reduce((sum, w) => sum + w.points, 0);
+  }, [myPlayer?.foundWords, optimisticWords]);
+
+  const displayedMyScore = (myPlayer?.rawScore ?? 0) + optimisticPointsDelta;
+  const displayedWordsCount =
+    (myPlayer?.wordsFoundCount ?? 0) +
+    (effectiveFoundWords.length - (myPlayer?.foundWords.length ?? 0));
 
   const sortedPlayers = useMemo(() => {
     return Object.values(match.players).sort((a, b) => {
@@ -123,7 +253,9 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
     const candidates = Object.values(match.players)
       .map((p) => p.bestWord)
       .filter((w): w is NonNullable<typeof w> => Boolean(w));
-    return candidates.sort((a, b) => b.points - a.points || b.word.length - a.word.length)[0] ?? null;
+    return (
+      candidates.sort((a, b) => b.points - a.points || b.word.length - a.word.length)[0] ?? null
+    );
   }, [match.players]);
 
   useEffect(() => {
@@ -141,32 +273,124 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
 
   const showToastFeedback = useCallback((text: string, tone: 'ok' | 'err' | 'info') => {
     setFeedback({ text, tone });
-    window.setTimeout(() => setFeedback(null), 1900);
+    if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = window.setTimeout(() => setFeedback(null), 1900);
   }, []);
 
-  const handleSubmitPath = async (path: string[]) => {
-    if (isSpectator || isShaking || isFinished) return;
-    setSelectedPath([]);
-    try {
-      const res = await onSubmitWord(path);
-      showToastFeedback(res.message, res.valid ? 'ok' : 'err');
-    } catch (err: any) {
-      showToastFeedback(err.message || 'Invalid word', 'err');
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current);
+    };
+  }, []);
+
+  const handleSubmitPath = useCallback(
+    async (path: string[]) => {
+      if (isSpectator || isShaking || isFinished || path.length === 0) return;
+      setSelectedPath([]);
+
+      let optimisticWordAdded: string | null = null;
+      if (match.board && wordSet) {
+        const submitServerNow = Date.now() + clockOffsetRef.current;
+        const alreadySet = new Set(effectiveFoundWords.map((w) => w.word));
+        const localRes = resolveWordPathWithMods(
+          match.board,
+          path,
+          wordSet,
+          alreadySet,
+          {
+            nowMs: submitServerNow,
+            schedule: match.schedule,
+            modConfig: match.settings.mods,
+            comboCount: myPlayer?.comboCount ?? 0,
+            lastWordAtMs: effectiveFoundWords[0]?.foundAtMs ?? null,
+            scoringConfig: DEFAULT_GRIDIT_SCORING,
+          }
+        );
+
+        if (!localRes.valid) {
+          const msg =
+            localRes.reason === 'already_found'
+              ? `${localRes.word} already found`
+              : localRes.reason === 'too_short'
+                ? `Need at least ${DEFAULT_GRIDIT_SCORING.minWordLength} letters`
+                : `${localRes.word || 'Word'} invalid`;
+          showToastFeedback(msg, 'err');
+          return;
+        }
+
+        optimisticWordAdded = localRes.word;
+        const multStr = localRes.multiplier > 1 ? ` (${localRes.multiplier}×)` : '';
+        showToastFeedback(`+${localRes.finalPoints} pts${multStr} • ${localRes.word}!`, 'ok');
+        setOptimisticWords((prev) => [
+          {
+            word: localRes.word,
+            tilePath: [...path],
+            points: localRes.finalPoints,
+            foundAtMs: submitServerNow,
+          },
+          ...prev.filter((w) => w.word !== localRes.word),
+        ]);
+      }
+
+      try {
+        const res = await onSubmitWord(path);
+        if (!res.valid) {
+          if (optimisticWordAdded) {
+            setOptimisticWords((prev) => prev.filter((w) => w.word !== optimisticWordAdded));
+          }
+          showToastFeedback(res.message, 'err');
+        } else if (!optimisticWordAdded) {
+          showToastFeedback(res.message, 'ok');
+        }
+      } catch (err: any) {
+        if (optimisticWordAdded) {
+          setOptimisticWords((prev) => prev.filter((w) => w.word !== optimisticWordAdded));
+        }
+        showToastFeedback(err.message || 'Invalid word', 'err');
+      }
+    },
+    [
+      effectiveFoundWords,
+      isFinished,
+      isShaking,
+      isSpectator,
+      match.board,
+      match.schedule,
+      match.settings.mods,
+      myPlayer?.comboCount,
+      onSubmitWord,
+      showToastFeedback,
+      wordSet,
+    ]
+  );
+
+  const activeTileLetterMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (activeBoard) {
+      for (const t of activeBoard.tiles) map.set(t.id, t.letter);
     }
-  };
+    return map;
+  }, [activeBoard]);
 
   const activeWordPreview = useMemo(() => {
     if (!activeBoard || selectedPath.length === 0) return '';
     return selectedPath
       .map((id) => {
         if (snapshot?.activeRainbowIds.has(id)) return '★';
-        return activeBoard.tiles.find((t) => t.id === id)?.letter ?? '';
+        return activeTileLetterMap.get(id) ?? '';
       })
       .join('');
-  }, [activeBoard, selectedPath, snapshot]);
+  }, [activeBoard, activeTileLetterMap, selectedPath, snapshot?.activeRainbowIds]);
 
-  const shapeMeta = getShapeTemplate(match.settings.shapeId);
+  const shapeMeta = useMemo(
+    () => getShapeTemplate(match.settings.shapeId),
+    [match.settings.shapeId]
+  );
   const maxMultiplier = Math.min(5, match.settings.mods.maxMultiplierCap || 5);
+
+  const handleTimerExpire = useCallback(() => {
+    setNowMs(Date.now());
+  }, []);
 
   if (!activeBoard) {
     return (
@@ -199,17 +423,26 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
         {/* Top Dual Player HUD matching Approved Mockup Screen 3 */}
         <header className="ens-gridit-hud">
           <div className="ens-gridit-hud-player">
-            <AvatarBadge avatarId={myPlayer?.avatarId || session.avatarId} size={30} ringColor="#fde047" />
+            <AvatarBadge
+              avatarId={myPlayer?.avatarId || session.avatarId}
+              size={30}
+              ringColor="#fde047"
+            />
             <div className="ens-gridit-hud-player-meta">
               <span className="ens-gridit-hud-name">{myPlayer?.username || session.nickname}</span>
-              <span className="ens-gridit-hud-score">{myPlayer?.rawScore ?? 0}</span>
+              <span className="ens-gridit-hud-score">{displayedMyScore}</span>
             </div>
           </div>
 
-          <div className={`ens-gridit-hud-timer ${secondsRemaining <= 15 && !isShaking ? 'is-low' : ''}`}>
-            <Clock size={14} />
-            <span>{match.settings.durationSeconds > 0 ? formatTime(secondsRemaining) : '∞'}</span>
-          </div>
+          <GridItTimerDisplay
+            mode="multiplayer"
+            durationSeconds={match.settings.durationSeconds}
+            startedAtMs={match.startedAtMs}
+            endsAtMs={match.endsAtMs}
+            serverOffsetMs={clockOffsetMs}
+            status={match.status}
+            onExpire={handleTimerExpire}
+          />
 
           {primaryOpp ? (
             <div className="ens-gridit-hud-player" style={{ paddingLeft: 10, paddingRight: 4 }}>
@@ -428,56 +661,14 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
           </div>
         )}
 
-        {/* Bottom Found Words & Stats Panel matching Mockup Screen 3 */}
-        <div className="ens-gridit-bottom-panels" style={{ height: 108 }}>
-          <div className="ens-gridit-panel">
-            <div className="ens-gridit-panel-title">
-              Found Words ({myPlayer?.foundWords.length ?? 0})
-            </div>
-            <div className="ens-gridit-found-list">
-              {!myPlayer || myPlayer.foundWords.length === 0 ? (
-                <div className="ens-gridit-empty-hint">Found words appear here cleanly.</div>
-              ) : (
-                myPlayer.foundWords.map((fw) => (
-                  <button
-                    key={fw.word}
-                    type="button"
-                    className="ens-gridit-found-row"
-                    onClick={() => setDefinitionWord(fw.word)}
-                  >
-                    <span>{fw.word.toLowerCase()}</span>
-                    <span className="ens-gridit-found-right">
-                      <span className="ens-gridit-found-pts">+{fw.points}</span>
-                      <BookOpen size={12} color="#bae6fd" />
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="ens-gridit-panel">
-            <div className="ens-gridit-panel-title">Stats</div>
-            <div className="ens-gridit-stats-rows">
-              <div className="ens-gridit-stat-line">
-                <span>Score</span>
-                <strong>{myPlayer?.rawScore ?? 0}</strong>
-              </div>
-              <div className="ens-gridit-stat-line">
-                <span>Words</span>
-                <strong>{myPlayer?.wordsFoundCount ?? 0}</strong>
-              </div>
-              <div className="ens-gridit-stat-line">
-                <span>Best</span>
-                <strong>{myPlayer?.bestWord?.word || '—'}</strong>
-              </div>
-              <div className="ens-gridit-stat-line">
-                <span>Mult Cap</span>
-                <strong>{maxMultiplier}×</strong>
-              </div>
-            </div>
-          </div>
-        </div>
+        <MultiplayerBottomPanels
+          foundWords={effectiveFoundWords}
+          rawScore={displayedMyScore}
+          wordsFoundCount={displayedWordsCount}
+          bestWord={effectiveFoundWords[0] ?? myPlayer?.bestWord ?? null}
+          maxMultiplier={maxMultiplier}
+          onSelectWord={setDefinitionWord}
+        />
       </div>
 
       {/* Synchronized Results & Board Battle Fairness Modal matching Approved Mockup Screen 4 */}
@@ -490,9 +681,7 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
                 {match.mode === 'board_battle' ? 'Board Battle Complete!' : 'Match Complete!'}
               </h2>
               <p className="ens-gridit-results-sub">
-                {topWinner
-                  ? `${topWinner.username} Wins!`
-                  : 'Results synchronized'}
+                {topWinner ? `${topWinner.username} Wins!` : 'Results synchronized'}
               </p>
             </div>
 

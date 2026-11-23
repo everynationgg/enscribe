@@ -12,11 +12,17 @@ class UnifiedRealtimeClient {
   private activePlayerId: string = 'player_alex';
   private localSocket: Socket | null = null;
   private supabaseChannel: RealtimeChannel | null = null;
+  private supabaseConnected = false;
+  private localSocketConnected = false;
   public connected = false;
 
   constructor() {
     this.initSupabase();
     this.initLocalSocketIfLocalhost();
+  }
+
+  private syncConnectedState(): void {
+    this.connected = this.supabaseConnected || this.localSocketConnected;
   }
 
   private initSupabase(): void {
@@ -59,6 +65,7 @@ class UnifiedRealtimeClient {
       'gridit:rooms_updated',
       'gridit:match_started',
       'gridit:match_state',
+      'gridit:match_delta',
       'gridit:matched',
       'gridit:rematch',
     ];
@@ -71,8 +78,16 @@ class UnifiedRealtimeClient {
 
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
-        this.connected = true;
+        this.supabaseConnected = true;
+        this.syncConnectedState();
         this.dispatchLocal('connect', undefined);
+      } else if (
+        status === 'CLOSED' ||
+        status === 'TIMED_OUT' ||
+        status === 'CHANNEL_ERROR'
+      ) {
+        this.supabaseConnected = false;
+        this.syncConnectedState();
       }
     });
 
@@ -94,8 +109,13 @@ class UnifiedRealtimeClient {
       reconnectionDelay: 600,
     });
     sock.on('connect', () => {
-      this.connected = true;
+      this.localSocketConnected = true;
+      this.syncConnectedState();
       this.dispatchLocal('connect', undefined);
+    });
+    sock.on('disconnect', () => {
+      this.localSocketConnected = false;
+      this.syncConnectedState();
     });
     const events = [
       'room:updated',
@@ -108,6 +128,7 @@ class UnifiedRealtimeClient {
       'gridit:rooms_updated',
       'gridit:match_started',
       'gridit:match_state',
+      'gridit:match_delta',
       'gridit:matched',
       'gridit:rematch',
     ];
