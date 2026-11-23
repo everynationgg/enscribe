@@ -53,22 +53,34 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
     isResetting.current = true;
   }, [computeFitDistance]);
 
+  const prevResetRef = useRef(resetViewTrigger);
   useEffect(() => {
-    if (resetViewTrigger > 0) triggerReset();
+    if (resetViewTrigger !== prevResetRef.current) {
+      prevResetRef.current = resetViewTrigger;
+      if (resetViewTrigger > 0) triggerReset();
+    }
   }, [resetViewTrigger, triggerReset]);
 
-  // ── Button-driven 90° rotation (BLOCKED when letter is selected) ────
+  // ── Button-driven 90° rotation (ONLY on new button clicks, NEVER re-triggers on letter change) ────
+  const prevCwRef = useRef(rotateCwTrigger);
   useEffect(() => {
-    if (rotateCwTrigger > 0 && !isLetterSelected) {
-      targetSpherical.current.theta -= Math.PI / 2;
-      isResetting.current = true;
+    if (rotateCwTrigger !== prevCwRef.current) {
+      prevCwRef.current = rotateCwTrigger;
+      if (rotateCwTrigger > 0 && !isLetterSelected) {
+        targetSpherical.current.theta -= Math.PI / 2;
+        isResetting.current = true;
+      }
     }
   }, [rotateCwTrigger, isLetterSelected]);
 
+  const prevCcwRef = useRef(rotateCcwTrigger);
   useEffect(() => {
-    if (rotateCcwTrigger > 0 && !isLetterSelected) {
-      targetSpherical.current.theta += Math.PI / 2;
-      isResetting.current = true;
+    if (rotateCcwTrigger !== prevCcwRef.current) {
+      prevCcwRef.current = rotateCcwTrigger;
+      if (rotateCcwTrigger > 0 && !isLetterSelected) {
+        targetSpherical.current.theta += Math.PI / 2;
+        isResetting.current = true;
+      }
     }
   }, [rotateCcwTrigger, isLetterSelected]);
 

@@ -256,6 +256,7 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
             if (canRotate) setRotateCcwTrigger((c) => c + 1);
           }}
           onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
           title={
             isLetterSelected
               ? 'Rotation locked while letters are selected'
@@ -277,6 +278,7 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
             if (canRotate) setRotateCwTrigger((c) => c + 1);
           }}
           onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
           title={
             isLetterSelected
               ? 'Rotation locked while letters are selected'
