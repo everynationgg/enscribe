@@ -87,14 +87,20 @@ export const BrandedHeader: React.FC<BrandedHeaderProps> = ({
         type="button"
         className="ens-rank-pill"
         onClick={onOpenLeaderboard}
-        aria-label={`Rank ${profile.rankTier}, ${profile.rankPoints} RP — open leaderboard`}
+        aria-label={
+          profile.isGuest
+            ? 'Guest Session — open ChainIt leaderboard'
+            : `Rank ${profile.rankTier}, ${profile.rankPoints} RP — open leaderboard`
+        }
       >
         <span className="ens-rank-pill-crown">
           <GoldCrownIcon size={17} />
         </span>
         <span className="ens-rank-pill-meta">
-          <span className="ens-rank-tier">{profile.rankTier}</span>
-          <span className="ens-rank-rp">{profile.rankPoints.toLocaleString()} RP</span>
+          <span className="ens-rank-tier">{profile.isGuest ? 'Guest Mode' : profile.rankTier}</span>
+          <span className="ens-rank-rp">
+            {profile.isGuest ? 'ChainIt' : `${profile.rankPoints.toLocaleString()} RP`}
+          </span>
         </span>
       </button>
     </div>

@@ -57,6 +57,7 @@ export interface MemorySnapshot {
 
 export class MemoryStorageRepository implements StorageRepository {
   private profiles = new Map<string, Profile>();
+  private ephemeralGuests = new Map<string, Profile>();
   private templates = new Map<string, Template>();
   private rooms = new Map<string, StoredRoomRecord>();
   private matches = new Map<string, StoredMatch>();
@@ -71,6 +72,19 @@ export class MemoryStorageRepository implements StorageRepository {
     this.onlineTracker = onlineTracker;
   }
 
+  private isGuestId(playerId: string): boolean {
+    return playerId.startsWith('guest_');
+  }
+
+  registerEphemeralGuest(profile: Profile): void {
+    const copy = structuredClone({ ...profile, isGuest: true });
+    this.ephemeralGuests.set(copy.id, copy);
+  }
+
+  removeEphemeralGuest(playerId: string): void {
+    this.ephemeralGuests.delete(playerId);
+  }
+
   setOnlineTracker(fn: (playerId: string) => boolean): void {
     this.onlineTracker = fn;
   }
@@ -81,6 +95,7 @@ export class MemoryStorageRepository implements StorageRepository {
 
   clearAll(): void {
     this.profiles.clear();
+    this.ephemeralGuests.clear();
     this.templates.clear();
     this.rooms.clear();
     this.matches.clear();
@@ -142,12 +157,17 @@ export class MemoryStorageRepository implements StorageRepository {
   }
 
   getProfile(id: string): Profile | null {
-    const p = this.profiles.get(id);
+    const p = this.profiles.get(id) ?? this.ephemeralGuests.get(id);
     return p ? structuredClone(p) : null;
   }
 
   upsertProfile(profile: Profile): Profile {
     const copy = structuredClone(profile);
+    if (copy.isGuest || this.isGuestId(copy.id)) {
+      copy.isGuest = true;
+      this.ephemeralGuests.set(copy.id, copy);
+      return structuredClone(copy);
+    }
     this.profiles.set(copy.id, copy);
     return structuredClone(copy);
   }
@@ -156,6 +176,9 @@ export class MemoryStorageRepository implements StorageRepository {
     playerId: string,
     delta: { wins?: number; losses?: number; rankPointsDelta?: number; matchPointsDelta?: number }
   ): Profile | null {
+    if (this.isGuestId(playerId)) {
+      return this.getProfile(playerId);
+    }
     const current = this.profiles.get(playerId);
     if (!current) return null;
     const newRp = Math.max(100, current.rankPoints + (delta.rankPointsDelta ?? 0));
@@ -172,6 +195,13 @@ export class MemoryStorageRepository implements StorageRepository {
   }
 
   updateCosmetics(playerId: string, cosmetics: EquippedCosmetics): Profile | null {
+    if (this.isGuestId(playerId)) {
+      const guest = this.ephemeralGuests.get(playerId);
+      if (!guest) return null;
+      const updated = { ...guest, equippedCosmetics: structuredClone(cosmetics) };
+      this.ephemeralGuests.set(playerId, updated);
+      return structuredClone(updated);
+    }
     const current = this.profiles.get(playerId);
     if (!current) return null;
     const updated = { ...current, equippedCosmetics: structuredClone(cosmetics) };
@@ -193,6 +223,9 @@ export class MemoryStorageRepository implements StorageRepository {
 
   saveTemplate(tpl: Template): Template {
     const copy = structuredClone(tpl);
+    if (this.isGuestId(copy.ownerId)) {
+      return structuredClone(copy);
+    }
     this.templates.set(copy.id, copy);
     return structuredClone(copy);
   }
@@ -202,9 +235,9 @@ export class MemoryStorageRepository implements StorageRepository {
   }
 
   private hydrateRoom(rec: StoredRoomRecord): Room {
-    const hostProfile = this.profiles.get(rec.hostId);
+    const hostProfile = this.profiles.get(rec.hostId) ?? this.ephemeralGuests.get(rec.hostId);
     const players: RoomPlayer[] = rec.players.map((pr) => {
-      const profile = this.profiles.get(pr.playerId);
+      const profile = this.profiles.get(pr.playerId) ?? this.ephemeralGuests.get(pr.playerId);
       const tpl = pr.submittedTemplateId ? this.templates.get(pr.submittedTemplateId) : null;
       return {
         playerId: pr.playerId,
@@ -422,6 +455,7 @@ export class MemoryStorageRepository implements StorageRepository {
   }
 
   recordPointsEvent(evt: PointsEvent): void {
+    if (this.isGuestId(evt.playerId)) return;
     this.pointsEvents.push(structuredClone(evt));
   }
 
@@ -434,7 +468,7 @@ export class MemoryStorageRepository implements StorageRepository {
         mode: m.mode,
         opponentNames: Object.keys(m.boards)
           .filter((pid) => pid !== playerId)
-          .map((pid) => this.profiles.get(pid)?.username ?? pid),
+          .map((pid) => (this.profiles.get(pid) ?? this.ephemeralGuests.get(pid))?.username ?? pid),
         winnerId: m.winnerId,
         didWin: m.winnerId === playerId,
         finishedAt: m.updatedAt,
@@ -467,6 +501,7 @@ export class MemoryStorageRepository implements StorageRepository {
   }
 
   markSoloStageCompleted(playerId: string, stageId: string): void {
+    if (this.isGuestId(playerId)) return;
     if (!this.soloProgress.has(playerId)) {
       this.soloProgress.set(playerId, new Set());
     }

@@ -1,7 +1,7 @@
 {
   "name": "Enscribe — Word Games Platform",
   "short_name": "Enscribe",
-  "description": "Mobile-first competitive multiplayer word games platform featuring Chain Clash.",
+  "description": "Mobile-first competitive multiplayer word games hub featuring ChainIt and GridIt.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

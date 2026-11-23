@@ -18,6 +18,13 @@ import {
   seedStarterTemplatesForPlayer,
 } from './db/seed.js';
 import { getRegisteredGames } from './platform/GameRegistry.js';
+import {
+  GuestNicknameConflictError,
+  GuestSessionExpiredError,
+  GuestSessionStore,
+  GuestStoreUnavailableError,
+  GuestValidationError,
+} from './platform/GuestSessionStore.js';
 import { ChainClashEngine } from './games/chain-clash/ChainClashEngine.js';
 import {
   AssignedPuzzle,
@@ -48,19 +55,32 @@ export interface EnscribeBackendRuntime {
   repo: MemoryStorageRepository;
   engine: ChainClashEngine;
   cloudSync: SupabaseCloudSync;
+  guestStore: GuestSessionStore;
   isPlayerOnline: (playerId: string) => boolean;
   broadcastMatchState: (match: StoredMatch) => void;
   flushSideEffects: (persistSnapshot?: boolean) => Promise<void>;
   processTimersAndFlush: () => Promise<StoredMatch[]>;
 }
 
-export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBackendRuntime {
+export function createEnscribeApp(
+  hooks: LocalRealtimeHooks = {},
+  options: { forceLocalGuestMemory?: boolean; disableCloudSync?: boolean; inMemoryOnly?: boolean } = {}
+): EnscribeBackendRuntime {
   const app = express();
   app.use(cors());
   app.use(express.json());
+  app.use(express.text({ type: 'text/plain' }));
 
   const repo = new MemoryStorageRepository();
   const cloudSync = new SupabaseCloudSync();
+  if (options.disableCloudSync) {
+    (cloudSync as any).isConfigured = () => false;
+  }
+  const isServerless = Boolean(process.env.VERCEL);
+  const guestStore = new GuestSessionStore({
+    forceLocalMemory: options.forceLocalGuestMemory,
+    isServerless,
+  });
   const lastSeenByPlayer = new Map<string, number>();
   const localCacheFile = path.resolve(process.cwd(), 'data', 'enscribe-state.json');
 
@@ -77,9 +97,22 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
   let initialized = false;
   let lastCloudSyncAt = 0;
   let inFlightHydration: Promise<void> | null = null;
-  const isServerless = Boolean(process.env.VERCEL);
+
+  const ensureGuestProfilesRegistered = async (playerIds: string[]): Promise<void> => {
+    const missing = playerIds.filter((pid) => pid && pid.startsWith('guest_') && !repo.getProfile(pid));
+    if (missing.length === 0) return;
+    await Promise.all(
+      missing.map(async (pid) => {
+        const session = await guestStore.getSessionById(pid).catch(() => null);
+        if (session) {
+          repo.registerEphemeralGuest(guestStore.toGuestProfile(session));
+        }
+      })
+    );
+  };
 
   const loadLocalFileIfExists = (): MemorySnapshot | null => {
+    if (options.inMemoryOnly) return null;
     try {
       if (!cloudSync.isConfigured() && fs.existsSync(localCacheFile)) {
         const raw = fs.readFileSync(localCacheFile, 'utf8');
@@ -92,6 +125,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
   };
 
   const saveLocalFileIfUnconfigured = (snapshot: MemorySnapshot): void => {
+    if (options.inMemoryOnly) return;
     try {
       if (!cloudSync.isConfigured() && !isServerless) {
         const dir = path.dirname(localCacheFile);
@@ -312,6 +346,18 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
         };
 
         try {
+          const guestTokenHeader =
+            typeof req.headers['x-guest-session-token'] === 'string'
+              ? req.headers['x-guest-session-token'].trim()
+              : '';
+          if (guestTokenHeader) {
+            const gSession = await guestStore.getSessionByToken(guestTokenHeader).catch(() => null);
+            if (gSession) {
+              repo.registerEphemeralGuest(guestStore.toGuestProfile(gSession));
+              lastSeenByPlayer.set(gSession.sessionId, Date.now());
+            }
+          }
+
           const activePid =
             (req.body?.playerId as string) ||
             (req.body?.hostId as string) ||
@@ -320,6 +366,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
             (req.params?.playerId as string);
           if (activePid) {
             lastSeenByPlayer.set(String(activePid), Date.now());
+            await ensureGuestProfilesRegistered([String(activePid)]);
           }
 
           await ensureHydrated(mutating);
@@ -371,9 +418,129 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
       ok: true,
       platform: 'Enscribe',
       cloudConfigured: cloudSync.isConfigured(),
+      guestStoreBackend: guestStore.getBackendMode(),
       games: getRegisteredGames(),
       serverNowMs: Date.now(),
     });
+  });
+
+  // ==================== TEMPORARY GUEST SESSIONS (ATOMIC POSTGRESQL / EPHEMERAL) ====================
+  const sendGuestError = (res: Response, err: any) => {
+    if (
+      err instanceof GuestNicknameConflictError ||
+      err instanceof GuestValidationError ||
+      err instanceof GuestSessionExpiredError ||
+      err instanceof GuestStoreUnavailableError
+    ) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: err?.message || 'Guest session service error' });
+  };
+
+  app.post('/api/guest/claim', async (req, res) => {
+    try {
+      const { nickname, avatarId, sessionToken } = req.body ?? {};
+      const session = await guestStore.claimNickname(
+        String(nickname || ''),
+        String(avatarId || 'alex'),
+        sessionToken ? String(sessionToken) : null
+      );
+      const profile = guestStore.toGuestProfile(session);
+      repo.registerEphemeralGuest(profile);
+      lastSeenByPlayer.set(session.sessionId, Date.now());
+      res.status(200).json({ session, profile });
+    } catch (err: any) {
+      sendGuestError(res, err);
+    }
+  });
+
+  app.post('/api/guest/heartbeat', async (req, res) => {
+    try {
+      const token = String(
+        req.body?.sessionToken || req.headers['x-guest-session-token'] || ''
+      ).trim();
+      const session = await guestStore.heartbeat(token);
+      const profile = guestStore.toGuestProfile(session);
+      repo.registerEphemeralGuest(profile);
+      lastSeenByPlayer.set(session.sessionId, Date.now());
+      res.json({ session, profile });
+    } catch (err: any) {
+      sendGuestError(res, err);
+    }
+  });
+
+  app.get('/api/guest/session', async (req, res) => {
+    try {
+      const token = String(
+        req.headers['x-guest-session-token'] || req.query.sessionToken || ''
+      ).trim();
+      if (!token) {
+        res.status(401).json({ error: 'Missing guest session token' });
+        return;
+      }
+      const session = await guestStore.getSessionByToken(token);
+      if (!session) {
+        res.status(401).json({ error: 'Guest session expired or not found' });
+        return;
+      }
+      const profile = guestStore.toGuestProfile(session);
+      repo.registerEphemeralGuest(profile);
+      lastSeenByPlayer.set(session.sessionId, Date.now());
+      res.json({ session, profile });
+    } catch (err: any) {
+      sendGuestError(res, err);
+    }
+  });
+
+  app.post('/api/guest/rename', async (req, res) => {
+    try {
+      const token = String(
+        req.body?.sessionToken || req.headers['x-guest-session-token'] || ''
+      ).trim();
+      const existing = await guestStore.getSessionByToken(token);
+      if (!existing) {
+        res.status(401).json({ error: 'Guest session expired. Please re-enter a nickname.' });
+        return;
+      }
+      const session = await guestStore.claimNickname(
+        String(req.body?.nickname ?? existing.nickname),
+        String(req.body?.avatarId ?? existing.avatarId),
+        token
+      );
+      const profile = guestStore.toGuestProfile(session);
+      repo.registerEphemeralGuest(profile);
+      lastSeenByPlayer.set(session.sessionId, Date.now());
+      res.json({ session, profile });
+    } catch (err: any) {
+      sendGuestError(res, err);
+    }
+  });
+
+  app.post('/api/guest/release', async (req, res) => {
+    try {
+      let bodyObj: any = req.body;
+      if (typeof bodyObj === 'string') {
+        try {
+          bodyObj = JSON.parse(bodyObj);
+        } catch {
+          bodyObj = {};
+        }
+      }
+      const token = String(
+        bodyObj?.sessionToken || req.headers['x-guest-session-token'] || ''
+      ).trim();
+      const existing = token ? await guestStore.getSessionByToken(token).catch(() => null) : null;
+      if (token) {
+        await guestStore.releaseSession(token);
+      }
+      if (existing) {
+        repo.removeEphemeralGuest(existing.sessionId);
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      sendGuestError(res, err);
+    }
   });
 
   app.post(
@@ -385,24 +552,24 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     })
   );
 
-  app.get(
-    '/api/games',
-    handleApi(false, (_req, res) => {
-      res.json(getRegisteredGames());
-    })
-  );
+  app.get('/api/games', (_req, res) => {
+    res.json(getRegisteredGames());
+  });
 
   // Single-request player bootstrap (replaces 6 separate GETs on mount/tab refresh)
   app.get(
     '/api/bootstrap/:playerId',
-    handleApi(false, (req, res) => {
+    handleApi(false, async (req, res) => {
       const playerId = String(req.params.playerId);
+      await ensureGuestProfilesRegistered([playerId]);
       const profile = repo.getProfile(playerId);
       if (!profile) {
         res.status(404).json({ error: 'Profile not found' });
         return;
       }
       const matches = repo.listMatchesForPlayer(playerId);
+      const allOpponentIds = matches.flatMap((m) => Object.keys(m.boards));
+      await ensureGuestProfilesRegistered(allOpponentIds);
       const ongoingMatches: OngoingMatchSummary[] = matches
         .filter((m) => m.status !== 'finished' || m.boards[playerId]?.completedAtMs === null)
         .map((m) => {
@@ -610,6 +777,10 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     '/api/templates',
     handleApi(true, (req, res) => {
       const { id, ownerId, name, theme, thumbnailKey, words, status } = req.body ?? {};
+      if (String(ownerId || '').startsWith('guest_')) {
+        res.status(403).json({ error: 'Guest templates are saved locally in your browser.' });
+        return;
+      }
       const cleanName = String(name || 'Untitled Chain').trim().slice(0, 40);
       const cleanTheme = String(theme || 'Custom').trim().slice(0, 30);
       const cleanStatus = status === 'draft' ? 'draft' : 'saved';
@@ -688,21 +859,25 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
   // Rooms
   app.get(
     '/api/rooms/public',
-    handleApi(false, (_req, res) => {
+    handleApi(false, async (_req, res) => {
+      const initial = repo.listPublicRooms();
+      const guestIds = initial.flatMap((r) => [r.hostId, ...r.players.map((p) => p.playerId)]);
+      await ensureGuestProfilesRegistered(guestIds);
       res.json(repo.listPublicRooms());
     })
   );
 
   app.get(
     '/api/rooms/:id',
-    handleApi(false, (req, res) => {
+    handleApi(false, async (req, res) => {
       const idOrCode = String(req.params.id);
       const room = repo.getRoomById(idOrCode) ?? repo.getRoomByCode(idOrCode);
       if (!room) {
         res.status(404).json({ error: 'Room not found' });
         return;
       }
-      res.json(room);
+      await ensureGuestProfilesRegistered([room.hostId, ...room.players.map((p) => p.playerId)]);
+      res.json(repo.getRoomById(room.id) ?? room);
     })
   );
 
@@ -1010,7 +1185,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
 
   app.post(
     '/api/matchmaking/ranked',
-    handleApi(true, (req, res) => {
+    handleApi(true, async (req, res) => {
       const { playerId } = req.body ?? {};
       const profile = repo.getProfile(String(playerId));
       if (!profile) {
@@ -1018,6 +1193,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
         return;
       }
 
+      await ensureGuestProfilesRegistered(repo.getRankedQueue());
       const waitingCandidates = repo
         .getRankedQueue()
         .filter((pid) => pid !== playerId && repo.getProfile(pid))
@@ -1187,6 +1363,8 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
         return;
       }
 
+      await ensureGuestProfilesRegistered(Object.keys(match.boards));
+
       const wasAwaiting = match.turnAwaitingOnline;
       const activated = engine.activateAwaitingTurnIfOnline(match.id, playerId) ?? match;
       const clueAdded = await ensureActiveWordClue(activated.id, playerId);
@@ -1347,6 +1525,7 @@ export function createEnscribeApp(hooks: LocalRealtimeHooks = {}): EnscribeBacke
     repo,
     engine,
     cloudSync,
+    guestStore,
     isPlayerOnline,
     broadcastMatchState,
     flushSideEffects,

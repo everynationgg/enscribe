@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, ChevronRight, Play } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronRight, Link2, Play } from 'lucide-react';
 import {
   InAppNotification,
   OngoingMatchSummary,
@@ -31,6 +31,7 @@ interface HomeScreenProps {
   onRooms: () => void;
   onExploreFantasy: () => void;
   onOpenProfile: () => void;
+  onExitToHub: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -48,6 +49,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onRooms,
   onExploreFantasy,
   onOpenProfile,
+  onExitToHub,
 }) => {
   const unreadCount = notifications.filter((n) => !n.read).length;
   const primaryMatch =
@@ -69,6 +71,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       <div className="ens-scroll-body ens-home-scroll">
         <div className="ens-home-wrap">
+          {/* Mandatory Exit to Game Hub Bar + Game Identity */}
+          <div className="ens-game-hub-bar">
+            <button
+              type="button"
+              className="ens-exit-hub-btn"
+              onClick={onExitToHub}
+            >
+              <ArrowLeft size={15} strokeWidth={2.8} />
+              <span>Exit to Game Hub</span>
+            </button>
+
+            <div className="ens-game-identity-pill">
+              <Link2 size={14} color="#38bdf8" />
+              <span>ChainIt</span>
+            </div>
+          </div>
+
           {/* Top Branded Header: [E][N]scribe + Bell + Rank Pill */}
           <BrandedHeader
             profile={profile}
@@ -103,7 +122,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <span>Hi, {profile.username}!</span>
                 <WaveHandIcon size={19} className="ens-wave-icon" />
               </div>
-              <div className="ens-greeting-sub">Ready for a word chain clash?</div>
+              <div className="ens-greeting-sub">Ready for a ChainIt match?</div>
             </div>
           </div>
 
@@ -178,7 +197,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <div className="ens-hero-left">
                 <div className="ens-hero-title-row">
                   <LightningBoltIcon size={24} />
-                  <span>Ready to Clash</span>
+                  <span>Ready for ChainIt</span>
                 </div>
                 <div className="ens-hero-sub">
                   {nextSoloStage

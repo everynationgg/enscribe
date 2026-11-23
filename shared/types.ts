@@ -1,12 +1,45 @@
-export type GameModuleId = 'chain_clash';
+export type GameModuleId = 'chain_clash' | 'gridit';
 
 export interface GameModuleDescriptor {
   id: GameModuleId;
+  slug?: string;
   name: string;
   tagline: string;
+  status?: 'playable' | 'preview' | 'coming_soon';
+  badgeText?: string;
   supportedModes: Array<'classic' | 'speed_race' | 'solo' | 'ranked'>;
   minPlayers: number;
   maxPlayers: number;
+}
+
+export interface HubGameTile {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string;
+  status: 'playable' | 'coming_soon';
+  badgeText: string;
+  themeVariant: 'chainit' | 'gridit' | 'coming_soon';
+  gameId?: GameModuleId;
+}
+
+export interface GuestSession {
+  sessionId: string;
+  sessionToken: string;
+  nickname: string;
+  avatarId: string;
+  expiresAtMs: number;
+  isOffline?: boolean;
+}
+
+export interface PlayerSession {
+  authType: 'guest' | 'engg';
+  playerId: string;
+  nickname: string;
+  avatarId: string;
+  sessionToken: string | null;
+  isOffline: boolean;
+  expiresAtMs: number | null;
 }
 
 export interface EquippedCosmetics {
@@ -27,6 +60,7 @@ export interface Profile {
   matchPointsBalance: number;
   equippedCosmetics: EquippedCosmetics;
   createdAt: number;
+  isGuest?: boolean;
 }
 
 export interface PointsEvent {

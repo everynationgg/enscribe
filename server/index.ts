@@ -42,8 +42,15 @@ setInterval(() => {
 io.on('connection', (socket) => {
   let boundPlayerId: string | null = null;
 
-  socket.on('auth:identify', (playerId: string) => {
-    if (!playerId || !runtime.repo.getProfile(playerId)) return;
+  socket.on('auth:identify', async (playerId: string) => {
+    if (!playerId) return;
+    if (!runtime.repo.getProfile(playerId) && playerId.startsWith('guest_')) {
+      const gSession = await runtime.guestStore.getSessionById(playerId).catch(() => null);
+      if (gSession) {
+        runtime.repo.registerEphemeralGuest(runtime.guestStore.toGuestProfile(gSession));
+      }
+    }
+    if (!runtime.repo.getProfile(playerId)) return;
     if (boundPlayerId && onlineSocketsByPlayer.has(boundPlayerId)) {
       onlineSocketsByPlayer.get(boundPlayerId)!.delete(socket.id);
       socket.leave(`player:${boundPlayerId}`);

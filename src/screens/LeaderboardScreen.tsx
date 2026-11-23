@@ -15,7 +15,7 @@ export const LeaderboardScreen: React.FC<LeaderboardScreenProps> = ({
   currentProfile,
   onBack,
 }) => {
-  const [players, setPlayers] = useState<Profile[]>([currentProfile]);
+  const [players, setPlayers] = useState<Profile[]>(currentProfile.isGuest ? [] : [currentProfile]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,8 +46,8 @@ export const LeaderboardScreen: React.FC<LeaderboardScreenProps> = ({
       <div className="ens-sky-sparkles" aria-hidden="true" />
 
       <FantasyPageHeader
-        title="Leaderboard"
-        subtitle="Top players ranked by competitive RP and match wins."
+        title="ChainIt Leaderboard"
+        subtitle="Top ChainIt players ranked by competitive RP and match wins."
         icon={<PodiumCrownIcon size={36} />}
         backdropSrc="/art/header-fantasy.png"
         onBack={onBack}
@@ -55,6 +55,13 @@ export const LeaderboardScreen: React.FC<LeaderboardScreenProps> = ({
 
       <div className="ens-subpage-scroll">
         <div className="ens-subpage-inner">
+          {currentProfile.isGuest && (
+            <div className="ens-coming-soon-card" style={{ padding: '10px 14px', marginBottom: 4 }}>
+              <div className="ens-coming-sub" style={{ textAlign: 'left', fontSize: 12 }}>
+                Guest sessions are temporary and do not record permanent rank points. Connect an ENGG account later to climb the leaderboard.
+              </div>
+            </div>
+          )}
           {/* Top 3 Podium */}
           {topThree.length > 0 && (
             <div className="ens-lb-podium-card">

@@ -11,9 +11,13 @@
     "build": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "start": "node dist-server/index.js",
-    "test:e2e": "tsx scripts/verify-engine.ts"
+    "test:e2e": "tsx scripts/verify-engine.ts",
+    "android:sync": "vite build && cap sync android"
   },
   "dependencies": {
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/core": "^6.2.3",
+    "@capacitor/status-bar": "^6.0.3",
     "@supabase/supabase-js": "^2.119.2",
     "cors": "^2.8.5",
     "express": "^4.21.2",
@@ -24,6 +28,8 @@
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^6.2.3",
+    "@capacitor/cli": "^6.2.3",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",

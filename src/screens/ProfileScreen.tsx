@@ -24,6 +24,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [editUsername, setEditUsername] = useState(profile.username);
   const [editAvatar, setEditAvatar] = useState(profile.avatarId);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const winRate =
     profile.wins + profile.losses > 0
@@ -32,10 +33,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editUsername.trim().length < 2) return;
+    if (editUsername.trim().length < 2) {
+      setSaveError('Nickname must be at least 2 characters.');
+      return;
+    }
+    setSaveError(null);
     setSaving(true);
     try {
       await onUpdateProfile({ username: editUsername.trim(), avatarId: editAvatar });
+    } catch (err: any) {
+      setSaveError(err?.message || 'Could not update nickname.');
     } finally {
       setSaving(false);
     }
@@ -73,7 +80,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           }}
         >
           <LogOut size={13} />
-          <span>Sign Out</span>
+          <span>{profile.isGuest ? 'Switch Guest' : 'Sign Out'}</span>
         </button>
       </header>
 
@@ -100,30 +107,39 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             >
               <GoldCrownIcon size={16} />
               <span>
-                {profile.rankTier} • {profile.rankPoints.toLocaleString()} RP
+                {profile.isGuest
+                  ? 'Temporary Guest Session'
+                  : `${profile.rankTier} • ${profile.rankPoints.toLocaleString()} RP`}
               </span>
             </div>
             <div className="ens-profile-id-chip">
-              Player ID: <span style={{ fontFamily: 'monospace' }}>{profile.id}</span>
+              {profile.isGuest ? 'Session ID: ' : 'Player ID: '}
+              <span style={{ fontFamily: 'monospace' }}>{profile.id}</span>
             </div>
           </div>
         </div>
 
         {/* Colorful Glossy Stats Grid */}
-        <div className="ens-stats-grid">
-          <div className="ens-stat-card is-wins">
-            <div className="ens-stat-val">{profile.wins}</div>
-            <div className="ens-stat-label">Wins</div>
+        {profile.isGuest ? (
+          <div className="ens-white-card" style={{ fontSize: 12.5, fontWeight: 700, color: '#d4dcff', lineHeight: 1.45 }}>
+            Temporary guest sessions do not save permanent XP, rank points, or match stats. Full progression arrives with ENGG sign-in.
           </div>
-          <div className="ens-stat-card is-losses">
-            <div className="ens-stat-val">{profile.losses}</div>
-            <div className="ens-stat-label">Losses</div>
+        ) : (
+          <div className="ens-stats-grid">
+            <div className="ens-stat-card is-wins">
+              <div className="ens-stat-val">{profile.wins}</div>
+              <div className="ens-stat-label">Wins</div>
+            </div>
+            <div className="ens-stat-card is-losses">
+              <div className="ens-stat-val">{profile.losses}</div>
+              <div className="ens-stat-label">Losses</div>
+            </div>
+            <div className="ens-stat-card is-winrate">
+              <div className="ens-stat-val">{winRate}%</div>
+              <div className="ens-stat-label">Win Rate</div>
+            </div>
           </div>
-          <div className="ens-stat-card is-winrate">
-            <div className="ens-stat-val">{winRate}%</div>
-            <div className="ens-stat-label">Win Rate</div>
-          </div>
-        </div>
+        )}
 
         {/* Edit Nickname & Avatar */}
         <form onSubmit={handleSaveProfile} className="ens-white-card" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
@@ -167,7 +183,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             <input
               type="text"
               value={editUsername}
-              onChange={(e) => setEditUsername(e.target.value.slice(0, 20))}
+              onChange={(e) => {
+                setEditUsername(e.target.value.slice(0, 20));
+                if (saveError) setSaveError(null);
+              }}
               maxLength={20}
               className="ens-fantasy-input"
               style={{ flex: 1, fontSize: 14, minHeight: 42 }}
@@ -177,6 +196,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               <span>Save</span>
             </button>
           </div>
+          {saveError && (
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#ffb4c2' }} role="alert">
+              {saveError}
+            </div>
+          )}
         </form>
 
         {/* Equipped Cosmetics */}

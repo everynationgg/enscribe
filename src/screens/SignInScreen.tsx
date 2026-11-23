@@ -59,7 +59,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onSignIn }) => {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 22 }}>
           <EnscribeBrandLogo centered />
           <p style={{ margin: '10px 0 0', fontSize: 13.5, fontWeight: 700, color: '#D4DCFF', textAlign: 'center' }}>
-            Competitive Multiplayer Word Games • Chain Clash
+            Competitive Multiplayer Word Games • ChainIt &amp; GridIt
           </p>
         </div>
 

@@ -1,7 +1,9 @@
+import { Capacitor } from '@capacitor/core';
 import {
   EquippedCosmetics,
   GameModuleDescriptor,
   GuessResult,
+  GuestSession,
   InAppNotification,
   MatchChatMessage,
   MatchHistorySummary,
@@ -15,10 +17,34 @@ import {
   ThumbnailKey,
 } from '../../shared/types';
 
+const DEFAULT_NATIVE_API_BASE_URL = 'https://enscribe.vercel.app';
+const envApiBase = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
+export const API_BASE_URL = (
+  envApiBase || (Capacitor.isNativePlatform() ? DEFAULT_NATIVE_API_BASE_URL : '')
+).replace(/\/+$/, '');
+
+let activeGuestSessionToken: string | null = null;
+
+export function setGuestSessionToken(token: string | null): void {
+  activeGuestSessionToken = token && token.trim() ? token.trim() : null;
+}
+
+export function getGuestSessionToken(): string | null {
+  return activeGuestSessionToken;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
+  const resolvedUrl = /^https?:\/\//i.test(url) ? url : `${API_BASE_URL}${url}`;
+  const guestHeaders: Record<string, string> = activeGuestSessionToken
+    ? { 'x-guest-session-token': activeGuestSessionToken }
+    : {};
+  const res = await fetch(resolvedUrl, {
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...guestHeaders,
+      ...(options?.headers || {}),
+    },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -28,7 +54,38 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getHealth: () => request<{ ok: boolean; platform: string; games: GameModuleDescriptor[] }>('/api/health'),
+  getHealth: () =>
+    request<{
+      ok: boolean;
+      platform: string;
+      guestStoreBackend?: string;
+      games: GameModuleDescriptor[];
+    }>('/api/health'),
+  getGames: () => request<GameModuleDescriptor[]>('/api/games'),
+  claimGuestNickname: (nickname: string, avatarId: string, sessionToken?: string | null) =>
+    request<{ session: GuestSession; profile: Profile }>('/api/guest/claim', {
+      method: 'POST',
+      body: JSON.stringify({ nickname, avatarId, sessionToken: sessionToken || undefined }),
+    }),
+  heartbeatGuestSession: (sessionToken: string) =>
+    request<{ session: GuestSession; profile: Profile }>('/api/guest/heartbeat', {
+      method: 'POST',
+      body: JSON.stringify({ sessionToken }),
+    }),
+  getGuestSession: (sessionToken: string) =>
+    request<{ session: GuestSession; profile: Profile }>(
+      `/api/guest/session?sessionToken=${encodeURIComponent(sessionToken)}`
+    ),
+  renameGuestSession: (sessionToken: string, nickname: string, avatarId: string) =>
+    request<{ session: GuestSession; profile: Profile }>('/api/guest/rename', {
+      method: 'POST',
+      body: JSON.stringify({ sessionToken, nickname, avatarId }),
+    }),
+  releaseGuestSession: (sessionToken: string) =>
+    request<{ ok: boolean }>('/api/guest/release', {
+      method: 'POST',
+      body: JSON.stringify({ sessionToken }),
+    }),
   getBootstrap: (playerId: string) =>
     request<{
       profile: Profile;

@@ -1,0 +1,67 @@
+import { GameModuleDescriptor, HubGameTile } from './types.js';
+
+export const REGISTERED_GAMES: GameModuleDescriptor[] = [
+  {
+    id: 'chain_clash',
+    slug: 'chainit',
+    name: 'ChainIt',
+    tagline: 'Race to solve connected word chains against rivals.',
+    status: 'playable',
+    badgeText: 'LIVE',
+    supportedModes: ['classic', 'speed_race', 'solo', 'ranked'],
+    minPlayers: 1,
+    maxPlayers: 6,
+  },
+  {
+    id: 'gridit',
+    slug: 'gridit',
+    name: 'GridIt',
+    tagline: 'Shape words. Build boards. Battle smarter.',
+    status: 'preview',
+    badgeText: 'NEW',
+    supportedModes: ['solo', 'ranked'],
+    minPlayers: 1,
+    maxPlayers: 4,
+  },
+];
+
+export const HUB_GAME_TILES: HubGameTile[] = [
+  {
+    id: 'tile_chainit',
+    slug: 'chainit',
+    name: 'ChainIt',
+    tagline: 'Connect word chains solo or race rivals live!',
+    status: 'playable',
+    badgeText: 'LIVE',
+    themeVariant: 'chainit',
+    gameId: 'chain_clash',
+  },
+  {
+    id: 'tile_gridit',
+    slug: 'gridit',
+    name: 'GridIt',
+    tagline: 'Shape words. Build boards. Battle smarter.',
+    status: 'playable',
+    badgeText: 'NEW',
+    themeVariant: 'gridit',
+    gameId: 'gridit',
+  },
+  {
+    id: 'tile_upcoming_1',
+    slug: 'upcoming-1',
+    name: 'New Word Game',
+    tagline: 'A fresh multiplayer word challenge is in the works.',
+    status: 'coming_soon',
+    badgeText: 'COMING SOON',
+    themeVariant: 'coming_soon',
+  },
+  {
+    id: 'tile_upcoming_2',
+    slug: 'upcoming-2',
+    name: 'Mystery Mode',
+    tagline: 'More Enscribe word arenas unlocking soon.',
+    status: 'coming_soon',
+    badgeText: 'COMING SOON',
+    themeVariant: 'coming_soon',
+  },
+];

@@ -1,10 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
 import { WifiOff } from 'lucide-react';
 import {
+  GameModuleId,
   InAppNotification,
   MatchHistorySummary,
   MatchStateClient,
   OngoingMatchSummary,
+  PlayerSession,
   Profile,
   Room,
   RoomRules,
@@ -12,9 +16,34 @@ import {
   Template,
   ThumbnailKey,
 } from '../shared/types';
-import { api } from './services/api';
+import { api, setGuestSessionToken } from './services/api';
 import { getSocket } from './services/socket';
+import {
+  createOfflineGuestSession,
+  deleteGuestLocalTemplate,
+  duplicateGuestLocalTemplate,
+  guestSessionToPlayerSession,
+  loadActivePlayerSession,
+  loadGuestCompletedSoloStages,
+  loadGuestLocalTemplates,
+  saveActivePlayerSession,
+  saveCachedGuestPrefs,
+  saveGuestLocalTemplate,
+  sessionToGuestProfile,
+} from './services/session';
+import {
+  getOfflineOfficialTemplates,
+  getOfflineSoloMatch,
+  getOfflineSoloStages,
+  isOfflineSoloMatchId,
+  startOfflineSoloMatch,
+  submitOfflineSoloGuess,
+} from './games/chainit/offlineSolo';
 import { BottomNav, NavTab } from './components/BottomNav';
+import { GameEntryAnimation } from './components/GameEntryAnimation';
+import { GuestEntryScreen } from './screens/GuestEntryScreen';
+import { EnscribeHubScreen } from './screens/EnscribeHubScreen';
+import { GridItHomeScreen } from './screens/GridItHomeScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { PlayScreen } from './screens/PlayScreen';
 import { SoloScreen } from './screens/SoloScreen';
@@ -25,9 +54,11 @@ import { TemplatesScreen } from './screens/TemplatesScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { LobbyScreen } from './screens/LobbyScreen';
 import { GameplayScreen } from './screens/GameplayScreen';
-import { SignInScreen } from './screens/SignInScreen';
 
 type ActiveRoute =
+  | { view: 'hub' }
+  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' }
+  | { view: 'gridit_home' }
   | { view: 'tab'; tab: NavTab }
   | { view: 'solo' }
   | { view: 'rooms' }
@@ -36,28 +67,33 @@ type ActiveRoute =
   | { view: 'lobby'; roomId: string }
   | { view: 'match'; matchId: string; soloStageId?: string | null };
 
-const TAB_STORAGE_KEY = 'enscribe_tab_profile_id';
-const DEVICE_STORAGE_KEY = 'enscribe_profile_id';
-const ROUTE_STORAGE_KEY = 'enscribe_tab_route_v1';
+const ROUTE_STORAGE_KEY = 'enscribe_tab_route_v2';
+
+function loadSavedRoute(): ActiveRoute {
+  try {
+    const saved = sessionStorage.getItem(ROUTE_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed?.view && parsed.view !== 'game_intro') {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { view: 'hub' };
+}
 
 export const App: React.FC = () => {
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(
-    () => sessionStorage.getItem(TAB_STORAGE_KEY) || localStorage.getItem(DEVICE_STORAGE_KEY) || null
+  const [playerSession, setPlayerSession] = useState<PlayerSession | null>(() =>
+    loadActivePlayerSession()
   );
   const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
-  const [authChecking, setAuthChecking] = useState<boolean>(Boolean(activeProfileId));
-  const [route, setRoute] = useState<ActiveRoute>(() => {
-    try {
-      const saved = sessionStorage.getItem(ROUTE_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.view) return parsed;
-      }
-    } catch {
-      // ignore
-    }
-    return { view: 'tab', tab: 'home' };
-  });
+  const [authChecking, setAuthChecking] = useState<boolean>(() =>
+    Boolean(loadActivePlayerSession())
+  );
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [route, setRoute] = useState<ActiveRoute>(loadSavedRoute);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [ongoingMatches, setOngoingMatches] = useState<OngoingMatchSummary[]>([]);
@@ -83,17 +119,17 @@ export const App: React.FC = () => {
   }, [toast]);
 
   useEffect(() => {
-    if (activeProfileId) {
-      sessionStorage.setItem(TAB_STORAGE_KEY, activeProfileId);
-      localStorage.setItem(DEVICE_STORAGE_KEY, activeProfileId);
-    } else {
-      sessionStorage.removeItem(TAB_STORAGE_KEY);
-      localStorage.removeItem(DEVICE_STORAGE_KEY);
-    }
-  }, [activeProfileId]);
+    saveActivePlayerSession(playerSession);
+    setGuestSessionToken(playerSession?.sessionToken ?? null);
+  }, [playerSession]);
 
   useEffect(() => {
-    sessionStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(route));
+    if (route.view === 'game_intro') return;
+    try {
+      sessionStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(route));
+    } catch {
+      // ignore
+    }
   }, [route]);
 
   useEffect(() => {
@@ -107,45 +143,249 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const refreshPlatformData = useCallback(async (pid: string) => {
-    try {
-      const data = await api.getBootstrap(pid);
-      setCurrentProfile(data.profile);
-      setMatchHistory(data.history);
-      setTemplates(data.templates);
-      setOngoingMatches(data.ongoingMatches);
-      setPublicRooms(data.publicRooms);
-      setSoloStages(data.soloStages);
-      setNotifications(data.notifications);
-    } catch (err: any) {
-      console.error('Failed loading profile:', err);
-      setCurrentProfile(null);
-      setActiveProfileId(null);
-    } finally {
-      setAuthChecking(false);
-    }
+  const populateOfflineState = useCallback((session: PlayerSession) => {
+    setCurrentProfile(sessionToGuestProfile(session));
+    setSoloStages(getOfflineSoloStages());
+    setTemplates([
+      ...loadGuestLocalTemplates(session.playerId),
+      ...getOfflineOfficialTemplates(),
+    ]);
+    setOngoingMatches([]);
+    setPublicRooms([]);
+    setNotifications([]);
+    setMatchHistory([]);
   }, []);
 
+  const refreshPlatformData = useCallback(
+    async (pid: string, sessionOverride?: PlayerSession | null) => {
+      const sess = sessionOverride ?? playerSession;
+      if (sess?.isOffline || !navigator.onLine) {
+        if (sess) populateOfflineState(sess);
+        setAuthChecking(false);
+        return;
+      }
+
+      try {
+        const data = await api.getBootstrap(pid);
+        setCurrentProfile(data.profile);
+        setMatchHistory(data.history);
+
+        if (data.profile.isGuest || pid.startsWith('guest_')) {
+          const localGuestTpls = loadGuestLocalTemplates(pid);
+          const officialOnly = data.templates.filter((t) => t.status === 'official');
+          setTemplates([...localGuestTpls, ...officialOnly]);
+
+          const localCompleted = new Set(loadGuestCompletedSoloStages());
+          setSoloStages(
+            data.soloStages.map((s) => ({
+              ...s,
+              completed: s.completed || localCompleted.has(s.id),
+            }))
+          );
+        } else {
+          setTemplates(data.templates);
+          setSoloStages(data.soloStages);
+        }
+
+        setOngoingMatches(data.ongoingMatches);
+        setPublicRooms(data.publicRooms);
+        setNotifications(data.notifications);
+      } catch (err: any) {
+        console.error('Failed loading profile/session:', err);
+        if (sess && (!navigator.onLine || /failed to fetch|networkerror/i.test(String(err?.message)))) {
+          const offlineSess = createOfflineGuestSession(sess.nickname, sess.avatarId);
+          setPlayerSession(offlineSess);
+          populateOfflineState(offlineSess);
+        } else {
+          setCurrentProfile(null);
+          setPlayerSession(null);
+        }
+      } finally {
+        setAuthChecking(false);
+      }
+    },
+    [playerSession, populateOfflineState]
+  );
+
+  // Restore / validate active guest session on boot
+  const bootCheckedRef = useRef(false);
   useEffect(() => {
-    if (!activeProfileId) {
-      setCurrentProfile(null);
+    if (bootCheckedRef.current) return;
+    bootCheckedRef.current = true;
+
+    const existing = loadActivePlayerSession();
+    if (!existing) {
       setAuthChecking(false);
       return;
     }
-    setAuthChecking(true);
-    refreshPlatformData(activeProfileId);
-  }, [activeProfileId, refreshPlatformData]);
+
+    if (!navigator.onLine || existing.isOffline || !existing.sessionToken) {
+      populateOfflineState(existing);
+      setAuthChecking(false);
+      return;
+    }
+
+    setGuestSessionToken(existing.sessionToken);
+    (async () => {
+      try {
+        const res = await api.heartbeatGuestSession(existing.sessionToken!);
+        const refreshed = guestSessionToPlayerSession(res.session, false);
+        setPlayerSession(refreshed);
+        setGuestSessionToken(refreshed.sessionToken);
+        await refreshPlatformData(refreshed.playerId, refreshed);
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (/fetch|network/i.test(msg) || !navigator.onLine) {
+          const offlineSess = createOfflineGuestSession(existing.nickname, existing.avatarId);
+          setPlayerSession(offlineSess);
+          populateOfflineState(offlineSess);
+          setAuthChecking(false);
+          return;
+        }
+        // Session expired across idle refresh — attempt transparent re-claim of cached nickname
+        try {
+          const reclaimed = await api.claimGuestNickname(existing.nickname, existing.avatarId);
+          const nextSess = guestSessionToPlayerSession(reclaimed.session, false);
+          setPlayerSession(nextSess);
+          setGuestSessionToken(nextSess.sessionToken);
+          await refreshPlatformData(nextSess.playerId, nextSess);
+        } catch (reclaimErr: any) {
+          setGuestSessionToken(null);
+          setPlayerSession(null);
+          setCurrentProfile(null);
+          setAuthError(
+            reclaimErr?.message ||
+              'Your guest session expired and that nickname is now taken. Pick a nickname to continue.'
+          );
+          setAuthChecking(false);
+        }
+      }
+    })();
+  }, [populateOfflineState, refreshPlatformData]);
+
+  // 30s heartbeat keeps active online guest nickname reservation fresh
+  useEffect(() => {
+    if (!playerSession?.sessionToken || playerSession.isOffline || isOffline) return;
+    const token = playerSession.sessionToken;
+    const interval = window.setInterval(async () => {
+      try {
+        const res = await api.heartbeatGuestSession(token);
+        const updated = guestSessionToPlayerSession(res.session, false);
+        setPlayerSession((prev) =>
+          prev && prev.sessionToken === token ? { ...prev, expiresAtMs: updated.expiresAtMs } : prev
+        );
+      } catch {
+        // handled on next action or online restore
+      }
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [playerSession?.sessionToken, playerSession?.isOffline, isOffline]);
+
+  // Upgrade an offline guest session to an online reservation automatically when reconnecting
+  useEffect(() => {
+    if (isOffline || !playerSession?.isOffline) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.claimGuestNickname(playerSession.nickname, playerSession.avatarId);
+        if (cancelled) return;
+        const upgraded = guestSessionToPlayerSession(res.session, false);
+        setGuestSessionToken(upgraded.sessionToken);
+        setPlayerSession(upgraded);
+        await refreshPlatformData(upgraded.playerId, upgraded);
+        notify(`Connected online as ${upgraded.nickname}`);
+      } catch (err: any) {
+        if (cancelled) return;
+        setGuestSessionToken(null);
+        setPlayerSession(null);
+        setCurrentProfile(null);
+        setAuthError(
+          err?.message || 'Your offline nickname is already taken online. Choose another nickname.'
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOffline, playerSession?.isOffline, playerSession?.nickname, playerSession?.avatarId, notify, refreshPlatformData]);
+
+  const routeRef = useRef(route);
+  const showNotifModalRef = useRef(showNotifModal);
+  const currentProfileRef = useRef(currentProfile);
+  routeRef.current = route;
+  showNotifModalRef.current = showNotifModal;
+  currentProfileRef.current = currentProfile;
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const listenerPromise = CapApp.addListener('backButton', () => {
+      if (showNotifModalRef.current) {
+        setShowNotifModal(false);
+        return;
+      }
+      const current = routeRef.current;
+      if (current.view === 'game_intro') {
+        setRoute({ view: 'hub' });
+        return;
+      }
+      if (current.view === 'gridit_home') {
+        setRoute({ view: 'hub' });
+        return;
+      }
+      if (current.view === 'create_room') {
+        const returnView =
+          current.returnTo === 'rooms'
+            ? ({ view: 'rooms' } as const)
+            : current.returnTo === 'play'
+              ? ({ view: 'tab', tab: 'play' } as const)
+              : ({ view: 'tab', tab: 'home' } as const);
+        setRoute(returnView);
+        return;
+      }
+      if (current.view === 'solo' || current.view === 'rooms' || current.view === 'leaderboard') {
+        setRoute({ view: 'tab', tab: 'home' });
+        return;
+      }
+      if (current.view === 'lobby') {
+        setActiveRoom(null);
+        setRoute({ view: 'rooms' });
+        return;
+      }
+      if (current.view === 'match') {
+        setActiveMatch(null);
+        if (currentProfileRef.current) {
+          refreshPlatformData(currentProfileRef.current.id);
+        }
+        setRoute({ view: 'tab', tab: 'home' });
+        return;
+      }
+      if (current.view === 'tab' && current.tab !== 'home') {
+        setRoute({ view: 'tab', tab: 'home' });
+        return;
+      }
+      if (current.view === 'tab' && current.tab === 'home') {
+        setRoute({ view: 'hub' });
+        return;
+      }
+      CapApp.exitApp();
+    });
+    return () => {
+      listenerPromise.then((h) => h.remove()).catch(() => undefined);
+    };
+  }, [refreshPlatformData]);
+
+  const activeProfileId = currentProfile?.id ?? null;
 
   // Refresh public rooms whenever opening Rooms Browser
   useEffect(() => {
-    if (activeProfileId && route.view === 'rooms') {
+    if (activeProfileId && !playerSession?.isOffline && route.view === 'rooms') {
       api.listPublicRooms().then(setPublicRooms).catch(() => undefined);
     }
-  }, [activeProfileId, route.view]);
+  }, [activeProfileId, playerSession?.isOffline, route.view]);
 
   // Realtime connection & events (Supabase Realtime everywhere + Socket.IO on localhost)
   useEffect(() => {
-    if (!activeProfileId) return;
+    if (!activeProfileId || playerSession?.isOffline) return;
     const socket = getSocket();
     socket.setActivePlayerId(activeProfileId);
 
@@ -154,7 +394,7 @@ export const App: React.FC = () => {
       if (route.view === 'lobby') {
         socket.emit('room:join_channel', route.roomId);
       }
-      if (route.view === 'match') {
+      if (route.view === 'match' && !isOfflineSoloMatchId(route.matchId)) {
         socket.emit('match:join_channel', { matchId: route.matchId, playerId: activeProfileId });
       }
     };
@@ -234,11 +474,12 @@ export const App: React.FC = () => {
       socket.off('matchmaking:ranked_matched', onRankedMatched);
       socket.off('match:rematch_created', onRematchCreated);
     };
-  }, [activeProfileId, route.view, (route as any).roomId, (route as any).matchId, notify, refreshPlatformData]);
+  }, [activeProfileId, playerSession?.isOffline, route.view, (route as any).roomId, (route as any).matchId, notify, refreshPlatformData]);
 
   // Lightweight resilience sync for serverless/mobile networks when in an active lobby or match
   useEffect(() => {
-    if (!activeProfileId || (route.view !== 'lobby' && route.view !== 'match')) return;
+    if (!activeProfileId || playerSession?.isOffline || (route.view !== 'lobby' && route.view !== 'match')) return;
+    if (route.view === 'match' && isOfflineSoloMatchId(route.matchId)) return;
     const interval = window.setInterval(() => {
       if (route.view === 'lobby') {
         api.getRoom(route.roomId).then((r) => {
@@ -252,13 +493,14 @@ export const App: React.FC = () => {
       }
     }, 5000);
     return () => window.clearInterval(interval);
-  }, [route, activeProfileId]);
+  }, [route, activeProfileId, playerSession?.isOffline]);
 
   // Restore room or match state cleanly on route change or browser refresh
   useEffect(() => {
     if (!activeProfileId) return;
-    const socket = getSocket();
     if (route.view === 'lobby') {
+      if (playerSession?.isOffline) return;
+      const socket = getSocket();
       api
         .getRoom(route.roomId)
         .then((room) => {
@@ -270,6 +512,17 @@ export const App: React.FC = () => {
           setRoute({ view: 'tab', tab: 'home' });
         });
     } else if (route.view === 'match') {
+      if (isOfflineSoloMatchId(route.matchId)) {
+        const offline = getOfflineSoloMatch(route.matchId);
+        if (offline) {
+          setActiveMatch(offline);
+        } else {
+          setRoute({ view: 'solo' });
+        }
+        return;
+      }
+      if (playerSession?.isOffline) return;
+      const socket = getSocket();
       api
         .getMatch(route.matchId, activeProfileId)
         .then((match) => {
@@ -281,24 +534,58 @@ export const App: React.FC = () => {
           setRoute({ view: 'tab', tab: 'home' });
         });
     }
-  }, [route, activeProfileId, notify]);
+  }, [route, activeProfileId, playerSession?.isOffline, notify]);
 
-  const handleSignIn = async (username: string, avatarId: string) => {
-    const res = await api.signIn(username, avatarId);
+  const handleEnterGuest = async (nickname: string, avatarId: string) => {
+    saveCachedGuestPrefs(nickname, avatarId);
+    setAuthError(null);
+
+    if (isOffline) {
+      const offlineSess = createOfflineGuestSession(nickname, avatarId);
+      setGuestSessionToken(null);
+      setPlayerSession(offlineSess);
+      populateOfflineState(offlineSess);
+      setActiveRoom(null);
+      setActiveMatch(null);
+      setRoute({ view: 'hub' });
+      notify(`Entered Offline Solo as ${offlineSess.nickname}`);
+      return;
+    }
+
+    const res = await api.claimGuestNickname(nickname, avatarId);
+    const nextSess = guestSessionToPlayerSession(res.session, false);
+    setGuestSessionToken(nextSess.sessionToken);
+    setPlayerSession(nextSess);
     setCurrentProfile(res.profile);
-    setActiveProfileId(res.profile.id);
     setActiveRoom(null);
     setActiveMatch(null);
-    setRoute({ view: 'tab', tab: 'home' });
-    notify(res.isNew ? `Welcome, ${res.profile.username}!` : `Welcome back, ${res.profile.username}!`);
+    await refreshPlatformData(nextSess.playerId, nextSess);
+    setRoute({ view: 'hub' });
+    notify(`Welcome, ${res.session.nickname}!`);
   };
 
-  const handleSignOut = () => {
-    setActiveProfileId(null);
+  const handleSwitchGuest = async () => {
+    const token = playerSession?.sessionToken;
+    if (token && !isOffline) {
+      await api.releaseGuestSession(token).catch(() => undefined);
+    }
+    setGuestSessionToken(null);
+    setPlayerSession(null);
     setCurrentProfile(null);
     setActiveRoom(null);
     setActiveMatch(null);
-    setRoute({ view: 'tab', tab: 'home' });
+    setRankedQueued(false);
+    setAuthError(null);
+    setRoute({ view: 'hub' });
+    try {
+      sessionStorage.removeItem(ROUTE_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSelectHubGame = (gameId: GameModuleId) => {
+    setRoute({ view: 'game_intro', gameId });
   };
 
   const handleOpenMatch = (matchId: string) => {
@@ -307,6 +594,10 @@ export const App: React.FC = () => {
 
   const handleRankedMatch = async () => {
     if (!currentProfile) return;
+    if (isOffline || playerSession?.isOffline) {
+      notify('Ranked matchmaking requires an online connection.');
+      return;
+    }
     try {
       if (rankedQueued) {
         await api.leaveRankedQueue(currentProfile.id);
@@ -333,6 +624,10 @@ export const App: React.FC = () => {
     rules: Partial<RoomRules>;
   }) => {
     if (!currentProfile) return;
+    if (isOffline || playerSession?.isOffline) {
+      notify('Multiplayer rooms require an online connection.');
+      return;
+    }
     try {
       const room = await api.createRoom({
         hostId: currentProfile.id,
@@ -349,6 +644,10 @@ export const App: React.FC = () => {
 
   const handleJoinRoomByCode = async (code: string) => {
     if (!currentProfile) return;
+    if (isOffline || playerSession?.isOffline) {
+      notify('Joining rooms requires an online connection.');
+      return;
+    }
     try {
       const room = await api.joinRoom(code, currentProfile.id);
       setActiveRoom(room);
@@ -360,16 +659,26 @@ export const App: React.FC = () => {
 
   const handlePlayWithTemplate = async (tpl: Template) => {
     if (!currentProfile) return;
+    if (isOffline || playerSession?.isOffline) {
+      notify('Hosting multiplayer rooms requires an online connection.');
+      return;
+    }
     try {
       const room = await api.createRoom({
         hostId: currentProfile.id,
         name: `${tpl.name} Room`,
         isPublic: false,
       });
-      const updated = await api.submitRoomPuzzle(room.id, currentProfile.id, {
-        templateId: tpl.id,
-        puzzleStatus: 'ready',
-      });
+      const isGuestLocal =
+        tpl.status !== 'official' &&
+        (tpl.ownerId.startsWith('guest_') || tpl.id.startsWith('tpl_guest_'));
+      const updated = await api.submitRoomPuzzle(
+        room.id,
+        currentProfile.id,
+        isGuestLocal
+          ? { customWords: tpl.words, templateId: null, puzzleStatus: 'ready' }
+          : { templateId: tpl.id, puzzleStatus: 'ready' }
+      );
       setActiveRoom(updated);
       setRoute({ view: 'lobby', roomId: updated.id });
       notify(`Room ${updated.code} created with "${tpl.name}" ready!`);
@@ -380,19 +689,34 @@ export const App: React.FC = () => {
 
   const handleStartSoloStage = async (stageId: string) => {
     if (!currentProfile) return;
+    if (isOffline || playerSession?.isOffline) {
+      const res = startOfflineSoloMatch(currentProfile, stageId);
+      setActiveMatch(res.match);
+      setRoute({ view: 'match', matchId: res.match.id, soloStageId: res.stageId });
+      return;
+    }
     try {
       const res = await api.startSoloMatch(currentProfile.id, { stageId });
       setActiveMatch(res.match);
       setRoute({ view: 'match', matchId: res.match.id, soloStageId: res.stageId });
     } catch (err: any) {
-      notify(err.message);
+      if (/fetch|network/i.test(String(err?.message)) || !navigator.onLine) {
+        const res = startOfflineSoloMatch(currentProfile, stageId);
+        setActiveMatch(res.match);
+        setRoute({ view: 'match', matchId: res.match.id, soloStageId: res.stageId });
+        notify('Started offline Solo stage');
+      } else {
+        notify(err.message);
+      }
     }
   };
 
   const openNotifications = async () => {
     if (!currentProfile) return;
     setShowNotifModal(true);
-    await api.markNotificationsRead(currentProfile.id);
+    if (!isOffline && !playerSession?.isOffline) {
+      await api.markNotificationsRead(currentProfile.id).catch(() => undefined);
+    }
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
@@ -410,13 +734,54 @@ export const App: React.FC = () => {
             fontSize: 15,
           }}
         >
-          Signing in...
+          Checking guest session...
         </div>
       );
     }
 
-    if (!currentProfile) {
-      return <SignInScreen onSignIn={handleSignIn} />;
+    if (!currentProfile || !playerSession) {
+      return (
+        <GuestEntryScreen
+          isOffline={isOffline}
+          initialError={authError}
+          onEnterGuest={handleEnterGuest}
+        />
+      );
+    }
+
+    if (route.view === 'hub') {
+      return (
+        <EnscribeHubScreen
+          session={playerSession}
+          isOffline={isOffline}
+          onSelectGame={handleSelectHubGame}
+          onSwitchGuest={handleSwitchGuest}
+        />
+      );
+    }
+
+    if (route.view === 'game_intro') {
+      return (
+        <GameEntryAnimation
+          gameId={route.gameId}
+          onComplete={() => {
+            if (route.gameId === 'gridit') {
+              setRoute({ view: 'gridit_home' });
+            } else {
+              setRoute({ view: 'tab', tab: 'home' });
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_home') {
+      return (
+        <GridItHomeScreen
+          session={playerSession}
+          onExitToHub={() => setRoute({ view: 'hub' })}
+        />
+      );
     }
 
     if (route.view === 'lobby' && activeRoom && activeRoom.id === route.roomId) {
@@ -498,17 +863,30 @@ export const App: React.FC = () => {
     }
 
     if (route.view === 'match' && activeMatch && activeMatch.id === route.matchId) {
+      const offlineMatch = isOfflineSoloMatchId(activeMatch.id);
       return (
         <GameplayScreen
           match={activeMatch}
           currentProfile={currentProfile}
           onBackHome={() => {
             setActiveMatch(null);
-            refreshPlatformData(currentProfile.id);
+            if (!offlineMatch) {
+              refreshPlatformData(currentProfile.id);
+            } else {
+              setSoloStages(getOfflineSoloStages());
+            }
             setRoute({ view: 'tab', tab: 'home' });
           }}
           onReturnToRoom={(roomId) => setRoute({ view: 'lobby', roomId })}
           onSubmitGuess={async (guess) => {
+            if (offlineMatch) {
+              const res = submitOfflineSoloGuess(activeMatch.id, guess);
+              setActiveMatch(res.match);
+              if (res.matchWon) {
+                setSoloStages(getOfflineSoloStages());
+              }
+              return { correct: res.correct, message: res.message };
+            }
             const res = await api.submitGuess(
               activeMatch.id,
               currentProfile.id,
@@ -522,10 +900,12 @@ export const App: React.FC = () => {
             return { correct: res.correct, message: res.message };
           }}
           onPassTurn={async () => {
+            if (offlineMatch) return;
             const updated = await api.passTurn(activeMatch.id, currentProfile.id);
             setActiveMatch(updated);
           }}
           onTypingPreview={(preview) => {
+            if (offlineMatch) return;
             getSocket().emit('match:typing', {
               matchId: activeMatch.id,
               playerId: currentProfile.id,
@@ -533,6 +913,7 @@ export const App: React.FC = () => {
             });
           }}
           onSendChat={async (text) => {
+            if (offlineMatch) return;
             const msg = await api.sendMatchChat(activeMatch.id, currentProfile.id, text);
             setActiveMatch((prev) =>
               prev && prev.id === activeMatch.id && !prev.messages.some((m) => m.id === msg.id)
@@ -541,11 +922,21 @@ export const App: React.FC = () => {
             );
           }}
           onRematch={async () => {
+            if (offlineMatch) {
+              const next = startOfflineSoloMatch(
+                currentProfile,
+                route.soloStageId ?? undefined
+              );
+              setActiveMatch(next.match);
+              setRoute({ view: 'match', matchId: next.match.id, soloStageId: next.stageId });
+              return;
+            }
             const next = await api.rematch(activeMatch.id, currentProfile.id);
             setActiveMatch(next);
             setRoute({ view: 'match', matchId: next.id });
           }}
           onTimerExpired={() => {
+            if (offlineMatch) return;
             api.tickMatch(activeMatch.id, currentProfile.id).then(setActiveMatch).catch(() => undefined);
           }}
         />
@@ -587,7 +978,11 @@ export const App: React.FC = () => {
           profile={currentProfile}
           publicRooms={publicRooms}
           onBack={() => setRoute({ view: 'tab', tab: 'home' })}
-          onRefreshPublicRooms={() => api.listPublicRooms().then(setPublicRooms).catch(() => undefined)}
+          onRefreshPublicRooms={() => {
+            if (!isOffline && !playerSession.isOffline) {
+              api.listPublicRooms().then(setPublicRooms).catch(() => undefined);
+            }
+          }}
           onJoinRoomByCode={handleJoinRoomByCode}
           onOpenCreateRoom={() => setRoute({ view: 'create_room', returnTo: 'rooms' })}
         />
@@ -638,6 +1033,7 @@ export const App: React.FC = () => {
             onRooms={() => setRoute({ view: 'rooms' })}
             onExploreFantasy={() => setRoute({ view: 'solo' })}
             onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+            onExitToHub={() => setRoute({ view: 'hub' })}
           />
         )}
 
@@ -655,6 +1051,7 @@ export const App: React.FC = () => {
             onOpenCreateRoom={() => setRoute({ view: 'create_room', returnTo: 'play' })}
             onOpenLeaderboard={() => setRoute({ view: 'leaderboard' })}
             onToggleRankedQueue={handleRankedMatch}
+            onExitToHub={() => setRoute({ view: 'hub' })}
           />
         )}
 
@@ -671,6 +1068,11 @@ export const App: React.FC = () => {
               words: string[];
               status: 'saved' | 'draft';
             }) => {
+              if (currentProfile.isGuest) {
+                const saved = saveGuestLocalTemplate(currentProfile.id, tplData);
+                setTemplates((prev) => [saved, ...prev.filter((t) => t.id !== saved.id)]);
+                return saved;
+              }
               const saved = await api.saveTemplate(tplData);
               setTemplates((prev) => {
                 const rest = prev.filter((t) => t.id !== saved.id);
@@ -679,12 +1081,23 @@ export const App: React.FC = () => {
               return saved;
             }}
             onDuplicateTemplate={async (id) => {
+              if (currentProfile.isGuest) {
+                const src = templates.find((t) => t.id === id);
+                if (!src) throw new Error('Template not found');
+                const dup = duplicateGuestLocalTemplate(currentProfile.id, src);
+                setTemplates((prev) => [dup, ...prev]);
+                return dup;
+              }
               const dup = await api.duplicateTemplate(id, currentProfile.id);
               setTemplates((prev) => [dup, ...prev]);
               return dup;
             }}
             onDeleteTemplate={async (id) => {
               setTemplates((prev) => prev.filter((t) => t.id !== id));
+              if (currentProfile.isGuest) {
+                deleteGuestLocalTemplate(currentProfile.id, id);
+                return;
+              }
               await api.deleteTemplate(id);
             }}
             onPlayWithTemplate={handlePlayWithTemplate}
@@ -697,16 +1110,50 @@ export const App: React.FC = () => {
             profile={currentProfile}
             matchHistory={matchHistory}
             onUpdateProfile={async (data) => {
+              if (playerSession.authType === 'guest') {
+                saveCachedGuestPrefs(data.username, data.avatarId);
+                if (playerSession.isOffline || isOffline || !playerSession.sessionToken) {
+                  const updatedSess: PlayerSession = {
+                    ...playerSession,
+                    nickname: data.username,
+                    avatarId: data.avatarId,
+                  };
+                  setPlayerSession(updatedSess);
+                  setCurrentProfile(sessionToGuestProfile(updatedSess, currentProfile.equippedCosmetics));
+                  notify('Guest profile updated locally');
+                  return;
+                }
+                const res = await api.renameGuestSession(
+                  playerSession.sessionToken,
+                  data.username,
+                  data.avatarId
+                );
+                const updatedSess = guestSessionToPlayerSession(res.session, false);
+                setPlayerSession(updatedSess);
+                setCurrentProfile({
+                  ...res.profile,
+                  equippedCosmetics: currentProfile.equippedCosmetics,
+                });
+                notify('Guest nickname updated');
+                return;
+              }
               const updated = await api.updateProfile(currentProfile.id, data);
               setCurrentProfile(updated);
               notify('Profile updated');
             }}
             onUpdateCosmetics={async (cosmetics) => {
+              if (playerSession.isOffline || isOffline) {
+                setCurrentProfile((prev) =>
+                  prev ? { ...prev, equippedCosmetics: cosmetics } : prev
+                );
+                notify('Cosmetics updated locally');
+                return;
+              }
               await api.updateCosmetics(currentProfile.id, cosmetics);
               await refreshPlatformData(currentProfile.id);
               notify('Cosmetics updated');
             }}
-            onSignOut={handleSignOut}
+            onSignOut={handleSwitchGuest}
           />
         )}
 
@@ -738,7 +1185,7 @@ export const App: React.FC = () => {
             }}
           >
             <WifiOff size={14} />
-            <span>Offline — Multiplayer paused until reconnected</span>
+            <span>Offline — Solo works offline; multiplayer paused</span>
           </div>
         )}
 

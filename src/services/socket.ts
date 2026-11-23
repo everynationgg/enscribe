@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import { io, Socket } from 'socket.io-client';
 
@@ -73,6 +74,9 @@ class UnifiedRealtimeClient {
   }
 
   private initLocalSocketIfLocalhost(): void {
+    if (Capacitor.isNativePlatform()) {
+      return;
+    }
     const host = window.location.hostname;
     if (host !== 'localhost' && host !== '127.0.0.1') {
       return;

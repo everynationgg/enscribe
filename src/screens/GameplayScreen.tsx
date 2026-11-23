@@ -801,7 +801,7 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
                   : `${match.boards[match.winnerId]?.username} Wins!`}
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#d4dcff', fontWeight: 700 }}>
-                Chain Clash • {match.title}
+                ChainIt • {match.title}
               </p>
             </div>
 

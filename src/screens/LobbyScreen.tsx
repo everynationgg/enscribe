@@ -92,7 +92,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   };
 
   const handlePickTemplate = async (tpl: Template) => {
-    await onSelectPuzzle({ templateId: tpl.id, customWords: null, puzzleStatus: 'ready' });
+    const isGuestLocal = tpl.status !== 'official' && (tpl.ownerId.startsWith('guest_') || tpl.id.startsWith('tpl_guest_'));
+    if (isGuestLocal) {
+      await onSelectPuzzle({ templateId: null, customWords: tpl.words, puzzleStatus: 'ready' });
+    } else {
+      await onSelectPuzzle({ templateId: tpl.id, customWords: null, puzzleStatus: 'ready' });
+    }
     setShowPuzzleModal(false);
     onNotify(`Prepared "${tpl.name}" for an opponent`);
   };

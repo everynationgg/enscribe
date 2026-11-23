@@ -96,3 +96,16 @@ CREATE TABLE IF NOT EXISTS match_boards (
   earned_match_points INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (match_id, player_id)
 );
+
+-- Temporary Guest Session reservations (atomic PostgreSQL RPCs)
+-- Full migration script & RPC definitions live in: supabase/migrations/001_guest_sessions.sql
+CREATE TABLE IF NOT EXISTS guest_sessions (
+  session_id TEXT PRIMARY KEY,
+  session_token TEXT NOT NULL UNIQUE,
+  nickname TEXT NOT NULL,
+  nickname_normalized TEXT NOT NULL UNIQUE,
+  avatar_id TEXT NOT NULL DEFAULT 'alex',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);

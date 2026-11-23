@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  ArrowLeft,
   Clock,
   Gamepad2,
   Hash,
@@ -33,6 +34,7 @@ interface PlayScreenProps {
   onOpenCreateRoom: () => void;
   onOpenLeaderboard: () => void;
   onToggleRankedQueue: () => Promise<void>;
+  onExitToHub?: () => void;
 }
 
 export const PlayScreen: React.FC<PlayScreenProps> = ({
@@ -47,6 +49,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({
   onOpenCreateRoom,
   onOpenLeaderboard,
   onToggleRankedQueue,
+  onExitToHub,
 }) => {
   const [roomCode, setRoomCode] = useState('');
   const [joining, setJoining] = useState(false);
@@ -73,9 +76,21 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({
         <div className="ens-home-wrap">
           <header className="ens-play-topbar">
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <Gamepad2 size={24} color="#8CE6FF" />
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, fontStyle: 'italic' }}>
-                Play Hub
+              {onExitToHub && (
+                <button
+                  type="button"
+                  className="ens-exit-hub-btn is-compact"
+                  onClick={onExitToHub}
+                  aria-label="Exit to Game Hub"
+                  title="Exit to Game Hub"
+                >
+                  <ArrowLeft size={14} strokeWidth={2.8} />
+                  <span>Hub</span>
+                </button>
+              )}
+              <Gamepad2 size={22} color="#8CE6FF" />
+              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 900, fontStyle: 'italic' }}>
+                ChainIt Play
               </h1>
             </div>
             <button
