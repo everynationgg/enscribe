@@ -642,13 +642,18 @@ export const App: React.FC = () => {
             setRoute({ view: 'gridit_match', matchId: r.activeMatchId });
           }
         })
-        .catch(() => undefined);
+        .catch((err) => {
+          notify(err.message || 'GridIt room not found');
+          setActiveGridItRoom(null);
+          setRoute({ view: 'gridit_rooms' });
+        });
     } else if (route.view === 'gridit_match') {
       api
         .getGridItMatch(route.matchId, activeProfileId)
         .then(setActiveGridItMatch)
         .catch((err) => {
-          notify(err.message);
+          notify(err.message || 'GridIt match not found');
+          setActiveGridItMatch(null);
           setRoute({ view: 'gridit_home' });
         });
     }
@@ -1109,32 +1114,44 @@ export const App: React.FC = () => {
             setRoute({ view: 'gridit_rooms' });
           }}
           onToggleReady={async (isReady) => {
-            const updated = await api.setGridItRoomReady(
-              activeGridItRoom.id,
-              playerSession.playerId,
-              isReady
-            );
-            setActiveGridItRoom(updated);
+            try {
+              const updated = await api.setGridItRoomReady(
+                activeGridItRoom.id,
+                playerSession.playerId,
+                isReady
+              );
+              setActiveGridItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
           }}
           onSubmitBattleTemplate={async (tpl) => {
-            const updated = await api.submitGridItBattleTemplate(
-              activeGridItRoom.id,
-              playerSession.playerId,
-              tpl
-            );
-            setActiveGridItRoom(updated);
+            try {
+              const updated = await api.submitGridItBattleTemplate(
+                activeGridItRoom.id,
+                playerSession.playerId,
+                tpl
+              );
+              setActiveGridItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
           }}
           onOpenBoardEditor={() =>
             setRoute({ view: 'gridit_editor', returnToLobbyRoomId: activeGridItRoom.id })
           }
           onSendChat={async (text, kind) => {
-            const updated = await api.sendGridItRoomChat(
-              activeGridItRoom.id,
-              playerSession.playerId,
-              text,
-              kind
-            );
-            setActiveGridItRoom(updated);
+            try {
+              const updated = await api.sendGridItRoomChat(
+                activeGridItRoom.id,
+                playerSession.playerId,
+                text,
+                kind
+              );
+              setActiveGridItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
           }}
           onStartMatch={async () => {
             try {
@@ -1168,12 +1185,16 @@ export const App: React.FC = () => {
             setRoute({ view: 'gridit_lobby', roomId });
           }}
           onSwitchSpectatePlayer={async (targetPid) => {
-            const next = await api.getGridItMatch(
-              activeGridItMatch.id,
-              playerSession.playerId,
-              targetPid
-            );
-            setActiveGridItMatch(next);
+            try {
+              const next = await api.getGridItMatch(
+                activeGridItMatch.id,
+                playerSession.playerId,
+                targetPid
+              );
+              setActiveGridItMatch(next);
+            } catch (err: any) {
+              notify(err.message);
+            }
           }}
           onSubmitWord={async (tilePath) => {
             const res = await api.submitGridItWord(
@@ -1198,31 +1219,61 @@ export const App: React.FC = () => {
             };
           }}
           onSendChat={async (text, kind) => {
-            await api.sendGridItMatchChat(activeGridItMatch.id, playerSession.playerId, text, kind);
-            const refreshed = await api.getGridItMatch(
-              activeGridItMatch.id,
-              playerSession.playerId,
-              activeGridItMatch.spectatingPlayerId ?? undefined
-            );
-            setActiveGridItMatch(refreshed);
+            try {
+              await api.sendGridItMatchChat(activeGridItMatch.id, playerSession.playerId, text, kind);
+              const refreshed = await api.getGridItMatch(
+                activeGridItMatch.id,
+                playerSession.playerId,
+                activeGridItMatch.spectatingPlayerId ?? undefined
+              );
+              setActiveGridItMatch(refreshed);
+            } catch (err: any) {
+              notify(err.message);
+            }
           }}
           onFinishEarly={async () => {
-            const ended = await api.finishGridItMatch(
-              activeGridItMatch.id,
-              playerSession.playerId
-            );
-            setActiveGridItMatch(ended);
+            try {
+              const ended = await api.finishGridItMatch(
+                activeGridItMatch.id,
+                playerSession.playerId
+              );
+              setActiveGridItMatch(ended);
+            } catch (err: any) {
+              notify(err.message);
+            }
           }}
           onRematch={async () => {
-            const next = await api.rematchGridItMatch(
-              activeGridItMatch.id,
-              playerSession.playerId
-            );
-            setActiveGridItMatch(next);
-            setRoute({ view: 'gridit_match', matchId: next.id });
+            try {
+              const next = await api.rematchGridItMatch(
+                activeGridItMatch.id,
+                playerSession.playerId
+              );
+              setActiveGridItMatch(next);
+              setRoute({ view: 'gridit_match', matchId: next.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
           }}
           onNotify={notify}
         />
+      );
+    }
+
+    if (route.view === 'gridit_lobby' || route.view === 'gridit_match') {
+      return (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#c7d5ff',
+            fontWeight: 800,
+            fontSize: 15,
+          }}
+        >
+          Loading GridIt {route.view === 'gridit_lobby' ? 'arena' : 'match'}...
+        </div>
       );
     }
 

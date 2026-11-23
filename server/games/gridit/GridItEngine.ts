@@ -15,7 +15,6 @@ import {
 import { resolveModeLanguage } from '../../../shared/gridit/languages.js';
 import {
   DEFAULT_GRIDIT_MODS,
-  GridItModSchedule,
   generateModSchedule,
   normalizeModConfig,
   resolveWordPathWithMods,
@@ -31,8 +30,14 @@ import {
   GridItSessionLeaderboardEntry,
   GridItSpectator,
 } from '../../../shared/gridit/multiplayerTypes.js';
-import { GridItBoard, GridItFoundWord } from '../../../shared/gridit/types.js';
+import { GridItBoard, GridItFoundWord, Profile } from '../../../shared/types.js';
 import { StorageRepository } from '../../repositories/StorageRepository.js';
+import {
+  GridItStateStore,
+  StoredGridItMatch,
+  StoredGridItPlayerState,
+  StoredGridItRoom,
+} from './GridItStateStore.js';
 import { getServerDictionary } from './serverDictionary.js';
 
 export class GridItForbiddenError extends Error {
@@ -47,81 +52,46 @@ export class GridItBadRequestError extends Error {
   status = 400;
 }
 
-interface StoredGridItRoom extends GridItRoom {
-  battleTemplates: Record<string, GridItCustomTemplate>;
-}
-
-interface StoredGridItPlayerState {
-  playerId: string;
-  username: string;
-  avatarId: string;
-  rawScore: number;
-  normalizedScorePercent: number;
-  foundWords: GridItFoundWord[];
-  bestWord: GridItFoundWord | null;
-  comboCount: number;
-  lastWordAtMs: number | null;
-  assignedBoard: GridItBoard;
-  assignedFairness: BoardFairnessReport;
-  schedule: GridItModSchedule;
-  authoredById?: string | null;
-  authoredByName?: string | null;
-  quotaValidationPassed?: boolean;
-}
-
-interface StoredGridItMatch {
-  id: string;
-  roomId: string | null;
-  mode: GridItMatchMode;
-  settings: GridItRoomSettings;
-  status: 'shaking' | 'active' | 'finished';
-  revealAtMs: number;
-  startedAtMs: number;
-  endsAtMs: number;
-  seed: number;
-  players: Record<string, StoredGridItPlayerState>;
-  playerOrder: string[];
-  spectators: GridItSpectator[];
-  winnerIds: string[];
-  fairnessComparison: BoardFairnessComparison | null;
-  messages: GridItChatMessage[];
-  finalizedStats: boolean;
-  battleTemplatesSnapshot?: Record<string, GridItCustomTemplate>;
-  createdAt: number;
-}
-
 const SHAKE_WINDOW_MS = 2300;
 const UNTIMED_MAX_MS = 30 * 60 * 1000;
 
 export class GridItEngine {
-  private rooms = new Map<string, StoredGridItRoom>();
-  private matches = new Map<string, StoredGridItMatch>();
-  private quickQueue: string[] = [];
-  private rankedQueue: string[] = [];
-  private sessionStats = new Map<string, GridItSessionLeaderboardEntry>();
+  private store: GridItStateStore;
+  private resolveProfileFn?: (playerId: string) => Promise<Profile | null>;
 
   constructor(
     private repo: StorageRepository,
-    private isPlayerOnline: (playerId: string) => boolean
-  ) {}
+    private isPlayerOnline: (playerId: string) => boolean,
+    options: {
+      forceLocalMemory?: boolean;
+      isServerless?: boolean;
+      resolveProfile?: (playerId: string) => Promise<Profile | null>;
+    } = {}
+  ) {
+    this.store = new GridItStateStore({
+      forceLocalMemory: options.forceLocalMemory,
+      isServerless: options.isServerless,
+    });
+    this.resolveProfileFn = options.resolveProfile;
+  }
 
-  private requireProfile(playerId: string) {
-    const p = this.repo.getProfile(playerId);
-    if (!p) throw new GridItNotFoundError('Active player session not found.');
-    return p;
+  private async requireProfile(playerId: string): Promise<Profile> {
+    const cached = this.repo.getProfile(playerId);
+    if (cached) return cached;
+    if (this.resolveProfileFn) {
+      const resolved = await this.resolveProfileFn(playerId);
+      if (resolved) return resolved;
+    }
+    throw new GridItNotFoundError('Active player session not found.');
   }
 
   private createRoomCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    for (let attempt = 0; attempt < 25; attempt++) {
-      let code = 'G';
-      for (let i = 0; i < 5; i++) {
-        code += chars[Math.floor(Math.random() * chars.length)];
-      }
-      const conflict = Array.from(this.rooms.values()).some((r) => r.code === code);
-      if (!conflict) return code;
+    let code = 'G';
+    for (let i = 0; i < 5; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
     }
-    return `G${crypto.randomBytes(3).toString('hex').toUpperCase().slice(0, 5)}`;
+    return code;
   }
 
   private normalizeSettings(
@@ -146,7 +116,9 @@ export class GridItEngine {
       capacity,
       isPublic: partial?.isPublic ?? existing?.isPublic ?? true,
       allowSpectators:
-        mode === 'ranked' ? false : Boolean(partial?.allowSpectators ?? existing?.allowSpectators ?? true),
+        mode === 'ranked'
+          ? false
+          : Boolean(partial?.allowSpectators ?? existing?.allowSpectators ?? true),
       mods: normalizeModConfig(partial?.mods ?? existing?.mods ?? DEFAULT_GRIDIT_MODS),
     };
   }
@@ -160,200 +132,236 @@ export class GridItEngine {
     return { ...safe, players };
   }
 
-  public listPublicRooms(): GridItRoom[] {
-    return Array.from(this.rooms.values())
-      .filter((r) => r.settings.isPublic && r.status !== 'finished')
-      .map((r) => this.toPublicRoom(r))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+  async listPublicRooms(): Promise<GridItRoom[]> {
+    return this.store.listPublicRooms();
   }
 
-  public getRoom(idOrCode: string): GridItRoom {
-    const clean = idOrCode.trim().toUpperCase();
-    for (const r of this.rooms.values()) {
-      if (r.id === idOrCode || r.code === clean) {
-        return this.toPublicRoom(r);
-      }
-    }
-    throw new GridItNotFoundError('GridIt room not found.');
-  }
-
-  public createRoom(params: {
-    hostId: string;
-    name?: string;
-    settings?: Partial<GridItRoomSettings>;
-  }): GridItRoom {
-    const host = this.requireProfile(params.hostId);
-    const settings = this.normalizeSettings(params.settings);
-    const now = Date.now();
-    const id = `gr_room_${now}_${crypto.randomBytes(3).toString('hex')}`;
-    const room: StoredGridItRoom = {
-      id,
-      code: this.createRoomCode(),
-      name: (params.name || `${host.username}'s GridIt Arena`).trim().slice(0, 42),
-      hostId: host.id,
-      status: 'waiting',
-      settings,
-      players: [
-        {
-          playerId: host.id,
-          username: host.username,
-          avatarId: host.avatarId,
-          isReady: false,
-          isHost: true,
-          isOnline: true,
-          battleTemplateReady: false,
-          battleTemplateSummary: null,
-        },
-      ],
-      spectators: [],
-      messages: [],
-      activeMatchId: null,
-      battleTemplates: {},
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.rooms.set(id, room);
+  async getRoom(idOrCode: string): Promise<GridItRoom> {
+    const room = await this.store.getRoom(idOrCode);
+    if (!room) throw new GridItNotFoundError('GridIt room not found.');
     return this.toPublicRoom(room);
   }
 
-  public joinRoom(
+  async getRoomBattleTemplatesForAi(
+    roomId: string
+  ): Promise<Record<string, GridItCustomTemplate>> {
+    const room = await this.store.getRoom(roomId);
+    return room?.battleTemplates ?? {};
+  }
+
+  async createRoom(params: {
+    hostId: string;
+    name?: string;
+    settings?: Partial<GridItRoomSettings>;
+  }): Promise<GridItRoom> {
+    const host = await this.requireProfile(params.hostId);
+    const settings = this.normalizeSettings(params.settings);
+    const now = Date.now();
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = this.createRoomCode();
+      const existing = await this.store.getRoom(code);
+      if (existing) continue;
+
+      const id = `gr_room_${now}_${crypto.randomBytes(3).toString('hex')}`;
+      const room: StoredGridItRoom = {
+        id,
+        code,
+        name: (params.name || `${host.username}'s GridIt Arena`).trim().slice(0, 42),
+        hostId: host.id,
+        status: 'waiting',
+        settings,
+        players: [
+          {
+            playerId: host.id,
+            username: host.username,
+            avatarId: host.avatarId,
+            isReady: false,
+            isHost: true,
+            isOnline: true,
+            battleTemplateReady: false,
+            battleTemplateSummary: null,
+          },
+        ],
+        spectators: [],
+        messages: [],
+        activeMatchId: null,
+        battleTemplates: {},
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.store.insertRoom(room);
+      return this.toPublicRoom(room);
+    }
+
+    throw new GridItBadRequestError('Could not allocate unique room code; please retry.');
+  }
+
+  async joinRoom(
     codeOrId: string,
     playerId: string,
     asSpectator = false
-  ): { room: GridItRoom; joinedAs: 'player' | 'spectator' } {
-    const profile = this.requireProfile(playerId);
-    const clean = codeOrId.trim().toUpperCase();
-    const room = Array.from(this.rooms.values()).find(
-      (r) => r.id === codeOrId || r.code === clean
-    );
-    if (!room) throw new GridItNotFoundError('GridIt room not found.');
+  ): Promise<{ room: GridItRoom; joinedAs: 'player' | 'spectator' }> {
+    const profile = await this.requireProfile(playerId);
 
-    const isExistingPlayer = room.players.some((p) => p.playerId === profile.id);
-    if (isExistingPlayer) {
-      room.updatedAt = Date.now();
-      return { room: this.toPublicRoom(room), joinedAs: 'player' };
-    }
+    const outcome = await this.store.mutateRoom<{
+      room: GridItRoom;
+      joinedAs: 'player' | 'spectator';
+      activeMatchId: string | null;
+    }>(codeOrId, (room) => {
+      const isExistingPlayer = room.players.some((p) => p.playerId === profile.id);
+      if (isExistingPlayer) {
+        room.updatedAt = Date.now();
+        return {
+          result: {
+            room: this.toPublicRoom(room),
+            joinedAs: 'player' as const,
+            activeMatchId: null as string | null,
+          },
+        };
+      }
 
-    if (asSpectator || room.status === 'in_progress') {
-      if (!room.settings.allowSpectators) {
-        throw new GridItForbiddenError('Spectators are disabled by the host for this room.');
-      }
-      if (!room.spectators.some((s) => s.playerId === profile.id)) {
-        room.spectators.push({
-          playerId: profile.id,
-          username: profile.username,
-          avatarId: profile.avatarId,
-          joinedAt: Date.now(),
-        });
-      }
-      // Keep active match spectator list synchronized if live
-      if (room.activeMatchId) {
-        const activeMatch = this.matches.get(room.activeMatchId);
-        if (activeMatch && !activeMatch.spectators.some((s) => s.playerId === profile.id)) {
-          activeMatch.spectators.push({
+      if (asSpectator || room.status === 'in_progress') {
+        if (!room.settings.allowSpectators) {
+          throw new GridItForbiddenError('Spectators are disabled by the host for this room.');
+        }
+        if (!room.spectators.some((s) => s.playerId === profile.id)) {
+          room.spectators.push({
             playerId: profile.id,
             username: profile.username,
             avatarId: profile.avatarId,
             joinedAt: Date.now(),
           });
         }
+        room.updatedAt = Date.now();
+        return {
+          result: {
+            room: this.toPublicRoom(room),
+            joinedAs: 'spectator' as const,
+            activeMatchId: room.activeMatchId,
+          },
+        };
       }
+
+      if (room.players.length >= room.settings.capacity) {
+        throw new GridItBadRequestError('Room is at full player capacity.');
+      }
+
+      room.spectators = room.spectators.filter((s) => s.playerId !== profile.id);
+      room.players.push({
+        playerId: profile.id,
+        username: profile.username,
+        avatarId: profile.avatarId,
+        isReady: false,
+        isHost: false,
+        isOnline: true,
+        battleTemplateReady: false,
+        battleTemplateSummary: null,
+      });
       room.updatedAt = Date.now();
-      return { room: this.toPublicRoom(room), joinedAs: 'spectator' };
-    }
-
-    if (room.players.length >= room.settings.capacity) {
-      throw new GridItBadRequestError('Room is at full player capacity.');
-    }
-
-    room.spectators = room.spectators.filter((s) => s.playerId !== profile.id);
-    room.players.push({
-      playerId: profile.id,
-      username: profile.username,
-      avatarId: profile.avatarId,
-      isReady: false,
-      isHost: false,
-      isOnline: true,
-      battleTemplateReady: false,
-      battleTemplateSummary: null,
+      return {
+        result: {
+          room: this.toPublicRoom(room),
+          joinedAs: 'player' as const,
+          activeMatchId: null as string | null,
+        },
+      };
     });
-    room.updatedAt = Date.now();
-    return { room: this.toPublicRoom(room), joinedAs: 'player' };
-  }
 
-  public leaveRoom(roomId: string, playerId: string): { deleted: boolean; room?: GridItRoom } {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new GridItNotFoundError('Room not found.');
-    room.players = room.players.filter((p) => p.playerId !== playerId);
-    room.spectators = room.spectators.filter((s) => s.playerId !== playerId);
-    delete room.battleTemplates[playerId];
+    if (!outcome) throw new GridItNotFoundError('GridIt room not found.');
 
-    if (room.players.length === 0) {
-      this.rooms.delete(roomId);
-      return { deleted: true };
-    }
-    if (!room.players.some((p) => p.playerId === room.hostId)) {
-      room.hostId = room.players[0].playerId;
-      room.players.forEach((p, i) => {
-        p.isHost = i === 0;
+    if (outcome.activeMatchId && outcome.joinedAs === 'spectator') {
+      await this.store.mutateMatch(outcome.activeMatchId, (match) => {
+        if (!match.spectators.some((s) => s.playerId === profile.id)) {
+          match.spectators.push({
+            playerId: profile.id,
+            username: profile.username,
+            avatarId: profile.avatarId,
+            joinedAt: Date.now(),
+          });
+        }
       });
     }
-    room.updatedAt = Date.now();
-    return { deleted: false, room: this.toPublicRoom(room) };
+
+    return { room: outcome.room, joinedAs: outcome.joinedAs };
   }
 
-  public updateSettings(
+  async leaveRoom(
+    roomId: string,
+    playerId: string
+  ): Promise<{ deleted: boolean; room?: GridItRoom }> {
+    const res = await this.store.mutateRoom<{ deleted: boolean; room?: GridItRoom }>(
+      roomId,
+      (room) => {
+      room.players = room.players.filter((p) => p.playerId !== playerId);
+      room.spectators = room.spectators.filter((s) => s.playerId !== playerId);
+      delete room.battleTemplates[playerId];
+
+      if (room.players.length === 0) {
+        return { result: { deleted: true }, deleteRoom: true };
+      }
+      if (!room.players.some((p) => p.playerId === room.hostId)) {
+        room.hostId = room.players[0].playerId;
+        room.players.forEach((p, i) => {
+          p.isHost = i === 0;
+        });
+      }
+      room.updatedAt = Date.now();
+      return { result: { deleted: false, room: this.toPublicRoom(room) } };
+    });
+
+    if (!res) throw new GridItNotFoundError('Room not found.');
+    return res;
+  }
+
+  async updateSettings(
     roomId: string,
     playerId: string,
     partial: Partial<GridItRoomSettings>
-  ): GridItRoom {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new GridItNotFoundError('Room not found.');
-    if (room.hostId !== playerId) {
-      throw new GridItForbiddenError('Only the host can update room settings.');
-    }
-    room.settings = this.normalizeSettings(partial, room.settings);
-    if (!room.settings.allowSpectators) {
-      room.spectators = [];
-    }
-    for (const p of room.players) {
-      p.isReady = false;
-    }
-    room.updatedAt = Date.now();
-    return this.toPublicRoom(room);
+  ): Promise<GridItRoom> {
+    const updated = await this.store.mutateRoom(roomId, (room) => {
+      if (room.hostId !== playerId) {
+        throw new GridItForbiddenError('Only the host can update room settings.');
+      }
+      room.settings = this.normalizeSettings(partial, room.settings);
+      if (!room.settings.allowSpectators) {
+        room.spectators = [];
+      }
+      for (const p of room.players) p.isReady = false;
+      room.updatedAt = Date.now();
+      return { result: this.toPublicRoom(room) };
+    });
+    if (!updated) throw new GridItNotFoundError('Room not found.');
+    return updated;
   }
 
-  public setReady(roomId: string, playerId: string, isReady: boolean): GridItRoom {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new GridItNotFoundError('Room not found.');
-    const participant = room.players.find((p) => p.playerId === playerId);
-    if (!participant) {
-      throw new GridItForbiddenError('Spectators cannot toggle ready state or play.');
-    }
-    participant.isReady = Boolean(isReady);
-    room.updatedAt = Date.now();
-    return this.toPublicRoom(room);
+  async setReady(roomId: string, playerId: string, isReady: boolean): Promise<GridItRoom> {
+    const updated = await this.store.mutateRoom(roomId, (room) => {
+      const participant = room.players.find((p) => p.playerId === playerId);
+      if (!participant) {
+        throw new GridItForbiddenError('Spectators cannot toggle ready state or play.');
+      }
+      participant.isReady = Boolean(isReady);
+      room.updatedAt = Date.now();
+      return { result: this.toPublicRoom(room) };
+    });
+    if (!updated) throw new GridItNotFoundError('Room not found.');
+    return updated;
   }
 
-  public submitBattleTemplate(
+  async submitBattleTemplate(
     roomId: string,
     playerId: string,
     template: GridItCustomTemplate
-  ): GridItRoom {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new GridItNotFoundError('Room not found.');
-    const participant = room.players.find((p) => p.playerId === playerId);
-    if (!participant) {
-      throw new GridItForbiddenError('Only active players in this room can submit a Battle Board.');
-    }
-
-    const dict = getServerDictionary(template.language || room.settings.language);
+  ): Promise<GridItRoom> {
+    const dict = getServerDictionary(template.language || 'en');
     const validation = validateCustomTemplate(template, dict.words);
     if (!validation.valid) {
-      throw new GridItBadRequestError(validation.errors[0] || 'Template failed board validation.');
+      throw new GridItBadRequestError(
+        validation.errors[0] || 'Template failed board validation.'
+      );
     }
 
-    // Store full custom template PRIVATELY on server so opponents never see it before reveal
     const preview = completeBoardFromTemplate(template, {
       seed: 42,
       dictionary: dict.words,
@@ -361,57 +369,71 @@ export class GridItEngine {
       stripAuthoredFlag: true,
     });
 
-    room.battleTemplates[playerId] = template;
-    participant.battleTemplateReady = true;
-    participant.isReady = true;
-    participant.battleTemplateSummary = {
-      name: template.name,
-      shapeId: template.shapeId,
-      sizeId: template.sizeId,
-      wordCount: template.authoredWords.length,
-      fairnessGrade: preview.fairness.grade,
-    };
-    room.updatedAt = Date.now();
-    return this.toPublicRoom(room);
+    const updated = await this.store.mutateRoom(roomId, (room) => {
+      const participant = room.players.find((p) => p.playerId === playerId);
+      if (!participant) {
+        throw new GridItForbiddenError(
+          'Only active players in this room can submit a Battle Board.'
+        );
+      }
+      room.battleTemplates[playerId] = template;
+      participant.battleTemplateReady = true;
+      participant.isReady = true;
+      participant.battleTemplateSummary = {
+        name: template.name,
+        shapeId: template.shapeId,
+        sizeId: template.sizeId,
+        wordCount: template.authoredWords.length,
+        fairnessGrade: preview.fairness.grade,
+      };
+      room.updatedAt = Date.now();
+      return { result: this.toPublicRoom(room) };
+    });
+
+    if (!updated) throw new GridItNotFoundError('Room not found.');
+    return updated;
   }
 
-  public sendRoomChat(
+  async sendRoomChat(
     roomId: string,
     playerId: string,
     text: string,
     kind: 'chat' | 'emoji' = 'chat'
-  ): GridItRoom {
-    const room = this.rooms.get(roomId);
-    if (!room) throw new GridItNotFoundError('Room not found.');
-    const player = room.players.find((p) => p.playerId === playerId);
-    const spectator = room.spectators.find((s) => s.playerId === playerId);
-    if (!player && !spectator) {
-      throw new GridItForbiddenError('You must be in this room to send messages.');
-    }
+  ): Promise<GridItRoom> {
     const clean = text.trim().slice(0, 260);
     if (!clean) throw new GridItBadRequestError('Message cannot be empty.');
 
-    const sender = player ?? spectator!;
-    room.messages.push({
-      id: `gmsg_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
-      senderId: sender.playerId,
-      senderName: player ? player.username : `${sender.username} (Spectator)`,
-      senderAvatar: sender.avatarId,
-      text: clean,
-      kind,
-      createdAt: Date.now(),
+    const updated = await this.store.mutateRoom(roomId, (room) => {
+      const player = room.players.find((p) => p.playerId === playerId);
+      const spectator = room.spectators.find((s) => s.playerId === playerId);
+      if (!player && !spectator) {
+        throw new GridItForbiddenError('You must be in this room to send messages.');
+      }
+      const sender = player ?? spectator!;
+      room.messages.push({
+        id: `gmsg_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+        senderId: sender.playerId,
+        senderName: player ? player.username : `${sender.username} (Spectator)`,
+        senderAvatar: sender.avatarId,
+        text: clean,
+        kind,
+        createdAt: Date.now(),
+      });
+      if (room.messages.length > 80) room.messages = room.messages.slice(-80);
+      room.updatedAt = Date.now();
+      return { result: this.toPublicRoom(room) };
     });
-    if (room.messages.length > 80) room.messages = room.messages.slice(-80);
-    room.updatedAt = Date.now();
-    return this.toPublicRoom(room);
+
+    if (!updated) throw new GridItNotFoundError('Room not found.');
+    return updated;
   }
 
-  public startRoomMatch(
+  async startRoomMatch(
     roomId: string,
     requesterId: string,
     aiHintsByPlayer?: Record<string, Record<string, string> | null>
-  ): { room: GridItRoom; match: StoredGridItMatch } {
-    const room = this.rooms.get(roomId);
+  ): Promise<{ room: GridItRoom; match: StoredGridItMatch }> {
+    const room = await this.store.getRoom(roomId);
     if (!room) throw new GridItNotFoundError('Room not found.');
     if (room.hostId !== requesterId) {
       throw new GridItForbiddenError('Only the room host can start the match.');
@@ -442,11 +464,16 @@ export class GridItEngine {
       aiHintsByPlayer,
     });
 
-    this.matches.set(match.id, match);
-    room.status = 'in_progress';
-    room.activeMatchId = match.id;
-    room.updatedAt = Date.now();
-    return { room: this.toPublicRoom(room), match };
+    await this.store.insertMatch(match);
+
+    const updatedRoom = await this.store.mutateRoom(room.id, (r) => {
+      r.status = 'in_progress';
+      r.activeMatchId = match.id;
+      r.updatedAt = Date.now();
+      return { result: this.toPublicRoom(r) };
+    });
+
+    return { room: updatedRoom ?? this.toPublicRoom(room), match };
   }
 
   private buildStoredMatch(params: {
@@ -463,7 +490,9 @@ export class GridItEngine {
     const revealAtMs = now + 250;
     const startedAtMs = revealAtMs + SHAKE_WINDOW_MS;
     const durMs =
-      params.settings.durationSeconds > 0 ? params.settings.durationSeconds * 1000 : UNTIMED_MAX_MS;
+      params.settings.durationSeconds > 0
+        ? params.settings.durationSeconds * 1000
+        : UNTIMED_MAX_MS;
     const endsAtMs = startedAtMs + durMs;
     const dict = getServerDictionary(params.settings.language);
     const matchId = `gmatch_${now}_${crypto.randomBytes(3).toString('hex')}`;
@@ -494,7 +523,6 @@ export class GridItEngine {
         };
       });
 
-      // Strict derangement: player i plays the board crafted by participant (i + 1) % n
       params.participants.forEach((p, idx) => {
         const sourcePlayer = params.participants[(idx + 1) % n];
         const assigned = completedByAuthor[sourcePlayer.playerId];
@@ -599,20 +627,21 @@ export class GridItEngine {
     };
   }
 
-  public joinQuickMatch(playerId: string): {
+  async joinQuickMatch(playerId: string): Promise<{
     status: 'queued' | 'matched';
-    room?: GridItRoom;
     match?: StoredGridItMatch;
-  } {
-    const p = this.requireProfile(playerId);
-    if (!this.quickQueue.includes(p.id)) this.quickQueue.push(p.id);
-    this.quickQueue = this.quickQueue.filter((id) => this.repo.getProfile(id));
-    if (this.quickQueue.length < 2) {
+  }> {
+    const p1 = await this.requireProfile(playerId);
+    const pair = await this.store.dequeuePair('quick', p1.id);
+    if (!pair.matched || !pair.opponentId) {
       return { status: 'queued' };
     }
-    const [p1Id, p2Id] = this.quickQueue.splice(0, 2);
-    const p1 = this.requireProfile(p1Id);
-    const p2 = this.requireProfile(p2Id);
+    const p2 = await this.requireProfile(pair.opponentId).catch(() => null);
+    if (!p2) {
+      await this.store.dequeuePair('quick', p1.id);
+      return { status: 'queued' };
+    }
+
     const settings = this.normalizeSettings({
       mode: 'classic',
       shapeId: 'heart',
@@ -631,24 +660,25 @@ export class GridItEngine {
       ],
       spectators: [],
     });
-    this.matches.set(match.id, match);
+    await this.store.insertMatch(match);
     return { status: 'matched', match };
   }
 
-  public joinRankedQueue(playerId: string): {
+  async joinRankedQueue(playerId: string): Promise<{
     status: 'queued' | 'matched';
     match?: StoredGridItMatch;
-  } {
-    const p = this.requireProfile(playerId);
-    if (!this.rankedQueue.includes(p.id)) this.rankedQueue.push(p.id);
-    this.rankedQueue = this.rankedQueue.filter((id) => this.repo.getProfile(id));
-    if (this.rankedQueue.length < 2) {
+  }> {
+    const p1 = await this.requireProfile(playerId);
+    const pair = await this.store.dequeuePair('ranked', p1.id);
+    if (!pair.matched || !pair.opponentId) {
       return { status: 'queued' };
     }
-    const [p1Id, p2Id] = this.rankedQueue.splice(0, 2);
-    const p1 = this.requireProfile(p1Id);
-    const p2 = this.requireProfile(p2Id);
-    // Standardized Ranked rules: fixed English dictionary, balanced non-custom board, mods off
+    const p2 = await this.requireProfile(pair.opponentId).catch(() => null);
+    if (!p2) {
+      await this.store.dequeuePair('ranked', p1.id);
+      return { status: 'queued' };
+    }
+
     const settings = this.normalizeSettings({
       mode: 'ranked',
       shapeId: 'square',
@@ -669,36 +699,33 @@ export class GridItEngine {
       ],
       spectators: [],
     });
-    this.matches.set(match.id, match);
+    await this.store.insertMatch(match);
     return { status: 'matched', match };
   }
 
-  public leaveRankedQueue(playerId: string): void {
-    this.rankedQueue = this.rankedQueue.filter((id) => id !== playerId);
+  async leaveRankedQueue(playerId: string): Promise<void> {
+    await this.store.removeFromQueue('ranked', playerId);
   }
 
-  private syncMatchLifecycle(match: StoredGridItMatch, nowMs = Date.now()): void {
+  private applyMatchLifecycle(match: StoredGridItMatch, nowMs = Date.now()): boolean {
     if (nowMs >= match.endsAtMs) {
       if (match.status !== 'finished') {
         match.status = 'finished';
-        this.finalizeWinners(match);
+        this.computeWinnersInPlace(match);
+        return true;
       }
-      return;
+      return false;
     }
-    if (nowMs >= match.startedAtMs) {
-      match.status = 'active';
-    } else {
-      match.status = 'shaking';
-    }
+    match.status = nowMs >= match.startedAtMs ? 'active' : 'shaking';
+    return false;
   }
 
-  private finalizeWinners(match: StoredGridItMatch): void {
+  private computeWinnersInPlace(match: StoredGridItMatch): void {
     const list = Object.values(match.players);
     if (list.length === 0) return;
 
     const sorted = [...list].sort((a, b) => {
       if (match.mode === 'board_battle') {
-        // Board Battle ranks by fair normalized % first, then raw score tiebreaker
         if (Math.abs(b.normalizedScorePercent - a.normalizedScorePercent) > 0.05) {
           return b.normalizedScorePercent - a.normalizedScorePercent;
         }
@@ -722,169 +749,183 @@ export class GridItEngine {
         )
         .map((p) => p.playerId);
     }
+  }
 
+  private async persistMatchFinalizationSideEffects(match: StoredGridItMatch): Promise<void> {
     if (match.roomId) {
-      const room = this.rooms.get(match.roomId);
-      if (room) {
-        room.status = 'waiting';
-        room.activeMatchId = null;
-        for (const rp of room.players) rp.isReady = false;
-        room.updatedAt = Date.now();
-      }
+      await this.store
+        .mutateRoom(match.roomId, (room) => {
+          room.status = 'waiting';
+          room.activeMatchId = null;
+          for (const rp of room.players) rp.isReady = false;
+          room.updatedAt = Date.now();
+          return { result: true };
+        })
+        .catch(() => undefined);
     }
 
-    if (!match.finalizedStats) {
-      match.finalizedStats = true;
-      for (const p of list) {
-        const profile = this.repo.getProfile(p.playerId);
-        const isGuest = Boolean(profile?.isGuest || p.playerId.startsWith('guest_'));
-        const prev = this.sessionStats.get(p.playerId) ?? {
+    const list = Object.values(match.players);
+    for (const p of list) {
+      const profile = this.repo.getProfile(p.playerId);
+      const isGuest = Boolean(profile?.isGuest || p.playerId.startsWith('guest_'));
+      const didWin = match.winnerIds.includes(p.playerId) && list.length > 1;
+      await this.store
+        .recordSessionStat({
           playerId: p.playerId,
           username: p.username,
           avatarId: p.avatarId,
-          matchesPlayed: 0,
-          wins: 0,
-          highScore: 0,
-          bestWord: null,
+          score: p.rawScore,
+          won: didWin,
+          bestWord: p.bestWord?.word ?? null,
           isGuest,
-        };
-        const didWin = match.winnerIds.includes(p.playerId) && list.length > 1;
-        this.sessionStats.set(p.playerId, {
-          ...prev,
-          username: p.username,
-          avatarId: p.avatarId,
-          matchesPlayed: prev.matchesPlayed + 1,
-          wins: prev.wins + (didWin ? 1 : 0),
-          highScore: Math.max(prev.highScore, p.rawScore),
-          bestWord:
-            p.bestWord && (!prev.bestWord || p.bestWord.word.length >= prev.bestWord.length)
-              ? p.bestWord.word
-              : prev.bestWord,
-        });
-      }
+        })
+        .catch(() => undefined);
     }
   }
 
-  public submitWord(
+  async submitWord(
     matchId: string,
     playerId: string,
     tilePath: string[],
     preferredWord?: string
   ) {
-    const match = this.matches.get(matchId);
-    if (!match) throw new GridItNotFoundError('GridIt match not found.');
-    const playerState = match.players[playerId];
-    if (!playerState) {
-      throw new GridItForbiddenError('Read-only spectators cannot submit words.');
-    }
-
+    const dict = getServerDictionary('en');
     const nowMs = Date.now();
-    this.syncMatchLifecycle(match, nowMs);
 
-    if (match.status === 'shaking') {
-      throw new GridItBadRequestError('Wait for dice shake to settle before submitting words.');
-    }
-    if (match.status === 'finished') {
-      throw new GridItBadRequestError('Match timer has finished.');
-    }
-
-    const dict = getServerDictionary(match.settings.language);
-    const already = new Set(playerState.foundWords.map((w) => w.word));
-    const validation = resolveWordPathWithMods(
-      playerState.assignedBoard,
-      tilePath,
-      dict.words,
-      already,
-      {
-        nowMs,
-        schedule: playerState.schedule,
-        modConfig: match.settings.mods,
-        comboCount: playerState.comboCount,
-        lastWordAtMs: playerState.lastWordAtMs,
-        preferredWord,
-        scoringConfig: DEFAULT_GRIDIT_SCORING,
+    const mutated = await this.store.mutateMatch(matchId, (match) => {
+      const playerState = match.players[playerId];
+      if (!playerState) {
+        throw new GridItForbiddenError('Read-only spectators cannot submit words.');
       }
-    );
 
-    if (validation.valid) {
-      const entry: GridItFoundWord = {
-        word: validation.word,
-        tilePath: [...tilePath],
-        points: validation.finalPoints,
-        foundAtMs: nowMs,
-      };
-      playerState.foundWords.unshift(entry);
-      playerState.rawScore += validation.finalPoints;
-      playerState.normalizedScorePercent = computeNormalizedScore(
-        playerState.rawScore,
-        playerState.assignedFairness.maxScorePotential
+      const newlyFinished = this.applyMatchLifecycle(match, nowMs);
+      if (match.status === 'shaking') {
+        throw new GridItBadRequestError('Wait for dice shake to settle before submitting words.');
+      }
+      if (match.status === 'finished') {
+        throw new GridItBadRequestError('Match timer has finished.');
+      }
+
+      const matchDict =
+        match.settings.language && match.settings.language !== 'en'
+          ? getServerDictionary(match.settings.language)
+          : dict;
+      const already = new Set(playerState.foundWords.map((w) => w.word));
+      const validation = resolveWordPathWithMods(
+        playerState.assignedBoard,
+        tilePath,
+        matchDict.words,
+        already,
+        {
+          nowMs,
+          schedule: playerState.schedule,
+          modConfig: match.settings.mods,
+          comboCount: playerState.comboCount,
+          lastWordAtMs: playerState.lastWordAtMs,
+          preferredWord,
+          scoringConfig: DEFAULT_GRIDIT_SCORING,
+        }
       );
-      playerState.comboCount = validation.nextComboCount;
-      playerState.lastWordAtMs = nowMs;
-      if (
-        !playerState.bestWord ||
-        entry.points > playerState.bestWord.points ||
-        (entry.points === playerState.bestWord.points &&
-          entry.word.length > playerState.bestWord.word.length)
-      ) {
-        playerState.bestWord = entry;
-      }
-    }
 
+      if (validation.valid) {
+        const entry: GridItFoundWord = {
+          word: validation.word,
+          tilePath: [...tilePath],
+          points: validation.finalPoints,
+          foundAtMs: nowMs,
+        };
+        playerState.foundWords.unshift(entry);
+        playerState.rawScore += validation.finalPoints;
+        playerState.normalizedScorePercent = computeNormalizedScore(
+          playerState.rawScore,
+          playerState.assignedFairness.maxScorePotential
+        );
+        playerState.comboCount = validation.nextComboCount;
+        playerState.lastWordAtMs = nowMs;
+        if (
+          !playerState.bestWord ||
+          entry.points > playerState.bestWord.points ||
+          (entry.points === playerState.bestWord.points &&
+            entry.word.length > playerState.bestWord.word.length)
+        ) {
+          playerState.bestWord = entry;
+        }
+      }
+
+      return { validation, newlyFinished };
+    });
+
+    if (!mutated) throw new GridItNotFoundError('GridIt match not found.');
     return {
-      validation,
-      match: this.sanitizeMatchForViewer(matchId, playerId),
+      validation: mutated.result.validation,
+      match: this.buildSanitizedClientState(mutated.match, playerId, nowMs),
     };
   }
 
-  public addMatchChat(
+  async addMatchChat(
     matchId: string,
     playerId: string,
     text: string,
     kind: 'chat' | 'emoji' = 'chat'
-  ): GridItChatMessage {
-    const match = this.matches.get(matchId);
-    if (!match) throw new GridItNotFoundError('GridIt match not found.');
-    const player = match.players[playerId];
-    const spectator = match.spectators.find((s) => s.playerId === playerId);
-    if (!player && !spectator) {
-      throw new GridItForbiddenError('Only match participants or spectators can send reactions.');
-    }
+  ): Promise<GridItChatMessage> {
     const clean = text.trim().slice(0, 220);
     if (!clean) throw new GridItBadRequestError('Empty message.');
-    const sender = player ?? spectator!;
-    const msg: GridItChatMessage = {
-      id: `gmmsg_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
-      senderId: sender.playerId,
-      senderName: player ? player.username : `${sender.username} (Spectator)`,
-      senderAvatar: sender.avatarId,
-      text: clean,
-      kind,
-      createdAt: Date.now(),
-    };
-    match.messages.push(msg);
-    if (match.messages.length > 80) match.messages = match.messages.slice(-80);
-    return msg;
+
+    const mutated = await this.store.mutateMatch(matchId, (match) => {
+      const player = match.players[playerId];
+      const spectator = match.spectators.find((s) => s.playerId === playerId);
+      if (!player && !spectator) {
+        throw new GridItForbiddenError('Only match participants or spectators can send reactions.');
+      }
+      const sender = player ?? spectator!;
+      const msg: GridItChatMessage = {
+        id: `gmmsg_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+        senderId: sender.playerId,
+        senderName: player ? player.username : `${sender.username} (Spectator)`,
+        senderAvatar: sender.avatarId,
+        text: clean,
+        kind,
+        createdAt: Date.now(),
+      };
+      match.messages.push(msg);
+      if (match.messages.length > 80) match.messages = match.messages.slice(-80);
+      return msg;
+    });
+
+    if (!mutated) throw new GridItNotFoundError('GridIt match not found.');
+    return mutated.result;
   }
 
-  public finishMatchEarly(matchId: string, requesterId: string): GridItMatchStateClient {
-    const match = this.matches.get(matchId);
-    if (!match) throw new GridItNotFoundError('GridIt match not found.');
-    if (!match.players[requesterId]) {
-      throw new GridItForbiddenError('Only match participants can end the match.');
+  async finishMatchEarly(matchId: string, requesterId: string): Promise<GridItMatchStateClient> {
+    const nowMs = Date.now();
+    let shouldFinalizeStats = false;
+    const mutated = await this.store.mutateMatch(matchId, (match) => {
+      if (!match.players[requesterId]) {
+        throw new GridItForbiddenError('Only match participants can end the match.');
+      }
+      match.status = 'finished';
+      match.endsAtMs = Math.min(match.endsAtMs, nowMs);
+      this.computeWinnersInPlace(match);
+      if (!match.finalizedStats) {
+        match.finalizedStats = true;
+        shouldFinalizeStats = true;
+      }
+      return true;
+    });
+    if (!mutated) throw new GridItNotFoundError('GridIt match not found.');
+    if (shouldFinalizeStats) {
+      await this.persistMatchFinalizationSideEffects(mutated.match);
     }
-    match.status = 'finished';
-    match.endsAtMs = Math.min(match.endsAtMs, Date.now());
-    this.finalizeWinners(match);
-    return this.sanitizeMatchForViewer(matchId, requesterId);
+    return this.buildSanitizedClientState(mutated.match, requesterId, nowMs);
   }
 
-  public rematch(matchId: string, requesterId: string): StoredGridItMatch {
-    const old = this.matches.get(matchId);
+  async rematch(matchId: string, requesterId: string): Promise<StoredGridItMatch> {
+    const old = await this.store.getMatch(matchId);
     if (!old) throw new GridItNotFoundError('Previous match not found.');
     if (!old.players[requesterId]) {
       throw new GridItForbiddenError('Only match participants can start a rematch.');
     }
+
     const next = this.buildStoredMatch({
       roomId: old.roomId,
       mode: old.mode,
@@ -897,42 +938,73 @@ export class GridItEngine {
       spectators: [...old.spectators],
       battleTemplates: old.battleTemplatesSnapshot,
     });
-    this.matches.set(next.id, next);
+    await this.store.insertMatch(next);
+
     if (old.roomId) {
-      const room = this.rooms.get(old.roomId);
-      if (room) {
-        room.status = 'in_progress';
-        room.activeMatchId = next.id;
-        room.updatedAt = Date.now();
-      }
+      await this.store
+        .mutateRoom(old.roomId, (room) => {
+          room.status = 'in_progress';
+          room.activeMatchId = next.id;
+          room.updatedAt = Date.now();
+          return { result: true };
+        })
+        .catch(() => undefined);
     }
     return next;
   }
 
-  public getMatchAudienceIds(matchId: string): string[] {
-    const match = this.matches.get(matchId);
+  async getMatchAudienceIds(matchId: string): Promise<string[]> {
+    const match = await this.store.getMatch(matchId);
     if (!match) return [];
-    return [
-      ...match.playerOrder,
-      ...match.spectators.map((s) => s.playerId),
-    ];
+    return [...match.playerOrder, ...match.spectators.map((s) => s.playerId)];
   }
 
-  public sanitizeMatchForViewer(
+  async sanitizeMatchForViewer(
     matchId: string,
     viewerId: string,
     spectatePlayerId?: string
-  ): GridItMatchStateClient {
-    const match = this.matches.get(matchId);
+  ): Promise<GridItMatchStateClient> {
+    const match = await this.store.getMatch(matchId);
     if (!match) throw new GridItNotFoundError('GridIt match not found.');
 
     const nowMs = Date.now();
-    this.syncMatchLifecycle(match, nowMs);
+    if (nowMs >= match.endsAtMs && match.status !== 'finished') {
+      let didFinalizeStats = false;
+      const mutated = await this.store.mutateMatch(matchId, (m) => {
+        this.applyMatchLifecycle(m, nowMs);
+        if (m.status === 'finished' && !m.finalizedStats) {
+          m.finalizedStats = true;
+          didFinalizeStats = true;
+        }
+        return true;
+      });
+      if (mutated) {
+        if (didFinalizeStats) {
+          await this.persistMatchFinalizationSideEffects(mutated.match);
+        }
+        return this.buildSanitizedClientState(mutated.match, viewerId, nowMs, spectatePlayerId);
+      }
+    }
+
+    return this.buildSanitizedClientState(match, viewerId, nowMs, spectatePlayerId);
+  }
+
+  private buildSanitizedClientState(
+    match: StoredGridItMatch,
+    viewerId: string,
+    nowMs: number,
+    spectatePlayerId?: string
+  ): GridItMatchStateClient {
+    const effectiveStatus: StoredGridItMatch['status'] =
+      match.status === 'finished' || nowMs >= match.endsAtMs
+        ? 'finished'
+        : nowMs >= match.startedAtMs
+          ? 'active'
+          : 'shaking';
 
     const isPlayer = Boolean(match.players[viewerId]);
     const isSpectator =
-      match.settings.allowSpectators &&
-      match.spectators.some((s) => s.playerId === viewerId);
+      match.settings.allowSpectators && match.spectators.some((s) => s.playerId === viewerId);
 
     if (!isPlayer && !isSpectator) {
       throw new GridItForbiddenError('Access denied: not a participant or spectator.');
@@ -945,7 +1017,6 @@ export class GridItEngine {
         ? spectatePlayerId
         : match.playerOrder[0];
 
-    // Anti-cheat: strictly never reveal board before revealAtMs, and only send viewer's assigned board
     const canRevealBoard = nowMs >= match.revealAtMs;
     const targetState = match.players[targetPlayerId];
 
@@ -964,13 +1035,12 @@ export class GridItEngine {
         bestWord: ps.bestWord,
         comboCount: ps.comboCount,
         isWinner: match.winnerIds.includes(ps.playerId),
-        // Hide detailed word list from opponents until match finishes
         foundWords:
-          pid === viewerId || match.status === 'finished' || viewerRole === 'spectator'
+          pid === viewerId || effectiveStatus === 'finished' || viewerRole === 'spectator'
             ? ps.foundWords
             : [],
         assignedBoardFairness:
-          pid === viewerId || match.status === 'finished' ? ps.assignedFairness : null,
+          pid === viewerId || effectiveStatus === 'finished' ? ps.assignedFairness : null,
         authoredByName: ps.authoredByName ?? null,
         quotaValidationPassed: ps.quotaValidationPassed ?? true,
       };
@@ -980,7 +1050,7 @@ export class GridItEngine {
       id: match.id,
       roomId: match.roomId,
       mode: match.mode,
-      status: match.status,
+      status: effectiveStatus,
       settings: match.settings,
       serverNowMs: nowMs,
       revealAtMs: match.revealAtMs,
@@ -993,26 +1063,46 @@ export class GridItEngine {
       players: clientPlayers,
       spectators: match.spectators,
       winnerIds: match.winnerIds,
-      fairnessComparison: match.status === 'finished' ? match.fairnessComparison : null,
+      fairnessComparison: effectiveStatus === 'finished' ? match.fairnessComparison : null,
       messages: match.messages,
     };
   }
 
-  public processExpiredMatches(): StoredGridItMatch[] {
-    const nowMs = Date.now();
+  async processExpiredMatches(): Promise<StoredGridItMatch[]> {
+    const nowIso = new Date().toISOString();
+    const expiredCandidates = await this.store.listExpiredMatches(nowIso);
     const transitioned: StoredGridItMatch[] = [];
-    for (const match of this.matches.values()) {
-      if (match.status !== 'finished' && nowMs >= match.endsAtMs) {
-        this.syncMatchLifecycle(match, nowMs);
-        transitioned.push(match);
+
+    for (const candidate of expiredCandidates) {
+      let didFinalizeStats = false;
+      const mutated = await this.store.mutateMatch(candidate.id, (m) => {
+        if (m.status !== 'finished') {
+          const finishedNow = this.applyMatchLifecycle(m, Date.now());
+          if (finishedNow && !m.finalizedStats) {
+            m.finalizedStats = true;
+            didFinalizeStats = true;
+          }
+        }
+        return true;
+      });
+      if (mutated && didFinalizeStats) {
+        await this.persistMatchFinalizationSideEffects(mutated.match);
+        transitioned.push(mutated.match);
       }
     }
     return transitioned;
   }
 
-  public listSessionLeaderboard(): GridItSessionLeaderboardEntry[] {
-    return Array.from(this.sessionStats.values()).sort(
-      (a, b) => b.highScore - a.highScore || b.wins - a.wins
-    );
+  async listSessionLeaderboard(): Promise<GridItSessionLeaderboardEntry[]> {
+    return this.store.listSessionStats();
+  }
+
+  /** Used cleanly by automated tests to fast-forward shake delay */
+  async debugAdvanceMatchStartForTest(matchId: string): Promise<void> {
+    await this.store.mutateMatch(matchId, (m) => {
+      m.revealAtMs = Date.now() - 3000;
+      m.startedAtMs = Date.now() - 500;
+      return true;
+    });
   }
 }

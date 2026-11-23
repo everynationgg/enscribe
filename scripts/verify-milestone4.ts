@@ -137,10 +137,8 @@ async function run() {
     });
     assert.equal(earlyWord.status, 400);
 
-    // Wait for synchronized shake end? Better: advance match startedAtMs slightly for deterministic fast test
-    const internalMatch = (runtime.gridItEngine as any).matches.get(matchId);
-    internalMatch.revealAtMs = Date.now() - 3000;
-    internalMatch.startedAtMs = Date.now() - 500;
+    // Fast-forward shake delay via explicit test helper
+    await runtime.gridItEngine.debugAdvanceMatchStartForTest(matchId);
 
     // Spectator submitting word must fail with 403
     const specSubmit = await post(`/api/gridit/matches/${matchId}/word`, {
