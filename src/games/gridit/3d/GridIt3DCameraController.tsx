@@ -5,16 +5,20 @@ import { GridItBoard } from '../../../../shared/gridit/types';
 
 interface GridIt3DCameraControllerProps {
   board: GridItBoard;
-  rotateMode: boolean;
   isShaking: boolean;
   resetViewTrigger: number;
+  rotateStepTrigger?: number;
+  readOnly?: boolean;
+  isDraggingWordRef?: React.MutableRefObject<boolean>;
 }
 
 export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> = ({
   board,
-  rotateMode,
   isShaking,
   resetViewTrigger,
+  rotateStepTrigger = 0,
+  readOnly = false,
+  isDraggingWordRef,
 }) => {
   const { camera, gl } = useThree();
 
@@ -53,6 +57,14 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
     }
   }, [resetViewTrigger, triggerReset]);
 
+  // Rotate camera by a 90-degree step when rotateStepTrigger increments
+  useEffect(() => {
+    if (rotateStepTrigger > 0) {
+      targetSpherical.current.theta += Math.PI / 2;
+      isResetting.current = true;
+    }
+  }, [rotateStepTrigger]);
+
   // Adjust on canvas resize
   useEffect(() => {
     const onResize = () => {
@@ -75,9 +87,12 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
     let initialPinchDist = 0;
 
     const onPointerDown = (e: PointerEvent) => {
-      // Right button, middle button, or Rotate Mode initiates camera orbit
+      if (isShaking) return;
       const isRightOrMiddle = e.button === 2 || e.button === 1 || e.shiftKey || e.altKey;
-      if (rotateMode || isRightOrMiddle) {
+      // If the user just started dragging a word (die was hit by R3F raycast
+      // in its handler which fires before this one), skip camera orbit for
+      // primary button so word tracing works. Right/middle always orbit.
+      if (isRightOrMiddle || readOnly || !isDraggingWordRef?.current) {
         isOrbiting = true;
         lastX = e.clientX;
         lastY = e.clientY;
@@ -175,7 +190,7 @@ export const GridIt3DCameraController: React.FC<GridIt3DCameraControllerProps> =
       dom.removeEventListener('touchmove', onTouchMove);
       dom.removeEventListener('touchend', onTouchEnd);
     };
-  }, [computeFitDistance, gl.domElement, rotateMode]);
+  }, [computeFitDistance, gl.domElement, isShaking, readOnly, isDraggingWordRef]);
 
   useFrame((_, delta) => {
     const lerpSpeed = isResetting.current ? 12 : 9;

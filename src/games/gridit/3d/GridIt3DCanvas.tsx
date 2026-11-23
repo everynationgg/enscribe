@@ -2,12 +2,6 @@ import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import {
   Compass,
-  Hand,
-  Layers,
-  Maximize2,
-  Minus,
-  Orbit,
-  Plus,
   RotateCcw,
   Sparkles,
 } from 'lucide-react';
@@ -69,8 +63,8 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
   } = props;
 
   const [hasWebGL] = useState(() => checkWebGLSupport());
-  const [rotateMode, setRotateMode] = useState(false);
   const [resetViewTrigger, setResetViewTrigger] = useState(0);
+  const [rotateStepTrigger, setRotateStepTrigger] = useState(0);
   const [remoteOrientation, setRemoteOrientation] = useState<HostShakePayload | null>(null);
   const [readySplash, setReadySplash] = useState<'ready' | 'go' | null>(null);
 
@@ -138,9 +132,7 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
 
   return (
     <div
-      className={`ens-gridit-board-viewport ens-gridit-3d-viewport ${
-        rotateMode ? 'is-rotate-mode' : ''
-      }`}
+      className="ens-gridit-board-viewport ens-gridit-3d-viewport"
       role="application"
       aria-label="GridIt interactive 3D letter box"
       style={{
@@ -174,8 +166,8 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
             paused={paused}
             isShaking={isShaking}
             isHost={isHost}
-            rotateMode={rotateMode}
             resetViewTrigger={resetViewTrigger}
+            rotateStepTrigger={rotateStepTrigger}
             readOnly={readOnly}
             editorMode={editorMode}
             activeRainbowIds={activeRainbowIds}
@@ -242,7 +234,7 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
         </div>
       )}
 
-      {/* Bottom-Left Controls: Rotate Mode Toggle & Gesture Hint */}
+      {/* Bottom-Left Controls: Rotate Step & Gesture Hint */}
       <div
         className="ens-gridit-canvas-left-tools"
         onPointerDown={(e) => e.stopPropagation()}
@@ -250,13 +242,12 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
       >
         <button
           type="button"
-          className={`ens-gridit-cam-btn ${rotateMode ? 'is-active' : ''}`}
-          onClick={() => setRotateMode((r) => !r)}
-          title={rotateMode ? 'Switch back to word tracing' : '1-finger 3D camera orbit mode'}
-          aria-label="Toggle 3D Orbit Mode"
-          aria-pressed={rotateMode}
+          className="ens-gridit-cam-btn"
+          onClick={() => setRotateStepTrigger((c) => c + 1)}
+          title="Rotate camera 90°"
+          aria-label="Rotate camera 90 degrees"
         >
-          <Orbit size={16} />
+          <RotateCcw size={16} />
         </button>
 
         <span className="ens-gridit-gesture-hint">
@@ -266,9 +257,7 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
             ? isHost
               ? 'Swipe to tilt and shake dice'
               : 'Watching host shake 3D box'
-            : rotateMode
-            ? 'Rotate mode • 1-finger orbit'
-            : 'Trace words • Right-click or 2 fingers to orbit'}
+            : 'Tap dice to trace • Drag empty space to orbit'}
         </span>
       </div>
 

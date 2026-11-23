@@ -5230,13 +5230,7 @@ body,
   }
 }
 
-.ens-gridit-3d-viewport.is-rotate-mode {
-  cursor: grab !important;
-}
-
-.ens-gridit-3d-viewport.is-rotate-mode:active {
-  cursor: grabbing !important;
-}
+/* Camera orbit is always available — no separate rotate mode needed */
 
 @media (prefers-reduced-motion: reduce) {
   .ens-gridit-board-world.is-shaking-world,

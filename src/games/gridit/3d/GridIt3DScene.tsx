@@ -16,8 +16,8 @@ interface GridIt3DSceneProps {
   paused?: boolean;
   isShaking: boolean;
   isHost?: boolean;
-  rotateMode: boolean;
   resetViewTrigger: number;
+  rotateStepTrigger?: number;
   readOnly?: boolean;
   editorMode?: boolean;
   activeRainbowIds?: Set<string>;
@@ -37,8 +37,8 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
   paused = false,
   isShaking,
   isHost = true,
-  rotateMode,
   resetViewTrigger,
+  rotateStepTrigger = 0,
   readOnly = false,
   editorMode = false,
   activeRainbowIds,
@@ -76,7 +76,7 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
   // Pointer interactions on dice
   const handlePointerDownTile = useCallback(
     (tileId: string, e: any) => {
-      if (paused || isShaking || readOnly || rotateMode) return;
+      if (paused || isShaking || readOnly) return;
       if (e.button !== 0 && e.button !== undefined) return;
 
       isDraggingWordRef.current = true;
@@ -101,12 +101,12 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
         }
       }
     },
-    [isShaking, onPathChange, paused, readOnly, rotateMode, tileMap]
+    [isShaking, onPathChange, paused, readOnly, tileMap]
   );
 
   const handlePointerEnterTile = useCallback(
     (tileId: string) => {
-      if (paused || isShaking || readOnly || rotateMode || !isDraggingWordRef.current) return;
+      if (paused || isShaking || readOnly || !isDraggingWordRef.current) return;
 
       const current = selectedPathRef.current;
       if (current.length === 0) {
@@ -131,7 +131,7 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
         onPathChange([...current, tileId]);
       }
     },
-    [isShaking, onPathChange, paused, readOnly, rotateMode, tileMap]
+    [isShaking, onPathChange, paused, readOnly, tileMap]
   );
 
   // Global pointer up listener for word submission
@@ -189,9 +189,11 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
       {/* Free 3D Camera Controller during gameplay */}
       <GridIt3DCameraController
         board={board}
-        rotateMode={rotateMode}
         isShaking={isShaking}
         resetViewTrigger={resetViewTrigger}
+        rotateStepTrigger={rotateStepTrigger}
+        readOnly={readOnly}
+        isDraggingWordRef={isDraggingWordRef}
       />
 
       {/* Interactive 5-Second Shaker Wrapper */}
