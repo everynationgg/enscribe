@@ -1,9 +1,10 @@
 import React from 'react';
-import { ArrowRight, Lock, LogOut, Sparkles, Wifi, WifiOff } from 'lucide-react';
+import { Lock, LogOut, Play, Sparkles, Wifi, WifiOff } from 'lucide-react';
 import { HUB_GAME_TILES } from '../../shared/gameRegistry';
 import { GameModuleId, HubGameTile, PlayerSession } from '../../shared/types';
 import { AvatarBadge } from '../components/Artwork';
 import { EnscribeBrandLogo } from '../components/BrandedHeader';
+import { SparkleClusterIcon, WaveHandIcon } from '../components/GameIcons';
 
 interface EnscribeHubScreenProps {
   session: PlayerSession;
@@ -12,70 +13,7 @@ interface EnscribeHubScreenProps {
   onSwitchGuest: () => void;
 }
 
-const ChainItTileEmblem: React.FC = () => (
-  <svg width="68" height="44" viewBox="0 0 68 44" fill="none" aria-hidden="true">
-    <defs>
-      <linearGradient id="hubChainTileA" x1="0" y1="0" x2="26" y2="28" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stopColor="#67e8f9" />
-        <stop offset="100%" stopColor="#2563eb" />
-      </linearGradient>
-      <linearGradient id="hubChainTileB" x1="40" y1="14" x2="66" y2="42" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stopColor="#f472b6" />
-        <stop offset="100%" stopColor="#9333ea" />
-      </linearGradient>
-    </defs>
-    <rect x="2" y="4" width="26" height="26" rx="8" fill="url(#hubChainTileA)" stroke="#ffffff" strokeWidth="2" />
-    <text x="15" y="22" textAnchor="middle" fill="#ffffff" fontSize="14" fontWeight="900" fontFamily="Nunito, sans-serif">
-      C
-    </text>
-    <path
-      d="M27 17 C33 17, 35 27, 41 27"
-      stroke="#FFD54A"
-      strokeWidth="3.5"
-      strokeLinecap="round"
-      strokeDasharray="4 2"
-    />
-    <circle cx="34" cy="22" r="4" fill="#FFD54A" />
-    <rect x="40" y="14" width="26" height="26" rx="8" fill="url(#hubChainTileB)" stroke="#ffffff" strokeWidth="2" />
-    <text x="53" y="32" textAnchor="middle" fill="#ffffff" fontSize="14" fontWeight="900" fontFamily="Nunito, sans-serif">
-      I
-    </text>
-  </svg>
-);
-
-const GridItTileEmblem: React.FC = () => (
-  <svg width="70" height="48" viewBox="0 0 70 48" fill="none" aria-hidden="true">
-    <defs>
-      <linearGradient id="hubGridBoardBg" x1="0" y1="0" x2="70" y2="48" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.3" />
-        <stop offset="100%" stopColor="#e879f9" stopOpacity="0.3" />
-      </linearGradient>
-    </defs>
-    {/* Mini Heart + Tiles motif inspired by GridIt mockup */}
-    <rect x="4" y="4" width="20" height="20" rx="6" fill="#fef3c7" stroke="#ffffff" strokeWidth="1.8" />
-    <text x="14" y="18.5" textAnchor="middle" fill="#1e1b4b" fontSize="12" fontWeight="900" fontFamily="Nunito, sans-serif">
-      G
-    </text>
-    <rect x="26" y="4" width="20" height="20" rx="6" fill="#fde047" stroke="#ffffff" strokeWidth="1.8" />
-    <text x="36" y="18.5" textAnchor="middle" fill="#422006" fontSize="12" fontWeight="900" fontFamily="Nunito, sans-serif">
-      R
-    </text>
-    <rect x="48" y="4" width="20" height="20" rx="6" fill="#f0abfc" stroke="#ffffff" strokeWidth="1.8" />
-    <text x="58" y="18.5" textAnchor="middle" fill="#4a044e" fontSize="12" fontWeight="900" fontFamily="Nunito, sans-serif">
-      I
-    </text>
-    <rect x="15" y="25" width="20" height="20" rx="6" fill="#7dd3fc" stroke="#ffffff" strokeWidth="1.8" />
-    <text x="25" y="39.5" textAnchor="middle" fill="#0c4a6e" fontSize="12" fontWeight="900" fontFamily="Nunito, sans-serif">
-      D
-    </text>
-    <path
-      d="M49 27 C46 24, 41 26, 41 31 C41 36, 49 41, 49 41 C49 41, 57 36, 57 31 C57 26, 52 24, 49 27 Z"
-      fill="#f472b6"
-      stroke="#ffffff"
-      strokeWidth="1.8"
-    />
-  </svg>
-);
+const COMING_SOON_ART = ['/art/room-crystals.png', '/art/room-island.png'];
 
 export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
   session,
@@ -87,6 +25,9 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
     if (tile.status !== 'playable' || !tile.gameId) return;
     onSelectGame(tile.gameId);
   };
+
+  const playableTiles = HUB_GAME_TILES.filter((t) => t.status === 'playable');
+  const comingSoonTiles = HUB_GAME_TILES.filter((t) => t.status === 'coming_soon');
 
   return (
     <div className="ens-fantasy-page ens-hub-page">
@@ -103,7 +44,7 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
                 <AvatarBadge
                   avatarId={session.avatarId}
                   size={30}
-                  ringColor={isOffline || session.isOffline ? '#fbbf24' : '#38bdf8'}
+                  ringColor={isOffline || session.isOffline ? '#fbbf24' : '#7dd3fc'}
                 />
                 <div className="ens-hub-guest-meta">
                   <span className="ens-hub-guest-name">{session.nickname}</span>
@@ -135,16 +76,31 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
             </div>
           </header>
 
-          {/* Hub Welcome Banner with Established Enscribe Mascot */}
+          {/* Personalized Greeting Row matching Approved Enscribe Aesthetic */}
+          <div className="ens-greeting-row" style={{ cursor: 'default' }}>
+            <div className="ens-avatar-ring-wrap">
+              <AvatarBadge avatarId={session.avatarId} size={46} ringColor="#7dd3fc" />
+            </div>
+            <div className="ens-greeting-text">
+              <div className="ens-greeting-name">
+                <span>Hi, {session.nickname}!</span>
+                <WaveHandIcon size={19} className="ens-wave-icon" />
+              </div>
+              <div className="ens-greeting-sub">Ready for a word game adventure?</div>
+            </div>
+          </div>
+
+          {/* Glossy Mascot Hero Banner */}
           <section className="ens-hub-hero">
+            <span className="ens-home-mode-sheen" aria-hidden="true" />
             <div className="ens-hub-hero-copy">
               <div className="ens-hub-eyebrow">
-                <Sparkles size={14} color="#FFD54A" />
+                <SparkleClusterIcon size={17} />
                 <span>ENSCRIBE ARCADE</span>
               </div>
               <h1 className="ens-hub-title">Choose Your Game</h1>
               <p className="ens-hub-sub">
-                Pick a word arena below. Each game has its own modes, rules, and leaderboards.
+                Pick a word arena below to launch its modes &amp; challenges!
               </p>
             </div>
             <div className="ens-hub-mascot-wrap" aria-hidden="true">
@@ -152,13 +108,17 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
             </div>
           </section>
 
-          {/* Game Registry Tiles */}
+          {/* Illustrated Game Registry Tiles */}
           <section className="ens-hub-games-section" aria-label="Word Games">
-            <div className="ens-hub-section-label">Available Games</div>
+            <div className="ens-hub-section-label">
+              <Sparkles size={13} color="#FFD54A" />
+              <span>Featured Word Games</span>
+            </div>
 
             <div className="ens-hub-tiles-stack">
-              {HUB_GAME_TILES.filter((t) => t.status === 'playable').map((tile) => {
+              {playableTiles.map((tile) => {
                 const isGridIt = tile.themeVariant === 'gridit';
+                const artSrc = isGridIt ? '/art/hub-gridit-card.png' : '/art/hub-chainit-card.png';
                 return (
                   <button
                     key={tile.id}
@@ -166,23 +126,28 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
                     className={`ens-hub-game-tile ${isGridIt ? 'is-gridit' : 'is-chainit'}`}
                     onClick={() => handleTileClick(tile)}
                   >
-                    <div className="ens-hub-tile-top">
+                    <img src={artSrc} alt="" className="ens-hub-tile-art" aria-hidden="true" />
+                    <div className="ens-hub-tile-scrim" aria-hidden="true" />
+                    <span className="ens-home-mode-sheen" aria-hidden="true" />
+
+                    <div className="ens-hub-tile-content">
                       <span className={`ens-hub-tile-badge ${isGridIt ? 'is-new' : 'is-live'}`}>
                         {tile.badgeText}
                       </span>
-                      <div className="ens-hub-tile-emblem">
-                        {isGridIt ? <GridItTileEmblem /> : <ChainItTileEmblem />}
+
+                      <div className="ens-hub-tile-body">
+                        <div className="ens-hub-tile-name">{tile.name}</div>
+                        <div className="ens-hub-tile-tagline">{tile.tagline}</div>
                       </div>
-                    </div>
 
-                    <div className="ens-hub-tile-body">
-                      <div className="ens-hub-tile-name">{tile.name}</div>
-                      <div className="ens-hub-tile-tagline">{tile.tagline}</div>
-                    </div>
-
-                    <div className="ens-hub-tile-cta">
-                      <span>Enter {tile.name}</span>
-                      <ArrowRight size={16} strokeWidth={2.8} />
+                      <div className={`ens-hub-tile-cta ${isGridIt ? 'is-gold' : 'is-lavender'}`}>
+                        <Play
+                          size={14}
+                          fill={isGridIt ? '#ffffff' : '#4a1d96'}
+                          color={isGridIt ? '#ffffff' : '#4a1d96'}
+                        />
+                        <span>{isGridIt ? 'Open GridIt' : 'Play ChainIt'}</span>
+                      </div>
                     </div>
                   </button>
                 );
@@ -190,22 +155,35 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
             </div>
 
             <div className="ens-hub-section-label" style={{ marginTop: 14 }}>
-              More Word Games
+              <Sparkles size={13} color="#93c5fd" />
+              <span>More Word Games</span>
             </div>
 
             <div className="ens-hub-coming-grid">
-              {HUB_GAME_TILES.filter((t) => t.status === 'coming_soon').map((tile) => (
+              {comingSoonTiles.map((tile, idx) => (
                 <div
                   key={tile.id}
                   className="ens-hub-coming-tile"
                   aria-disabled="true"
                 >
-                  <div className="ens-hub-coming-top">
-                    <span className="ens-hub-coming-pill">{tile.badgeText}</span>
-                    <Lock size={14} color="rgba(216, 224, 255, 0.72)" />
+                  <img
+                    src={COMING_SOON_ART[idx % COMING_SOON_ART.length]}
+                    alt=""
+                    className="ens-hub-coming-art"
+                    aria-hidden="true"
+                  />
+                  <div className="ens-hub-coming-scrim" aria-hidden="true" />
+                  <span className="ens-home-mode-sheen" aria-hidden="true" />
+                  <div className="ens-hub-coming-inner">
+                    <div className="ens-hub-coming-top">
+                      <span className="ens-hub-coming-pill">{tile.badgeText}</span>
+                      <span className="ens-hub-coming-lock">
+                        <Lock size={12} color="#e0e7ff" />
+                      </span>
+                    </div>
+                    <div className="ens-hub-coming-name">{tile.name}</div>
+                    <div className="ens-hub-coming-sub">{tile.tagline}</div>
                   </div>
-                  <div className="ens-hub-coming-name">{tile.name}</div>
-                  <div className="ens-hub-coming-sub">{tile.tagline}</div>
                 </div>
               ))}
             </div>

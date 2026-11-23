@@ -318,6 +318,12 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
 
   return (
     <div className="ens-match-screen">
+      <img
+        src="/art/home-bottom-landscape.png"
+        alt=""
+        className="ens-match-ambient-art"
+        aria-hidden="true"
+      />
       {/* Hidden input for mobile native keyboard focus when user taps letter boxes */}
       <input
         ref={hiddenInputRef}
@@ -343,6 +349,12 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
 
       {/* Header */}
       <header className="ens-match-header">
+        <img
+          src="/art/header-fantasy.png"
+          alt=""
+          className="ens-match-header-art"
+          aria-hidden="true"
+        />
         <button type="button" className="ens-icon-btn" onClick={onBackHome} aria-label="Back">
           <ChevronLeft size={20} />
         </button>

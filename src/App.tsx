@@ -3,7 +3,14 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { WifiOff } from 'lucide-react';
 import {
+  DEFAULT_GRIDIT_MODS,
   GameModuleId,
+  GridItBoardSize,
+  GridItMatchMode,
+  GridItMatchStateClient,
+  GridItModConfig,
+  GridItRoom,
+  GridItShapeId,
   InAppNotification,
   MatchHistorySummary,
   MatchStateClient,
@@ -44,6 +51,16 @@ import { GameEntryAnimation } from './components/GameEntryAnimation';
 import { GuestEntryScreen } from './screens/GuestEntryScreen';
 import { EnscribeHubScreen } from './screens/EnscribeHubScreen';
 import { GridItHomeScreen } from './screens/GridItHomeScreen';
+import { GridItSoloSetupScreen } from './screens/GridItSoloSetupScreen';
+import { GridItSoloGameplayScreen } from './screens/GridItSoloGameplayScreen';
+import { GridItBoardEditorScreen } from './screens/GridItBoardEditorScreen';
+import { GridItHostSetupScreen } from './screens/GridItHostSetupScreen';
+import { GridItRoomsBrowserScreen } from './screens/GridItRoomsBrowserScreen';
+import { GridItLobbyScreen } from './screens/GridItLobbyScreen';
+import { GridItMultiplayerGameplayScreen } from './screens/GridItMultiplayerGameplayScreen';
+import { GridItRankedScreen } from './screens/GridItRankedScreen';
+import { GridItLeaderboardScreen } from './screens/GridItLeaderboardScreen';
+import { GridItCustomTemplate } from '../shared/gridit/editor';
 import { HomeScreen } from './screens/HomeScreen';
 import { PlayScreen } from './screens/PlayScreen';
 import { SoloScreen } from './screens/SoloScreen';
@@ -59,6 +76,23 @@ type ActiveRoute =
   | { view: 'hub' }
   | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' }
   | { view: 'gridit_home' }
+  | { view: 'gridit_solo_setup' }
+  | { view: 'gridit_editor'; returnToLobbyRoomId?: string | null }
+  | { view: 'gridit_rooms' }
+  | { view: 'gridit_host_setup'; defaultMode: GridItMatchMode }
+  | { view: 'gridit_lobby'; roomId: string }
+  | { view: 'gridit_match'; matchId: string }
+  | { view: 'gridit_ranked' }
+  | { view: 'gridit_leaderboard' }
+  | {
+      view: 'gridit_solo_match';
+      shapeId: GridItShapeId;
+      sizeId: GridItBoardSize;
+      durationSeconds: number;
+      mods?: GridItModConfig;
+      language?: string;
+      customTemplate?: GridItCustomTemplate | null;
+    }
   | { view: 'tab'; tab: NavTab }
   | { view: 'solo' }
   | { view: 'rooms' }
@@ -94,6 +128,24 @@ export const App: React.FC = () => {
   );
   const [authError, setAuthError] = useState<string | null>(null);
   const [route, setRoute] = useState<ActiveRoute>(loadSavedRoute);
+  const [lastGridItConfig, setLastGridItConfig] = useState<{
+    shapeId: GridItShapeId;
+    sizeId: GridItBoardSize;
+    durationSeconds: number;
+    mods: GridItModConfig;
+    language: string;
+  }>({
+    shapeId: 'heart',
+    sizeId: 'medium',
+    durationSeconds: 120,
+    mods: DEFAULT_GRIDIT_MODS,
+    language: 'en',
+  });
+  const [gridItPublicRooms, setGridItPublicRooms] = useState<GridItRoom[]>([]);
+  const [activeGridItRoom, setActiveGridItRoom] = useState<GridItRoom | null>(null);
+  const [activeGridItMatch, setActiveGridItMatch] = useState<GridItMatchStateClient | null>(null);
+  const [gridItQuickQueued, setGridItQuickQueued] = useState(false);
+  const [gridItRankedQueued, setGridItRankedQueued] = useState(false);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [ongoingMatches, setOngoingMatches] = useState<OngoingMatchSummary[]>([]);
@@ -332,6 +384,36 @@ export const App: React.FC = () => {
         setRoute({ view: 'hub' });
         return;
       }
+      if (
+        current.view === 'gridit_solo_setup' ||
+        current.view === 'gridit_rooms' ||
+        current.view === 'gridit_ranked' ||
+        current.view === 'gridit_leaderboard'
+      ) {
+        setRoute({ view: 'gridit_home' });
+        return;
+      }
+      if (current.view === 'gridit_editor') {
+        if (current.returnToLobbyRoomId) {
+          setRoute({ view: 'gridit_lobby', roomId: current.returnToLobbyRoomId });
+        } else {
+          setRoute({ view: 'gridit_home' });
+        }
+        return;
+      }
+      if (current.view === 'gridit_host_setup' || current.view === 'gridit_lobby') {
+        setRoute({ view: 'gridit_rooms' });
+        return;
+      }
+      if (current.view === 'gridit_match') {
+        setActiveGridItMatch(null);
+        setRoute({ view: 'gridit_home' });
+        return;
+      }
+      if (current.view === 'gridit_solo_match') {
+        setRoute({ view: 'gridit_solo_setup' });
+        return;
+      }
       if (current.view === 'create_room') {
         const returnView =
           current.returnTo === 'rooms'
@@ -380,6 +462,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (activeProfileId && !playerSession?.isOffline && route.view === 'rooms') {
       api.listPublicRooms().then(setPublicRooms).catch(() => undefined);
+    }
+    if (activeProfileId && !playerSession?.isOffline && route.view === 'gridit_rooms') {
+      api.listGridItPublicRooms().then(setGridItPublicRooms).catch(() => undefined);
     }
   }, [activeProfileId, playerSession?.isOffline, route.view]);
 
@@ -456,6 +541,44 @@ export const App: React.FC = () => {
       setRoute({ view: 'match', matchId: newMatchId });
     };
 
+    const onGridItRoomUpdated = (room: GridItRoom) => {
+      setActiveGridItRoom((prev) => (prev && prev.id === room.id ? room : prev));
+    };
+
+    const onGridItRoomsUpdated = () => {
+      api.listGridItPublicRooms().then(setGridItPublicRooms).catch(() => undefined);
+    };
+
+    const onGridItMatchStarted = ({ roomId, matchId }: { roomId: string; matchId: string }) => {
+      setRoute((prev) => {
+        if (prev.view === 'gridit_lobby' && prev.roomId === roomId) {
+          return { view: 'gridit_match', matchId };
+        }
+        return prev;
+      });
+    };
+
+    const onGridItMatched = ({ matchId }: { matchId: string }) => {
+      setGridItQuickQueued(false);
+      setGridItRankedQueued(false);
+      notify('GridIt opponent found!');
+      setRoute({ view: 'gridit_match', matchId });
+    };
+
+    const onGridItMatchState = (match: GridItMatchStateClient) => {
+      setRoute((prev) => {
+        if (prev.view === 'gridit_match' && prev.matchId === match.id) {
+          setActiveGridItMatch(match);
+        }
+        return prev;
+      });
+    };
+
+    const onGridItRematch = ({ newMatchId }: { newMatchId: string }) => {
+      notify('GridIt rematch started!');
+      setRoute({ view: 'gridit_match', matchId: newMatchId });
+    };
+
     socket.on('room:updated', onRoomUpdated);
     socket.on('room:match_started', onRoomMatchStarted);
     socket.on('match:state', onMatchState);
@@ -463,6 +586,12 @@ export const App: React.FC = () => {
     socket.on('rooms:public_updated', onPublicUpdated);
     socket.on('matchmaking:ranked_matched', onRankedMatched);
     socket.on('match:rematch_created', onRematchCreated);
+    socket.on('gridit:room_updated', onGridItRoomUpdated);
+    socket.on('gridit:rooms_updated', onGridItRoomsUpdated);
+    socket.on('gridit:match_started', onGridItMatchStarted);
+    socket.on('gridit:matched', onGridItMatched);
+    socket.on('gridit:match_state', onGridItMatchState);
+    socket.on('gridit:rematch', onGridItRematch);
 
     return () => {
       socket.off('connect', identify);
@@ -473,6 +602,12 @@ export const App: React.FC = () => {
       socket.off('rooms:public_updated', onPublicUpdated);
       socket.off('matchmaking:ranked_matched', onRankedMatched);
       socket.off('match:rematch_created', onRematchCreated);
+      socket.off('gridit:room_updated', onGridItRoomUpdated);
+      socket.off('gridit:rooms_updated', onGridItRoomsUpdated);
+      socket.off('gridit:match_started', onGridItMatchStarted);
+      socket.off('gridit:matched', onGridItMatched);
+      socket.off('gridit:match_state', onGridItMatchState);
+      socket.off('gridit:rematch', onGridItRematch);
     };
   }, [activeProfileId, playerSession?.isOffline, route.view, (route as any).roomId, (route as any).matchId, notify, refreshPlatformData]);
 
@@ -494,6 +629,68 @@ export const App: React.FC = () => {
     }, 5000);
     return () => window.clearInterval(interval);
   }, [route, activeProfileId, playerSession?.isOffline]);
+
+  // Polling resilience & route restoration for GridIt Multiplayer lobbies and matches
+  useEffect(() => {
+    if (!activeProfileId || playerSession?.isOffline) return;
+    if (route.view === 'gridit_lobby') {
+      api
+        .getGridItRoom(route.roomId)
+        .then((r) => {
+          setActiveGridItRoom(r);
+          if (r.status === 'in_progress' && r.activeMatchId) {
+            setRoute({ view: 'gridit_match', matchId: r.activeMatchId });
+          }
+        })
+        .catch(() => undefined);
+    } else if (route.view === 'gridit_match') {
+      api
+        .getGridItMatch(route.matchId, activeProfileId)
+        .then(setActiveGridItMatch)
+        .catch((err) => {
+          notify(err.message);
+          setRoute({ view: 'gridit_home' });
+        });
+    }
+  }, [route, activeProfileId, playerSession?.isOffline, notify]);
+
+  useEffect(() => {
+    if (
+      !activeProfileId ||
+      playerSession?.isOffline ||
+      (route.view !== 'gridit_lobby' && route.view !== 'gridit_match')
+    ) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      if (route.view === 'gridit_lobby') {
+        api
+          .getGridItRoom(route.roomId)
+          .then((r) => {
+            setActiveGridItRoom(r);
+            if (r.status === 'in_progress' && r.activeMatchId) {
+              setRoute({ view: 'gridit_match', matchId: r.activeMatchId });
+            }
+          })
+          .catch(() => undefined);
+      } else if (route.view === 'gridit_match') {
+        api
+          .getGridItMatch(
+            route.matchId,
+            activeProfileId,
+            activeGridItMatch?.spectatingPlayerId ?? undefined
+          )
+          .then(setActiveGridItMatch)
+          .catch(() => undefined);
+      }
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [
+    route,
+    activeProfileId,
+    playerSession?.isOffline,
+    activeGridItMatch?.spectatingPlayerId,
+  ]);
 
   // Restore room or match state cleanly on route change or browser refresh
   useEffect(() => {
@@ -779,6 +976,327 @@ export const App: React.FC = () => {
       return (
         <GridItHomeScreen
           session={playerSession}
+          onExitToHub={() => setRoute({ view: 'hub' })}
+          onOpenSolo={() => setRoute({ view: 'gridit_solo_setup' })}
+          onOpenRanked={() => setRoute({ view: 'gridit_ranked' })}
+          onOpenMultiplayer={() => setRoute({ view: 'gridit_rooms' })}
+          onOpenLeaderboard={() => setRoute({ view: 'gridit_leaderboard' })}
+          onOpenBoardBattle={() =>
+            setRoute({ view: 'gridit_host_setup', defaultMode: 'board_battle' })
+          }
+          onOpenEditor={() => setRoute({ view: 'gridit_editor', returnToLobbyRoomId: null })}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_ranked') {
+      return (
+        <GridItRankedScreen
+          session={playerSession}
+          rankedQueued={gridItRankedQueued}
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'gridit_home' })}
+          onToggleQueue={async () => {
+            try {
+              if (gridItRankedQueued) {
+                await api.leaveGridItRankedQueue(playerSession.playerId);
+                setGridItRankedQueued(false);
+                notify('Left GridIt Ranked queue');
+                return;
+              }
+              const res = await api.joinGridItRankedQueue(playerSession.playerId);
+              if (res.status === 'matched' && res.match) {
+                setGridItRankedQueued(false);
+                setActiveGridItMatch(res.match);
+                setRoute({ view: 'gridit_match', matchId: res.match.id });
+              } else {
+                setGridItRankedQueued(true);
+                notify('Searching GridIt Ranked 1v1 queue...');
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_leaderboard') {
+      return (
+        <GridItLeaderboardScreen
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'gridit_home' })}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_rooms') {
+      return (
+        <GridItRoomsBrowserScreen
+          publicRooms={gridItPublicRooms}
+          quickQueued={gridItQuickQueued}
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'gridit_home' })}
+          onRefresh={() => {
+            api.listGridItPublicRooms().then(setGridItPublicRooms).catch(() => undefined);
+          }}
+          onQuickMatch={async () => {
+            try {
+              const res = await api.joinGridItQuickMatch(playerSession.playerId);
+              if (res.status === 'matched' && res.match) {
+                setGridItQuickQueued(false);
+                setActiveGridItMatch(res.match);
+                setRoute({ view: 'gridit_match', matchId: res.match.id });
+              } else {
+                setGridItQuickQueued(true);
+                notify('Searching random GridIt opponent...');
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onJoinRoom={async (codeOrId, asSpectator = false) => {
+            try {
+              const res = await api.joinGridItRoom(codeOrId, playerSession.playerId, asSpectator);
+              setActiveGridItRoom(res.room);
+              if (res.room.status === 'in_progress' && res.room.activeMatchId) {
+                setRoute({ view: 'gridit_match', matchId: res.room.activeMatchId });
+              } else {
+                setRoute({ view: 'gridit_lobby', roomId: res.room.id });
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onOpenCreateRoom={(mode) =>
+            setRoute({ view: 'gridit_host_setup', defaultMode: mode })
+          }
+        />
+      );
+    }
+
+    if (route.view === 'gridit_host_setup') {
+      return (
+        <GridItHostSetupScreen
+          defaultMode={route.defaultMode}
+          onBack={() => setRoute({ view: 'gridit_rooms' })}
+          onCreateRoom={async ({ name, settings }) => {
+            try {
+              const room = await api.createGridItRoom({
+                hostId: playerSession.playerId,
+                name,
+                settings,
+              });
+              setActiveGridItRoom(room);
+              setRoute({ view: 'gridit_lobby', roomId: room.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_lobby' && activeGridItRoom?.id === route.roomId) {
+      return (
+        <GridItLobbyScreen
+          room={activeGridItRoom}
+          session={playerSession}
+          onBack={() => setRoute({ view: 'gridit_rooms' })}
+          onLeave={async () => {
+            await api.leaveGridItRoom(activeGridItRoom.id, playerSession.playerId).catch(() => undefined);
+            setActiveGridItRoom(null);
+            setRoute({ view: 'gridit_rooms' });
+          }}
+          onToggleReady={async (isReady) => {
+            const updated = await api.setGridItRoomReady(
+              activeGridItRoom.id,
+              playerSession.playerId,
+              isReady
+            );
+            setActiveGridItRoom(updated);
+          }}
+          onSubmitBattleTemplate={async (tpl) => {
+            const updated = await api.submitGridItBattleTemplate(
+              activeGridItRoom.id,
+              playerSession.playerId,
+              tpl
+            );
+            setActiveGridItRoom(updated);
+          }}
+          onOpenBoardEditor={() =>
+            setRoute({ view: 'gridit_editor', returnToLobbyRoomId: activeGridItRoom.id })
+          }
+          onSendChat={async (text, kind) => {
+            const updated = await api.sendGridItRoomChat(
+              activeGridItRoom.id,
+              playerSession.playerId,
+              text,
+              kind
+            );
+            setActiveGridItRoom(updated);
+          }}
+          onStartMatch={async () => {
+            try {
+              const res = await api.startGridItRoomMatch(
+                activeGridItRoom.id,
+                playerSession.playerId
+              );
+              setActiveGridItRoom(res.room);
+              setActiveGridItMatch(res.match);
+              setRoute({ view: 'gridit_match', matchId: res.match.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onNotify={notify}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_match' && activeGridItMatch?.id === route.matchId) {
+      return (
+        <GridItMultiplayerGameplayScreen
+          match={activeGridItMatch}
+          session={playerSession}
+          onExitToHub={() => {
+            setActiveGridItMatch(null);
+            setRoute({ view: 'gridit_home' });
+          }}
+          onReturnToRoom={(roomId) => {
+            setActiveGridItMatch(null);
+            setRoute({ view: 'gridit_lobby', roomId });
+          }}
+          onSwitchSpectatePlayer={async (targetPid) => {
+            const next = await api.getGridItMatch(
+              activeGridItMatch.id,
+              playerSession.playerId,
+              targetPid
+            );
+            setActiveGridItMatch(next);
+          }}
+          onSubmitWord={async (tilePath) => {
+            const res = await api.submitGridItWord(
+              activeGridItMatch.id,
+              playerSession.playerId,
+              tilePath
+            );
+            setActiveGridItMatch(res.match);
+            if (!res.validation.valid) {
+              return {
+                valid: false,
+                message:
+                  res.validation.reason === 'already_found'
+                    ? `${res.validation.word} already found`
+                    : `${res.validation.word || 'Word'} invalid`,
+              };
+            }
+            const multStr = res.validation.multiplier > 1 ? ` (${res.validation.multiplier}×)` : '';
+            return {
+              valid: true,
+              message: `+${res.validation.finalPoints} pts${multStr} • ${res.validation.word}!`,
+            };
+          }}
+          onSendChat={async (text, kind) => {
+            await api.sendGridItMatchChat(activeGridItMatch.id, playerSession.playerId, text, kind);
+            const refreshed = await api.getGridItMatch(
+              activeGridItMatch.id,
+              playerSession.playerId,
+              activeGridItMatch.spectatingPlayerId ?? undefined
+            );
+            setActiveGridItMatch(refreshed);
+          }}
+          onFinishEarly={async () => {
+            const ended = await api.finishGridItMatch(
+              activeGridItMatch.id,
+              playerSession.playerId
+            );
+            setActiveGridItMatch(ended);
+          }}
+          onRematch={async () => {
+            const next = await api.rematchGridItMatch(
+              activeGridItMatch.id,
+              playerSession.playerId
+            );
+            setActiveGridItMatch(next);
+            setRoute({ view: 'gridit_match', matchId: next.id });
+          }}
+          onNotify={notify}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_editor') {
+      const returnRoomId = route.returnToLobbyRoomId ?? null;
+      return (
+        <GridItBoardEditorScreen
+          onBack={() =>
+            returnRoomId
+              ? setRoute({ view: 'gridit_lobby', roomId: returnRoomId })
+              : setRoute({ view: 'gridit_home' })
+          }
+          selectModeLabel={returnRoomId ? 'Lock In for Battle' : undefined}
+          onSelectForBattle={
+            returnRoomId
+              ? async (tpl) => {
+                  try {
+                    const updated = await api.submitGridItBattleTemplate(
+                      returnRoomId,
+                      playerSession.playerId,
+                      tpl
+                    );
+                    setActiveGridItRoom(updated);
+                    setRoute({ view: 'gridit_lobby', roomId: returnRoomId });
+                    notify('Secret Battle Board locked in!');
+                  } catch (err: any) {
+                    notify(err.message);
+                  }
+                }
+              : undefined
+          }
+          onPlayWithTemplate={(tpl) => {
+            setRoute({
+              view: 'gridit_solo_match',
+              shapeId: tpl.shapeId,
+              sizeId: tpl.sizeId,
+              durationSeconds: 120,
+              mods: lastGridItConfig.mods,
+              language: tpl.language || 'en',
+              customTemplate: tpl,
+            });
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_solo_setup') {
+      return (
+        <GridItSoloSetupScreen
+          initialShape={lastGridItConfig.shapeId}
+          initialSize={lastGridItConfig.sizeId}
+          initialDurationSeconds={lastGridItConfig.durationSeconds}
+          initialMods={lastGridItConfig.mods}
+          initialLanguage={lastGridItConfig.language}
+          onBack={() => setRoute({ view: 'gridit_home' })}
+          onStartMatch={(cfg) => {
+            setLastGridItConfig(cfg);
+            setRoute({ view: 'gridit_solo_match', ...cfg, customTemplate: null });
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'gridit_solo_match') {
+      return (
+        <GridItSoloGameplayScreen
+          session={playerSession}
+          shapeId={route.shapeId}
+          sizeId={route.sizeId}
+          durationSeconds={route.durationSeconds}
+          mods={route.mods ?? lastGridItConfig.mods}
+          language={route.language ?? lastGridItConfig.language}
+          customTemplate={route.customTemplate ?? null}
+          onExitToSetup={() => setRoute({ view: 'gridit_solo_setup' })}
           onExitToHub={() => setRoute({ view: 'hub' })}
         />
       );

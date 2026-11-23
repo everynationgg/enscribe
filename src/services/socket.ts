@@ -55,6 +55,12 @@ class UnifiedRealtimeClient {
       'matchmaking:ranked_matched',
       'match:rematch_created',
       'match:typing_live',
+      'gridit:room_updated',
+      'gridit:rooms_updated',
+      'gridit:match_started',
+      'gridit:match_state',
+      'gridit:matched',
+      'gridit:rematch',
     ];
 
     for (const ev of events) {
@@ -98,6 +104,12 @@ class UnifiedRealtimeClient {
       'rooms:public_updated',
       'matchmaking:ranked_matched',
       'match:rematch_created',
+      'gridit:room_updated',
+      'gridit:rooms_updated',
+      'gridit:match_started',
+      'gridit:match_state',
+      'gridit:matched',
+      'gridit:rematch',
     ];
     for (const ev of events) {
       sock.on(ev, (payload) => this.dispatchLocal(ev, payload));

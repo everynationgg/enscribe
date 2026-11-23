@@ -27,6 +27,13 @@ import {
 } from './platform/GuestSessionStore.js';
 import { ChainClashEngine } from './games/chain-clash/ChainClashEngine.js';
 import {
+  GridItBadRequestError,
+  GridItEngine,
+  GridItForbiddenError,
+  GridItNotFoundError,
+} from './games/gridit/GridItEngine.js';
+import { suggestTemplateFillerLettersWithGemini } from './games/gridit/geminiFiller.js';
+import {
   AssignedPuzzle,
   assignCustomPuzzlesDeranged,
   pickCuratedChainsForPlayers,
@@ -54,10 +61,12 @@ export interface EnscribeBackendRuntime {
   app: Express;
   repo: MemoryStorageRepository;
   engine: ChainClashEngine;
+  gridItEngine: GridItEngine;
   cloudSync: SupabaseCloudSync;
   guestStore: GuestSessionStore;
   isPlayerOnline: (playerId: string) => boolean;
   broadcastMatchState: (match: StoredMatch) => void;
+  broadcastGridItMatch: (matchId: string) => void;
   flushSideEffects: (persistSnapshot?: boolean) => Promise<void>;
   processTimersAndFlush: () => Promise<StoredMatch[]>;
 }
@@ -92,6 +101,7 @@ export function createEnscribeApp(
 
   repo.setOnlineTracker(isPlayerOnline);
   const engine = new ChainClashEngine(repo, isPlayerOnline);
+  const gridItEngine = new GridItEngine(repo, isPlayerOnline);
 
   let pendingBroadcasts: RealtimeBroadcastEvent[] = [];
   let initialized = false;
@@ -231,8 +241,42 @@ export function createEnscribeApp(
     }
   };
 
+  const broadcastGridItRoom = (roomId: string): void => {
+    try {
+      const room = gridItEngine.getRoom(roomId);
+      pendingBroadcasts.push({ event: 'gridit:room_updated', payload: room });
+      pendingBroadcasts.push({ event: 'gridit:rooms_updated', payload: {} });
+      hooks.emitRoom?.(roomId, 'gridit:room_updated', room);
+      hooks.emitGlobal?.('gridit:rooms_updated');
+    } catch {
+      queueEvent('gridit:rooms_updated', {});
+    }
+  };
+
+  const broadcastGridItMatch = (matchId: string): void => {
+    for (const vid of gridItEngine.getMatchAudienceIds(matchId)) {
+      try {
+        const sanitized = gridItEngine.sanitizeMatchForViewer(matchId, vid);
+        queueEvent('gridit:match_state', sanitized, vid);
+      } catch {
+        // ignore unauthorized viewer
+      }
+    }
+  };
+
   const processTimersAndFlush = async (): Promise<StoredMatch[]> => {
-    if (!initialized) return [];
+    const gridItExpired = gridItEngine.processExpiredMatches();
+    for (const gm of gridItExpired) {
+      broadcastGridItMatch(gm.id);
+      if (gm.roomId) broadcastGridItRoom(gm.roomId);
+    }
+
+    if (!initialized) {
+      if (gridItExpired.length > 0) {
+        await flushSideEffects(false);
+      }
+      return [];
+    }
     const updatedMatches = engine.processExpiredTimers();
     if (updatedMatches.length > 0) {
       for (const m of updatedMatches) {
@@ -243,6 +287,8 @@ export function createEnscribeApp(
         broadcastMatchState(refreshed);
       }
       await flushSideEffects(true);
+    } else if (gridItExpired.length > 0) {
+      await flushSideEffects(false);
     }
     return updatedMatches;
   };
@@ -1520,14 +1566,395 @@ export function createEnscribeApp(
     })
   );
 
+  // ==================== GRIDIT MULTIPLAYER & TRANSLATION API (NEVER TOUCHES state.json) ====================
+  const handleGridItApi = (
+    fn: (req: Request, res: Response) => Promise<void> | void
+  ) => {
+    return async (req: Request, res: Response) => {
+      try {
+        const guestTokenHeader =
+          typeof req.headers['x-guest-session-token'] === 'string'
+            ? req.headers['x-guest-session-token'].trim()
+            : '';
+        if (guestTokenHeader) {
+          const gSession = await guestStore.getSessionByToken(guestTokenHeader).catch(() => null);
+          if (gSession) {
+            repo.registerEphemeralGuest(guestStore.toGuestProfile(gSession));
+            lastSeenByPlayer.set(gSession.sessionId, Date.now());
+          }
+        }
+        const activePid =
+          (req.body?.playerId as string) ||
+          (req.body?.hostId as string) ||
+          (req.query?.playerId as string) ||
+          (req.params?.playerId as string);
+        if (activePid) {
+          lastSeenByPlayer.set(String(activePid), Date.now());
+          await ensureGuestProfilesRegistered([String(activePid)]);
+        }
+
+        await fn(req, res);
+
+        if (isServerless) {
+          await flushSideEffects(false);
+        } else {
+          flushSideEffects(false).catch(() => undefined);
+        }
+      } catch (err: any) {
+        pendingBroadcasts = [];
+        const status =
+          err instanceof GridItForbiddenError
+            ? 403
+            : err instanceof GridItNotFoundError
+              ? 404
+              : err instanceof GridItBadRequestError
+                ? 400
+                : 500;
+        if (!res.headersSent) {
+          res.status(status).json({ error: err?.message || 'GridIt server error' });
+        }
+      }
+    };
+  };
+
+  app.get(
+    '/api/gridit/rooms/public',
+    handleGridItApi((_req, res) => {
+      res.json(gridItEngine.listPublicRooms());
+    })
+  );
+
+  app.get(
+    '/api/gridit/rooms/:idOrCode',
+    handleGridItApi((req, res) => {
+      res.json(gridItEngine.getRoom(String(req.params.idOrCode)));
+    })
+  );
+
+  app.post(
+    '/api/gridit/rooms',
+    handleGridItApi((req, res) => {
+      const { hostId, name, settings } = req.body ?? {};
+      const room = gridItEngine.createRoom({
+        hostId: String(hostId || ''),
+        name,
+        settings,
+      });
+      queueEvent('gridit:rooms_updated', {});
+      res.status(201).json(room);
+    })
+  );
+
+  app.post(
+    '/api/gridit/rooms/join',
+    handleGridItApi((req, res) => {
+      const { codeOrId, playerId, asSpectator } = req.body ?? {};
+      const result = gridItEngine.joinRoom(
+        String(codeOrId || ''),
+        String(playerId || ''),
+        Boolean(asSpectator)
+      );
+      broadcastGridItRoom(result.room.id);
+      if (result.room.activeMatchId) {
+        broadcastGridItMatch(result.room.activeMatchId);
+      }
+      res.json(result);
+    })
+  );
+
+  app.post(
+    '/api/gridit/rooms/:id/leave',
+    handleGridItApi((req, res) => {
+      const { playerId } = req.body ?? {};
+      const roomId = String(req.params.id);
+      const outcome = gridItEngine.leaveRoom(roomId, String(playerId || ''));
+      if (!outcome.deleted) {
+        broadcastGridItRoom(roomId);
+      } else {
+        queueEvent('gridit:rooms_updated', {});
+      }
+      res.json({ ok: true });
+    })
+  );
+
+  app.patch(
+    '/api/gridit/rooms/:id/settings',
+    handleGridItApi((req, res) => {
+      const { playerId, settings } = req.body ?? {};
+      const room = gridItEngine.updateSettings(
+        String(req.params.id),
+        String(playerId || ''),
+        settings
+      );
+      broadcastGridItRoom(room.id);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/gridit/rooms/:id/ready',
+    handleGridItApi((req, res) => {
+      const { playerId, isReady } = req.body ?? {};
+      const room = gridItEngine.setReady(
+        String(req.params.id),
+        String(playerId || ''),
+        Boolean(isReady)
+      );
+      broadcastGridItRoom(room.id);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/gridit/rooms/:id/battle-template',
+    handleGridItApi((req, res) => {
+      const { playerId, template } = req.body ?? {};
+      const room = gridItEngine.submitBattleTemplate(
+        String(req.params.id),
+        String(playerId || ''),
+        template
+      );
+      broadcastGridItRoom(room.id);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/gridit/rooms/:id/chat',
+    handleGridItApi((req, res) => {
+      const { playerId, text, kind } = req.body ?? {};
+      const room = gridItEngine.sendRoomChat(
+        String(req.params.id),
+        String(playerId || ''),
+        String(text || ''),
+        kind === 'emoji' ? 'emoji' : 'chat'
+      );
+      broadcastGridItRoom(room.id);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/gridit/rooms/:id/start',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const roomId = String(req.params.id);
+      const currentRoom = gridItEngine.getRoom(roomId);
+      let aiHintsByPlayer: Record<string, Record<string, string> | null> | undefined;
+      if (currentRoom.settings.mode === 'board_battle' && process.env.GEMINI_API_KEY) {
+        aiHintsByPlayer = {};
+        // Optional AI assist does not block if absent or failed
+        const internalRoom = (gridItEngine as any).rooms?.get?.(roomId);
+        if (internalRoom?.battleTemplates) {
+          await Promise.all(
+            Object.entries(internalRoom.battleTemplates).map(async ([pid, tpl]: [string, any]) => {
+              aiHintsByPlayer![pid] = await suggestTemplateFillerLettersWithGemini(tpl);
+            })
+          );
+        }
+      }
+
+      const { room, match } = gridItEngine.startRoomMatch(
+        roomId,
+        String(playerId || ''),
+        aiHintsByPlayer
+      );
+      broadcastGridItRoom(room.id);
+      broadcastGridItMatch(match.id);
+      for (const vid of gridItEngine.getMatchAudienceIds(match.id)) {
+        queueEvent('gridit:match_started', { roomId: room.id, matchId: match.id }, vid);
+      }
+      res.status(201).json({
+        room,
+        match: gridItEngine.sanitizeMatchForViewer(match.id, String(playerId || '')),
+      });
+    })
+  );
+
+  app.post(
+    '/api/gridit/matchmaking/quick',
+    handleGridItApi((req, res) => {
+      const { playerId } = req.body ?? {};
+      const outcome = gridItEngine.joinQuickMatch(String(playerId || ''));
+      if (outcome.status === 'matched' && outcome.match) {
+        broadcastGridItMatch(outcome.match.id);
+        for (const pid of outcome.match.playerOrder) {
+          queueEvent('gridit:matched', { matchId: outcome.match.id, mode: 'classic' }, pid);
+        }
+        res.json({
+          status: 'matched',
+          match: gridItEngine.sanitizeMatchForViewer(outcome.match.id, String(playerId || '')),
+        });
+        return;
+      }
+      res.json({ status: 'queued' });
+    })
+  );
+
+  app.post(
+    '/api/gridit/matchmaking/ranked',
+    handleGridItApi((req, res) => {
+      const { playerId } = req.body ?? {};
+      const outcome = gridItEngine.joinRankedQueue(String(playerId || ''));
+      if (outcome.status === 'matched' && outcome.match) {
+        broadcastGridItMatch(outcome.match.id);
+        for (const pid of outcome.match.playerOrder) {
+          queueEvent('gridit:matched', { matchId: outcome.match.id, mode: 'ranked' }, pid);
+        }
+        res.json({
+          status: 'matched',
+          match: gridItEngine.sanitizeMatchForViewer(outcome.match.id, String(playerId || '')),
+        });
+        return;
+      }
+      res.json({ status: 'queued' });
+    })
+  );
+
+  app.delete(
+    '/api/gridit/matchmaking/ranked/:playerId',
+    handleGridItApi((req, res) => {
+      gridItEngine.leaveRankedQueue(String(req.params.playerId));
+      res.json({ ok: true });
+    })
+  );
+
+  app.get(
+    '/api/gridit/matches/:id',
+    handleGridItApi((req, res) => {
+      const playerId = String(req.query.playerId || '');
+      const spectateId = req.query.spectatePlayerId ? String(req.query.spectatePlayerId) : undefined;
+      res.json(gridItEngine.sanitizeMatchForViewer(String(req.params.id), playerId, spectateId));
+    })
+  );
+
+  app.post(
+    '/api/gridit/matches/:id/word',
+    handleGridItApi((req, res) => {
+      const { playerId, tilePath, preferredWord } = req.body ?? {};
+      const matchId = String(req.params.id);
+      const outcome = gridItEngine.submitWord(
+        matchId,
+        String(playerId || ''),
+        Array.isArray(tilePath) ? tilePath : [],
+        preferredWord
+      );
+      if (outcome.validation.valid) {
+        broadcastGridItMatch(matchId);
+      }
+      res.json(outcome);
+    })
+  );
+
+  app.post(
+    '/api/gridit/matches/:id/chat',
+    handleGridItApi((req, res) => {
+      const { playerId, text, kind } = req.body ?? {};
+      const matchId = String(req.params.id);
+      const msg = gridItEngine.addMatchChat(
+        matchId,
+        String(playerId || ''),
+        String(text || ''),
+        kind === 'emoji' ? 'emoji' : 'chat'
+      );
+      broadcastGridItMatch(matchId);
+      res.status(201).json(msg);
+    })
+  );
+
+  app.post(
+    '/api/gridit/matches/:id/finish',
+    handleGridItApi((req, res) => {
+      const { playerId } = req.body ?? {};
+      const matchId = String(req.params.id);
+      const state = gridItEngine.finishMatchEarly(matchId, String(playerId || ''));
+      broadcastGridItMatch(matchId);
+      if (state.roomId) broadcastGridItRoom(state.roomId);
+      res.json(state);
+    })
+  );
+
+  app.post(
+    '/api/gridit/matches/:id/rematch',
+    handleGridItApi((req, res) => {
+      const { playerId } = req.body ?? {};
+      const next = gridItEngine.rematch(String(req.params.id), String(playerId || ''));
+      broadcastGridItMatch(next.id);
+      for (const vid of gridItEngine.getMatchAudienceIds(next.id)) {
+        queueEvent('gridit:rematch', { oldMatchId: String(req.params.id), newMatchId: next.id }, vid);
+      }
+      res.status(201).json(gridItEngine.sanitizeMatchForViewer(next.id, String(playerId || '')));
+    })
+  );
+
+  app.get(
+    '/api/gridit/leaderboard',
+    handleGridItApi((_req, res) => {
+      res.json({
+        entries: gridItEngine.listSessionLeaderboard(),
+        guestNotice:
+          'Guest sessions stay temporary and do not record permanent global GridIt ranks until ENGG account login launches.',
+      });
+    })
+  );
+
+  app.post(
+    '/api/translate',
+    handleGridItApi(async (req, res) => {
+      const { text, targetLang } = req.body ?? {};
+      const cleanText = String(text || '').trim();
+      const target = String(targetLang || 'en').trim().toLowerCase();
+      if (!cleanText) {
+        res.status(400).json({ error: 'Text required' });
+        return;
+      }
+      const translateUrl = process.env.TRANSLATE_API_URL?.trim();
+      if (!translateUrl) {
+        res.json({
+          available: false,
+          translatedText: null,
+          reason: 'Online translation provider is not configured on this server.',
+        });
+        return;
+      }
+      try {
+        const providerRes = await fetch(translateUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(process.env.TRANSLATE_API_KEY
+              ? { Authorization: `Bearer ${process.env.TRANSLATE_API_KEY}` }
+              : {}),
+          },
+          body: JSON.stringify({ q: cleanText, source: 'auto', target }),
+          signal: AbortSignal.timeout(4000),
+        });
+        if (!providerRes.ok) throw new Error(`HTTP ${providerRes.status}`);
+        const data = (await providerRes.json()) as any;
+        res.json({
+          available: true,
+          translatedText: String(data.translatedText || cleanText),
+        });
+      } catch {
+        res.json({
+          available: false,
+          translatedText: null,
+          reason: 'Online translation service unreachable.',
+        });
+      }
+    })
+  );
+
   return {
     app,
     repo,
     engine,
+    gridItEngine,
     cloudSync,
     guestStore,
     isPlayerOnline,
     broadcastMatchState,
+    broadcastGridItMatch,
     flushSideEffects,
     processTimersAndFlush,
   };

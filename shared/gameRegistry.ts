@@ -17,11 +17,11 @@ export const REGISTERED_GAMES: GameModuleDescriptor[] = [
     slug: 'gridit',
     name: 'GridIt',
     tagline: 'Shape words. Build boards. Battle smarter.',
-    status: 'preview',
+    status: 'playable',
     badgeText: 'NEW',
-    supportedModes: ['solo', 'ranked'],
+    supportedModes: ['classic', 'solo', 'ranked'],
     minPlayers: 1,
-    maxPlayers: 4,
+    maxPlayers: 6,
   },
 ];
 

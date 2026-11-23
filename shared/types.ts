@@ -281,3 +281,7 @@ export interface GuessResult {
   message: string;
   match: MatchStateClient;
 }
+
+export * from './gridit/types.js';
+export * from './gridit/multiplayerTypes.js';
+export * from './gridit/mods.js';

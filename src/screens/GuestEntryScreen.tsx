@@ -64,9 +64,12 @@ export const GuestEntryScreen: React.FC<GuestEntryScreenProps> = ({
           zIndex: 2,
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 16 }}>
+          <div className="ens-guest-mascot-badge" aria-hidden="true">
+            <img src="/art/hero-mascot.png" alt="" className="ens-guest-mascot-img" />
+          </div>
           <EnscribeBrandLogo centered />
-          <p style={{ margin: '10px 0 0', fontSize: 13.5, fontWeight: 700, color: '#D4DCFF', textAlign: 'center' }}>
+          <p style={{ margin: '8px 0 0', fontSize: 13.5, fontWeight: 700, color: '#D4DCFF', textAlign: 'center' }}>
             Multiplayer Word Games Hub • ChainIt &amp; GridIt
           </p>
         </div>

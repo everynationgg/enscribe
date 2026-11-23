@@ -2,12 +2,18 @@ import { Capacitor } from '@capacitor/core';
 import {
   EquippedCosmetics,
   GameModuleDescriptor,
+  GridItChatMessage,
+  GridItMatchStateClient,
+  GridItRoom,
+  GridItRoomSettings,
+  GridItSessionLeaderboardEntry,
   GuessResult,
   GuestSession,
   InAppNotification,
   MatchChatMessage,
   MatchHistorySummary,
   MatchStateClient,
+  ModWordValidationResult,
   OngoingMatchSummary,
   Profile,
   Room,
@@ -16,6 +22,7 @@ import {
   Template,
   ThumbnailKey,
 } from '../../shared/types';
+import { GridItCustomTemplate } from '../../shared/gridit/editor';
 
 const DEFAULT_NATIVE_API_BASE_URL = 'https://enscribe.vercel.app';
 const envApiBase = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim();
@@ -249,4 +256,140 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ playerId }),
     }),
+
+  // ==================== GRIDIT MULTIPLAYER & BOARD BATTLE ====================
+  listGridItPublicRooms: () => request<GridItRoom[]>('/api/gridit/rooms/public'),
+  getGridItRoom: (idOrCode: string) =>
+    request<GridItRoom>(`/api/gridit/rooms/${encodeURIComponent(idOrCode)}`),
+  createGridItRoom: (data: {
+    hostId: string;
+    name?: string;
+    settings?: Partial<GridItRoomSettings>;
+  }) =>
+    request<GridItRoom>('/api/gridit/rooms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  joinGridItRoom: (codeOrId: string, playerId: string, asSpectator = false) =>
+    request<{ room: GridItRoom; joinedAs: 'player' | 'spectator' }>('/api/gridit/rooms/join', {
+      method: 'POST',
+      body: JSON.stringify({ codeOrId, playerId, asSpectator }),
+    }),
+  leaveGridItRoom: (roomId: string, playerId: string) =>
+    request<{ ok: boolean }>(`/api/gridit/rooms/${roomId}/leave`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  updateGridItRoomSettings: (
+    roomId: string,
+    playerId: string,
+    settings: Partial<GridItRoomSettings>
+  ) =>
+    request<GridItRoom>(`/api/gridit/rooms/${roomId}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify({ playerId, settings }),
+    }),
+  setGridItRoomReady: (roomId: string, playerId: string, isReady: boolean) =>
+    request<GridItRoom>(`/api/gridit/rooms/${roomId}/ready`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, isReady }),
+    }),
+  submitGridItBattleTemplate: (
+    roomId: string,
+    playerId: string,
+    template: GridItCustomTemplate
+  ) =>
+    request<GridItRoom>(`/api/gridit/rooms/${roomId}/battle-template`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, template }),
+    }),
+  sendGridItRoomChat: (
+    roomId: string,
+    playerId: string,
+    text: string,
+    kind: 'chat' | 'emoji' = 'chat'
+  ) =>
+    request<GridItRoom>(`/api/gridit/rooms/${roomId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, text, kind }),
+    }),
+  startGridItRoomMatch: (roomId: string, playerId: string) =>
+    request<{ room: GridItRoom; match: GridItMatchStateClient }>(
+      `/api/gridit/rooms/${roomId}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  joinGridItQuickMatch: (playerId: string) =>
+    request<{ status: 'queued' | 'matched'; match?: GridItMatchStateClient }>(
+      '/api/gridit/matchmaking/quick',
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  joinGridItRankedQueue: (playerId: string) =>
+    request<{ status: 'queued' | 'matched'; match?: GridItMatchStateClient }>(
+      '/api/gridit/matchmaking/ranked',
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  leaveGridItRankedQueue: (playerId: string) =>
+    request<{ ok: boolean }>(`/api/gridit/matchmaking/ranked/${playerId}`, {
+      method: 'DELETE',
+    }),
+  getGridItMatch: (matchId: string, playerId: string, spectatePlayerId?: string) =>
+    request<GridItMatchStateClient>(
+      `/api/gridit/matches/${matchId}?playerId=${encodeURIComponent(playerId)}${
+        spectatePlayerId ? `&spectatePlayerId=${encodeURIComponent(spectatePlayerId)}` : ''
+      }`
+    ),
+  submitGridItWord: (
+    matchId: string,
+    playerId: string,
+    tilePath: string[],
+    preferredWord?: string
+  ) =>
+    request<{ validation: ModWordValidationResult; match: GridItMatchStateClient }>(
+      `/api/gridit/matches/${matchId}/word`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId, tilePath, preferredWord }),
+      }
+    ),
+  sendGridItMatchChat: (
+    matchId: string,
+    playerId: string,
+    text: string,
+    kind: 'chat' | 'emoji' = 'chat'
+  ) =>
+    request<GridItChatMessage>(`/api/gridit/matches/${matchId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, text, kind }),
+    }),
+  finishGridItMatch: (matchId: string, playerId: string) =>
+    request<GridItMatchStateClient>(`/api/gridit/matches/${matchId}/finish`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  rematchGridItMatch: (matchId: string, playerId: string) =>
+    request<GridItMatchStateClient>(`/api/gridit/matches/${matchId}/rematch`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  getGridItLeaderboard: () =>
+    request<{ entries: GridItSessionLeaderboardEntry[]; guestNotice: string }>(
+      '/api/gridit/leaderboard'
+    ),
+  translateMessage: (text: string, targetLang = 'en') =>
+    request<{ available: boolean; translatedText: string | null; reason?: string }>(
+      '/api/translate',
+      {
+        method: 'POST',
+        body: JSON.stringify({ text, targetLang }),
+      }
+    ),
 };

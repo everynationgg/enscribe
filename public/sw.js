@@ -1,4 +1,4 @@
-const CACHE_NAME = 'enscribe-shell-v1';
+const CACHE_NAME = 'enscribe-shell-v2';
 const STATIC_ASSETS = ['/', '/manifest.json', '/icons/icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -26,6 +26,24 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') {
     return;
   }
+
+  // Cache-first for lazy-loaded dictionary word lists so offline Solo works reliably
+  if (url.pathname.startsWith('/dictionaries/')) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => undefined);
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
