@@ -5296,6 +5296,53 @@ body,
   border-color: #bae6fd;
 }
 
+.ens-gridit-rotate-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(18, 28, 100, 0.88);
+  border: 1.8px solid rgba(214, 224, 255, 0.7);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(4, 9, 44, 0.6), 0 0 12px rgba(129, 140, 248, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, opacity 0.2s ease, border-color 0.15s ease;
+  z-index: 20;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.ens-gridit-rotate-arrow.is-left {
+  left: 10px;
+}
+
+.ens-gridit-rotate-arrow.is-right {
+  right: 10px;
+}
+
+.ens-gridit-rotate-arrow:hover:not(:disabled) {
+  background: rgba(30, 48, 160, 0.95);
+  border-color: #ffffff;
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 6px 20px rgba(4, 9, 44, 0.7), 0 0 18px rgba(165, 180, 252, 0.55);
+}
+
+.ens-gridit-rotate-arrow:active:not(:disabled) {
+  transform: translateY(-50%) scale(0.92);
+}
+
+.ens-gridit-rotate-arrow:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+
 .ens-gridit-gesture-hint {
   padding: 4px 8px;
   border-radius: 999px;

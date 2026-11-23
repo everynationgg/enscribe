@@ -1,6 +1,8 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import {
+  ChevronDown,
+  ChevronUp,
   Compass,
   Sparkles,
 } from 'lucide-react';
@@ -63,6 +65,8 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
 
   const [hasWebGL] = useState(() => checkWebGLSupport());
   const [resetViewTrigger, setResetViewTrigger] = useState(0);
+  const [rotateCwTrigger, setRotateCwTrigger] = useState(0);
+  const [rotateCcwTrigger, setRotateCcwTrigger] = useState(0);
   const [remoteOrientation, setRemoteOrientation] = useState<HostShakePayload | null>(null);
   const [readySplash, setReadySplash] = useState<'ready' | 'go' | null>(null);
 
@@ -128,6 +132,14 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
     }, 600);
   }, []);
 
+  const isLetterSelected =
+    (selectedPath && selectedPath.length > 0) ||
+    Boolean(hintTileId) ||
+    Boolean(props.activeTileId);
+
+  const canRotate = !isShaking && !paused && !isLetterSelected;
+  const showRotateButtons = !isShaking && !paused;
+
   return (
     <div
       className="ens-gridit-board-viewport ens-gridit-3d-viewport"
@@ -165,6 +177,9 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
             isShaking={isShaking}
             isHost={isHost}
             resetViewTrigger={resetViewTrigger}
+            rotateCwTrigger={rotateCwTrigger}
+            rotateCcwTrigger={rotateCcwTrigger}
+            isLetterSelected={isLetterSelected}
             readOnly={readOnly}
             editorMode={editorMode}
             activeRainbowIds={activeRainbowIds}
@@ -231,24 +246,49 @@ export const GridIt3DCanvas: React.FC<GridIt3DCanvasProps> = memo((props) => {
         </div>
       )}
 
-      {/* Bottom-Left Controls: Gesture Hint */}
-      <div
-        className="ens-gridit-canvas-left-tools"
-        onPointerDown={(e) => e.stopPropagation()}
-        style={{ zIndex: 12 }}
-      >
-        <span className="ens-gridit-gesture-hint">
-          {readOnly
-            ? 'Spectator • Drag to rotate board'
-            : isShaking
-            ? isHost
-              ? 'Swipe to tilt and shake dice'
-              : 'Watching host shake 3D box'
-            : 'Trace words on dice • Drag to rotate board'}
-        </span>
-      </div>
+      {/* ── Left-side rotate arrow (points UP: counter-clockwise) ── */}
+      {showRotateButtons && (
+        <button
+          type="button"
+          className="ens-gridit-rotate-arrow is-left"
+          disabled={!canRotate}
+          onClick={() => {
+            if (canRotate) setRotateCcwTrigger((c) => c + 1);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          title={
+            isLetterSelected
+              ? 'Rotation locked while letters are selected'
+              : 'Rotate board counter-clockwise (Left)'
+          }
+          aria-label="Rotate board counter-clockwise"
+        >
+          <ChevronUp size={24} strokeWidth={2.8} />
+        </button>
+      )}
 
-      {/* Bottom-Right Controls: Reset Overhead View */}
+      {/* ── Right-side rotate arrow (points DOWN: clockwise) ── */}
+      {showRotateButtons && (
+        <button
+          type="button"
+          className="ens-gridit-rotate-arrow is-right"
+          disabled={!canRotate}
+          onClick={() => {
+            if (canRotate) setRotateCwTrigger((c) => c + 1);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          title={
+            isLetterSelected
+              ? 'Rotation locked while letters are selected'
+              : 'Rotate board clockwise (Right)'
+          }
+          aria-label="Rotate board clockwise"
+        >
+          <ChevronDown size={24} strokeWidth={2.8} />
+        </button>
+      )}
+
+      {/* Bottom-Right Controls: Reset View */}
       <div
         className="ens-gridit-canvas-right-tools"
         onPointerDown={(e) => e.stopPropagation()}

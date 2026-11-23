@@ -17,6 +17,9 @@ interface GridIt3DSceneProps {
   isShaking: boolean;
   isHost?: boolean;
   resetViewTrigger: number;
+  rotateCwTrigger: number;
+  rotateCcwTrigger: number;
+  isLetterSelected?: boolean;
   readOnly?: boolean;
   editorMode?: boolean;
   activeRainbowIds?: Set<string>;
@@ -37,6 +40,9 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
   isShaking,
   isHost = true,
   resetViewTrigger,
+  rotateCwTrigger,
+  rotateCcwTrigger,
+  isLetterSelected = false,
   readOnly = false,
   editorMode = false,
   activeRainbowIds,
@@ -189,8 +195,9 @@ export const GridIt3DScene: React.FC<GridIt3DSceneProps> = ({
         board={board}
         isShaking={isShaking}
         resetViewTrigger={resetViewTrigger}
-        readOnly={readOnly}
-        isDraggingWordRef={isDraggingWordRef}
+        rotateCwTrigger={rotateCwTrigger}
+        rotateCcwTrigger={rotateCcwTrigger}
+        isLetterSelected={isLetterSelected}
       />
 
       {/* Interactive 5-Second Shaker Wrapper */}
