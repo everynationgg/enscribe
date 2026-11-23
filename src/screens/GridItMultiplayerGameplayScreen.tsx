@@ -509,6 +509,8 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
             board={activeBoard}
             selectedPath={selectedPath}
             isShaking={isShaking}
+            isHost={session.playerId === (match.hostPlayerId ?? Object.keys(match.players)[0])}
+            matchId={match.id}
             readOnly={isSpectator}
             activeRainbowIds={snapshot?.activeRainbowIds}
             activeGoldenIds={snapshot?.activeGoldenIds}
@@ -553,11 +555,13 @@ export const GridItMultiplayerGameplayScreen: React.FC<GridItMultiplayerGameplay
           </div>
         )}
 
-        {feedback && (
-          <div className={`ens-gridit-feedback-pill is-${feedback.tone}`} role="status">
-            {feedback.text}
-          </div>
-        )}
+        <div className="ens-gridit-feedback-container" aria-live="polite">
+          {feedback && (
+            <div className={`ens-gridit-feedback-pill is-${feedback.tone}`} role="status">
+              {feedback.text}
+            </div>
+          )}
+        </div>
 
         {/* Non-Obstructive Live Emoji Reactions + Collapsible Chat */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>

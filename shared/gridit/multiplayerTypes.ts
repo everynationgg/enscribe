@@ -88,6 +88,7 @@ export interface GridItMatchPlayerClient {
 export interface GridItMatchStateClient {
   id: string;
   roomId: string | null;
+  hostPlayerId?: string | null;
   mode: GridItMatchMode;
   status: 'shaking' | 'active' | 'finished';
   settings: GridItRoomSettings;

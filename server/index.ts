@@ -92,6 +92,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('gridit:host_shake', (payload: { matchId: string; rotX: number; rotY: number; rotZ: number; angVel?: number }) => {
+    if (payload?.matchId) {
+      socket.to(`match:${payload.matchId}`).emit('gridit:host_shake', payload);
+      socket.to(`room:${payload.matchId}`).emit('gridit:host_shake', payload);
+    }
+  });
+
   socket.on('disconnect', () => {
     if (boundPlayerId && onlineSocketsByPlayer.has(boundPlayerId)) {
       const set = onlineSocketsByPlayer.get(boundPlayerId)!;

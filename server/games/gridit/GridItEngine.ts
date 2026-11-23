@@ -54,7 +54,7 @@ export class GridItBadRequestError extends Error {
   status = 400;
 }
 
-const SHAKE_WINDOW_MS = 2300;
+const SHAKE_WINDOW_MS = 5000;
 const UNTIMED_MAX_MS = 30 * 60 * 1000;
 
 export class GridItEngine {
@@ -1127,6 +1127,7 @@ export class GridItEngine {
     return {
       id: match.id,
       roomId: match.roomId,
+      hostPlayerId: match.playerOrder[0] ?? null,
       mode: match.mode,
       status: effectiveStatus,
       settings: match.settings,

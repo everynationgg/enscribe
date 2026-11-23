@@ -208,7 +208,7 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
     const reduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const shakeMs = reduced ? 350 : 2300;
+    const shakeMs = reduced ? 500 : 5000;
     const playStartAt = Date.now() + shakeMs;
     const newSchedule = generateModSchedule(
       newBoard,
@@ -492,6 +492,7 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
             hintTileId={hintTileId}
             paused={paused}
             isShaking={matchPhase === 'shaking'}
+            isHost={true}
             activeRainbowIds={boardSnapshot?.activeRainbowIds}
             activeGoldenIds={boardSnapshot?.activeGoldenIds}
             lightningActive={boardSnapshot?.inLightningRound}
@@ -547,11 +548,13 @@ export const GridItSoloGameplayScreen: React.FC<GridItSoloGameplayScreenProps> =
           </button>
         </div>
 
-        {feedback && (
-          <div className={`ens-gridit-feedback-pill is-${feedback.tone}`} role="status">
-            {feedback.text}
-          </div>
-        )}
+        <div className="ens-gridit-feedback-container" aria-live="polite">
+          {feedback && (
+            <div className={`ens-gridit-feedback-pill is-${feedback.tone}`} role="status">
+              {feedback.text}
+            </div>
+          )}
+        </div>
 
         <SoloBottomPanels
           foundWords={foundWords}

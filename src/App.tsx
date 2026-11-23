@@ -136,8 +136,8 @@ export const App: React.FC = () => {
     mods: GridItModConfig;
     language: string;
   }>({
-    shapeId: 'heart',
-    sizeId: 'medium',
+    shapeId: 'square',
+    sizeId: 'large',
     durationSeconds: 120,
     mods: DEFAULT_GRIDIT_MODS,
     language: 'en',

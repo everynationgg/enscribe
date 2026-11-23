@@ -1,13 +1,16 @@
 import React, { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Crown, Hand, Maximize2, Minus, Plus, Sparkles } from 'lucide-react';
 import { GridItBoard, GridItShapeId, GridItTileNode } from '../../../shared/gridit/types';
+import { GridIt3DCanvas } from './3d/GridIt3DCanvas';
 
-interface GridItBoardCanvasProps {
+export interface GridItBoardCanvasProps {
   board: GridItBoard;
   selectedPath: string[];
   hintTileId?: string | null;
   paused?: boolean;
   isShaking?: boolean;
+  isHost?: boolean;
+  matchId?: string;
   editorMode?: boolean;
   authoredTileIds?: Set<string>;
   activeTileId?: string | null;
@@ -15,6 +18,7 @@ interface GridItBoardCanvasProps {
   activeGoldenIds?: Set<string>;
   lightningActive?: boolean;
   readOnly?: boolean;
+  force2D?: boolean;
   onTileTap?: (tileId: string) => void;
   onPathChange: (nextPath: string[]) => void;
   onSubmitPath: (path: string[]) => void;
@@ -318,7 +322,7 @@ interface CameraState {
   ty: number;
 }
 
-export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
+export const GridItBoardCanvas2D: React.FC<GridItBoardCanvasProps> = ({
   board,
   selectedPath,
   hintTileId = null,
@@ -862,5 +866,20 @@ export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = ({
         </button>
       </div>
     </div>
+  );
+};
+
+export const GridItBoardCanvas: React.FC<GridItBoardCanvasProps> = (props) => {
+  const [use2DFallback, setUse2DFallback] = useState(Boolean(props.force2D));
+
+  if (props.editorMode || use2DFallback) {
+    return <GridItBoardCanvas2D {...props} />;
+  }
+
+  return (
+    <GridIt3DCanvas
+      {...props}
+      onFallbackTo2D={() => setUse2DFallback(true)}
+    />
   );
 };

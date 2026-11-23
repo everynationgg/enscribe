@@ -68,6 +68,7 @@ class UnifiedRealtimeClient {
       'gridit:match_delta',
       'gridit:matched',
       'gridit:rematch',
+      'gridit:host_shake',
     ];
 
     for (const ev of events) {
@@ -131,6 +132,7 @@ class UnifiedRealtimeClient {
       'gridit:match_delta',
       'gridit:matched',
       'gridit:rematch',
+      'gridit:host_shake',
     ];
     for (const ev of events) {
       sock.on(ev, (payload) => this.dispatchLocal(ev, payload));
@@ -175,6 +177,17 @@ class UnifiedRealtimeClient {
         .send({
           type: 'broadcast',
           event: 'match:typing_live',
+          payload: {
+            data: payload,
+          },
+        })
+        .catch(() => undefined);
+    }
+    if (event === 'gridit:host_shake' && this.supabaseChannel) {
+      this.supabaseChannel
+        .send({
+          type: 'broadcast',
+          event: 'gridit:host_shake',
           payload: {
             data: payload,
           },
