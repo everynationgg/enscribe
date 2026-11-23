@@ -83,62 +83,52 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
       const topLetter = tile.letter || '·';
       const altPool = BOGGLE_DIE_FACES[tileIndex % BOGGLE_DIE_FACES.length];
 
-      const topTex = getLetterTexture(topLetter, {
-        isRainbow,
-        isGolden,
-        isPaused,
-        isEmptySlot,
-      });
-
-      const makeSideMat = (letter: string) => {
-        const tex = getLetterTexture(letter, {
-          isGolden: false,
-          isRainbow: false,
-          isPaused: false,
-          isEmptySlot: false,
-        });
-        return new THREE.MeshStandardMaterial({
-          map: tex,
-          roughness: 0.28,
-          metalness: 0.05,
-        });
-      };
-
-      const topMat = isGolden
-        ? new THREE.MeshStandardMaterial({
-            map: topTex,
-            roughness: 0.2,
-            metalness: 0.92,
-            color: '#ffffff',
-            emissive: '#f59e0b',
-            emissiveIntensity: isSelected ? 0.6 : 0.25,
-          })
+      // Material properties matching the whole cube body (Gold, Rainbow, or Classic Ivory)
+      const matProps: THREE.MeshStandardMaterialParameters = isGolden
+        ? {
+            roughness: 0.22,
+            metalness: 0.15,
+            color: isSelected ? '#fffbeb' : '#ffffff',
+            emissive: isSelected ? '#f59e0b' : '#d97706',
+            emissiveIntensity: isSelected ? 0.65 : 0.1,
+          }
         : isRainbow
-        ? new THREE.MeshStandardMaterial({
-            map: topTex,
+        ? {
             roughness: 0.25,
-            metalness: 0.1,
+            metalness: 0.08,
             color: '#ffffff',
-            emissive: '#c084fc',
-            emissiveIntensity: isSelected ? 0.7 : 0.35,
-          })
-        : new THREE.MeshStandardMaterial({
-            map: topTex,
+            emissive: isSelected ? '#ec4899' : '#c084fc',
+            emissiveIntensity: isSelected ? 0.75 : 0.18,
+          }
+        : {
             roughness: 0.28,
-            metalness: 0.05,
+            metalness: 0.04,
             color: isSelected ? '#fef08a' : '#ffffff',
             emissive: isSelected ? '#f59e0b' : isHinted ? '#38bdf8' : '#000000',
             emissiveIntensity: isSelected ? 0.65 : isHinted ? 0.5 : 0,
-          });
+          };
 
-      // 6 materials for [+X, -X, +Y (TOP), -Y, +Z, -Z]
+      const makeFaceMat = (letter: string, isTop: boolean) => {
+        const tex = getLetterTexture(letter, {
+          isGolden,
+          isRainbow,
+          isPaused: isTop ? isPaused : false,
+          isEmptySlot: isTop ? isEmptySlot : false,
+        });
+        return new THREE.MeshStandardMaterial({
+          map: tex,
+          ...matProps,
+        });
+      };
+
+      // 6 materials for [+X, -X, +Y (TOP), -Y, +Z, -Z] — the entire cube body shares the modifier color!
       return [
-        makeSideMat(altPool[0] ?? 'A'),
-        makeSideMat(altPool[1] ?? 'B'),
-        topMat, // +Y TOP FACE
-        makeSideMat(altPool[2] ?? 'C'),
-        makeSideMat(altPool[3] ?? 'D'),
-        makeSideMat(altPool[4] ?? 'E'),
+        makeFaceMat(altPool[0] ?? 'A', false),
+        makeFaceMat(altPool[1] ?? 'B', false),
+        makeFaceMat(topLetter, true), // +Y TOP FACE
+        makeFaceMat(altPool[2] ?? 'C', false),
+        makeFaceMat(altPool[3] ?? 'D', false),
+        makeFaceMat(altPool[4] ?? 'E', false),
       ];
     }, [tile.letter, tileIndex, isRainbow, isGolden, isPaused, isEmptySlot, isSelected, isHinted]);
 

@@ -71,10 +71,10 @@ export function getLetterTexture(
 
   if (options.isGolden) {
     const goldGrad = ctx.createLinearGradient(0, 0, w, h);
-    goldGrad.addColorStop(0, '#fef08a');
-    goldGrad.addColorStop(0.3, '#facc15');
-    goldGrad.addColorStop(0.7, '#eab308');
-    goldGrad.addColorStop(1, '#ca8a04');
+    goldGrad.addColorStop(0, '#fffbeb');
+    goldGrad.addColorStop(0.2, '#fef08a');
+    goldGrad.addColorStop(0.6, '#facc15');
+    goldGrad.addColorStop(1, '#eab308');
     ctx.fillStyle = goldGrad;
   } else if (options.isRainbow) {
     const rbGrad = ctx.createLinearGradient(0, 0, w, h);
@@ -96,9 +96,9 @@ export function getLetterTexture(
 
   // Subtle inner face border
   ctx.strokeStyle = options.isGolden
-    ? 'rgba(254, 240, 138, 0.6)'
+    ? 'rgba(255, 255, 255, 0.75)'
     : options.isRainbow
-    ? 'rgba(255, 255, 255, 0.7)'
+    ? 'rgba(255, 255, 255, 0.8)'
     : 'rgba(215, 205, 190, 0.45)';
   ctx.lineWidth = 4;
   ctx.stroke();
@@ -134,7 +134,7 @@ export function getLetterTexture(
     ctx.textBaseline = 'middle';
     ctx.fillText('WILD', w / 2, h - 36);
   } else {
-    // Standard or Golden Letter
+    // Standard or Golden Letter — bold, large, high-contrast deep midnight indigo
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -142,33 +142,20 @@ export function getLetterTexture(
     const textX = w / 2;
     const textY = h / 2 + 4;
 
-    if (options.isGolden) {
-      // 24k Gold Letter with Crown hint
-      ctx.shadowColor = 'rgba(161, 98, 7, 0.6)';
-      ctx.shadowBlur = 8;
-      ctx.shadowOffsetY = 4;
-      ctx.fillStyle = '#451a03';
-      ctx.font = '900 128px "Arial Rounded MT Bold", system-ui, -apple-system, sans-serif';
-      ctx.fillText(upper, textX, textY);
+    ctx.shadowColor = options.isGolden
+      ? 'rgba(120, 53, 15, 0.35)'
+      : 'rgba(15, 23, 42, 0.25)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetY = 3;
 
-      // Crown badge text
-      ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = '#78350f';
-      ctx.fillText('👑 2×', textX, h - 32);
-    } else {
-      // Deep midnight indigo lettering (matching reference)
-      ctx.shadowColor = 'rgba(15, 23, 42, 0.25)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetY = 3;
-
-      ctx.fillStyle = '#1e1b4b'; // Deep navy/purple as in reference
-      ctx.font = '900 134px "Arial Rounded MT Bold", system-ui, -apple-system, sans-serif';
-      ctx.fillText(upper, textX, textY);
-    }
+    // Deep midnight indigo lettering for maximum contrast on both bright gold and creamy ivory
+    ctx.fillStyle = '#1e1b4b';
+    ctx.font = '900 134px "Arial Rounded MT Bold", system-ui, -apple-system, sans-serif';
+    ctx.fillText(upper, textX, textY);
     ctx.restore();
 
     // Orientation dot for ambiguous letters
-    if (!options.isGolden && AMBIGUOUS_ORIENTATION_LETTERS.has(upper)) {
+    if (AMBIGUOUS_ORIENTATION_LETTERS.has(upper)) {
       ctx.fillStyle = '#1e1b4b';
       ctx.beginPath();
       ctx.arc(w / 2, h - 30, 7, 0, Math.PI * 2);
