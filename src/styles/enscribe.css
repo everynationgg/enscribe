@@ -3677,6 +3677,14 @@ body,
     inset 0 -3px 0 rgba(30, 27, 75, 0.45);
 }
 
+.ens-hub-game-tile.is-guessit {
+  background: linear-gradient(135deg, #0d1d68 0%, #4338ca 52%, #db2777 100%);
+  box-shadow:
+    0 12px 30px rgba(236, 72, 153, 0.42),
+    inset 0 2px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -3px 0 rgba(46, 16, 101, 0.48);
+}
+
 .ens-hub-tile-art {
   position: absolute;
   inset: 0;
@@ -3716,6 +3724,16 @@ body,
     rgba(15, 27, 94, 0.94) 0%,
     rgba(28, 43, 134, 0.72) 40%,
     rgba(49, 46, 129, 0.12) 68%,
+    transparent 100%
+  );
+}
+
+.ens-hub-game-tile.is-guessit .ens-hub-tile-scrim {
+  background: linear-gradient(
+    90deg,
+    rgba(13, 24, 92, 0.94) 0%,
+    rgba(67, 29, 146, 0.72) 42%,
+    rgba(157, 23, 77, 0.18) 72%,
     transparent 100%
   );
 }
@@ -4930,6 +4948,7 @@ body,
   display: flex;
   align-items: stretch;
   justify-content: stretch;
+  transition: background 0.45s ease, box-shadow 0.45s ease, border-color 0.45s ease;
 }
 
 .ens-gridit-die-face {
@@ -4938,7 +4957,7 @@ body,
   height: 100%;
   border-radius: 12px;
   background: radial-gradient(circle at 38% 30%, #ffffff 0%, #f1f5ff 64%, #dce4fc 100%);
-  color: #1e1b4b;
+  color: #110e2e;
   font-family: var(--font-display);
   font-weight: 900;
   display: flex;
@@ -4948,6 +4967,7 @@ body,
     inset 0 2px 5px rgba(99, 102, 241, 0.2),
     inset 0 -1px 0 rgba(255, 255, 255, 0.9);
   overflow: hidden;
+  transition: background 0.45s ease, color 0.45s ease, box-shadow 0.45s ease;
 }
 
 .ens-gridit-die-letter-wrap {
@@ -5039,56 +5059,41 @@ body,
 }
 
 .ens-gridit-tile.is-golden:not(.is-selected) .ens-gridit-die-face {
-  background: radial-gradient(circle at 38% 32%, #fffbeb 0%, #fde68a 68%, #f59e0b 100%);
-  color: #451a03;
+  background: radial-gradient(circle at 38% 32%, #fffbeb 0%, #fef08a 68%, #facc15 100%);
+  color: #110e2e;
+}
+
+@keyframes ensGridItRainbowCube {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 .ens-gridit-tile.is-rainbow:not(.is-selected) .ens-gridit-die-cube {
-  background: linear-gradient(135deg, #f472b6 0%, #facc15 28%, #4ade80 54%, #38bdf8 78%, #a855f7 100%);
+  background: linear-gradient(
+    135deg,
+    #f472b6 0%,
+    #facc15 22%,
+    #4ade80 45%,
+    #38bdf8 68%,
+    #a855f7 86%,
+    #f472b6 100%
+  );
+  background-size: 240% 240%;
+  animation: ensGridItRainbowCube 3.6s ease infinite;
   border-color: #ffffff;
   box-shadow: 0 0 20px rgba(244, 114, 182, 0.85), 0 7px 14px rgba(12, 16, 62, 0.65);
 }
 
 .ens-gridit-tile.is-rainbow:not(.is-selected) .ens-gridit-die-face {
-  background: radial-gradient(circle at 50% 45%, #ffffff 0%, #f5f3ff 65%, #fae8ff 100%);
-  color: #701a75;
-}
-
-.ens-gridit-rainbow-glyph {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #c026d3;
-  filter: drop-shadow(0 0 6px rgba(236, 72, 153, 0.55));
-}
-
-.ens-gridit-mod-badge {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 6;
-  padding: 1px 5px;
-  border-radius: 999px;
-  font-family: var(--font-ui);
-  font-size: 8.5px;
-  font-weight: 900;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  border: 1px solid #ffffff;
-}
-
-.ens-gridit-mod-badge.is-golden {
-  background: linear-gradient(90deg, #f59e0b 0%, #b45309 100%);
-  color: #fffbeb;
-}
-
-.ens-gridit-mod-badge.is-rainbow {
-  background: linear-gradient(90deg, #ec4899 0%, #8b5cf6 50%, #06b6d4 100%);
-  color: #ffffff;
+  background: radial-gradient(circle at 50% 45%, #ffffff 0%, #faf5ff 68%, #f3e8ff 100%);
+  color: #110e2e;
 }
 
 .ens-gridit-tile.is-hinted:not(.is-selected) .ens-gridit-die-cube {

@@ -26,8 +26,33 @@ interface GridIt3DShakerProps {
   }) => React.ReactNode;
 }
 
+interface DieRattleProfile {
+  phaseX: number;
+  phaseY: number;
+  phaseZ: number;
+  bounceFreq: number;
+  wobbleFreqX: number;
+  wobbleFreqZ: number;
+  hopAmp: number;
+  baseSpin: THREE.Vector3;
+}
+
 const TOTAL_SHAKE_MS = 5000;
-const SETTLE_START_MS = 3800;
+const SETTLE_START_MS = 4000;
+const MAX_SLOT_OFFSET_XZ = 0.065;
+const MAX_SLOT_HOP_Y = 0.56;
+
+// Reusable scratch math objects (zero per-frame GC allocations)
+const _tmpEuler = new THREE.Euler(0, 0, 0, 'XYZ');
+const _tmpQuat = new THREE.Quaternion();
+
+function hash01(seed: number, salt: number): number {
+  let x = (seed ^ Math.imul(salt + 1, 0x9e3779b1)) >>> 0;
+  x = Math.imul(x ^ (x >>> 16), 0x85ebca6b) >>> 0;
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35) >>> 0;
+  x = (x ^ (x >>> 16)) >>> 0;
+  return x / 4294967296;
+}
 
 export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
   board,
@@ -41,28 +66,17 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
   const startTimeRef = useRef<number>(Date.now());
   const boxEulerRef = useRef<THREE.Euler>(new THREE.Euler(0, 0, 0, 'YXZ'));
   const boxVelRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
+  const hostEnergyRef = useRef<number>(0);
   const hasSettledRef = useRef(false);
   const lastEmitTimeRef = useRef(0);
 
-  // Bounds for dice containment inside tray + tall lid
-  const boundsInfo = useMemo(() => {
-    const hw = Math.max(1.2, board.bounds.width / (2 * 64) - 0.25);
-    const hh = Math.max(1.2, board.bounds.height / (2 * 64) - 0.25);
-    return {
-      minX: -hw,
-      maxX: hw,
-      minZ: -hh,
-      maxZ: hh,
-      minY: 0.42,
-      maxY: 1.95, // Under tall transparent lid
-    };
-  }, [board.bounds]);
-
-  // Initialize dice physical states with deterministic seed
   const physicsStatesRef = useRef<Map<string, DiePhysicalState>>(new Map());
+  const rattleProfilesRef = useRef<Map<string, DieRattleProfile>>(new Map());
 
+  // Assign each die to its permanent board slot & deterministic rattle profile BEFORE shaking starts
   const initPhysics = useMemo(() => {
     const states = new Map<string, DiePhysicalState>();
+    const profiles = new Map<string, DieRattleProfile>();
     const seed = board.seed || 1234567;
 
     board.tiles.forEach((tile, idx) => {
@@ -74,31 +88,51 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
         new THREE.Euler(tilt * 0.7, -yaw, tilt * 0.5, 'YXZ')
       );
 
-      // Deterministic initial scattered bounce
-      const prng = Math.sin(seed + idx * 7919) * 10000;
-      const prng2 = Math.cos(seed + idx * 3571) * 10000;
-      const prng3 = Math.sin(seed + idx * 1237) * 10000;
+      const r0 = hash01(seed, idx * 17 + 0);
+      const r1 = hash01(seed, idx * 17 + 1);
+      const r2 = hash01(seed, idx * 17 + 2);
+      const r3 = hash01(seed, idx * 17 + 3);
+      const r4 = hash01(seed, idx * 17 + 4);
+      const r5 = hash01(seed, idx * 17 + 5);
+      const r6 = hash01(seed, idx * 17 + 6);
+      const r7 = hash01(seed, idx * 17 + 7);
+      const r8 = hash01(seed, idx * 17 + 8);
+      const r9 = hash01(seed, idx * 17 + 9);
 
-      const initVx = (prng - Math.floor(prng) - 0.5) * 4.5;
-      const initVy = (prng2 - Math.floor(prng2)) * 6.5 + 3.0; // Upward burst
-      const initVz = (prng3 - Math.floor(prng3) - 0.5) * 4.5;
+      const sx = r7 >= 0.5 ? 1 : -1;
+      const sy = r8 >= 0.5 ? 1 : -1;
+      const sz = r9 >= 0.5 ? 1 : -1;
+      const baseSpin = new THREE.Vector3(
+        sx * (7.5 + r3 * 8.0),
+        sy * (7.5 + r4 * 8.0),
+        sz * (7.5 + r5 * 8.0)
+      );
+
+      const profile: DieRattleProfile = {
+        phaseX: r0 * Math.PI * 2,
+        phaseY: r1 * Math.PI * 2,
+        phaseZ: r2 * Math.PI * 2,
+        bounceFreq: 13 + r3 * 8,
+        wobbleFreqX: 11 + r4 * 8,
+        wobbleFreqZ: 11 + r5 * 8,
+        hopAmp: 0.22 + r6 * 0.24,
+        baseSpin,
+      };
+      profiles.set(tile.id, profile);
 
       states.set(tile.id, {
         id: tile.id,
-        pos: homePos.clone().add(new THREE.Vector3(0, 0.2, 0)),
-        vel: new THREE.Vector3(initVx, initVy, initVz),
+        pos: homePos.clone(),
+        vel: new THREE.Vector3(0, 0, 0),
         rot: targetRot.clone(),
-        angVel: new THREE.Vector3(
-          (prng - Math.floor(prng) - 0.5) * 12,
-          (prng2 - Math.floor(prng2) - 0.5) * 12,
-          (prng3 - Math.floor(prng3) - 0.5) * 12
-        ),
+        angVel: baseSpin.clone(),
         homePos,
         targetRot,
       });
     });
 
     physicsStatesRef.current = states;
+    rattleProfilesRef.current = profiles;
     return states;
   }, [board.seed, board.tiles]);
 
@@ -106,23 +140,26 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
     if (isShaking) {
       startTimeRef.current = Date.now();
       hasSettledRef.current = false;
-      // Re-trigger initial burst
-      let index = 0;
-      initPhysics.forEach((st) => {
-        const seed = board.seed || 12345;
-        const pr = Math.sin(seed + index * 53) * 10000;
-        index++;
-        st.pos.copy(st.homePos).add(new THREE.Vector3(0, 0.3, 0));
-        st.vel.set(
-          ((pr - Math.floor(pr)) - 0.5) * 5.0,
-          Math.abs(Math.sin(pr)) * 6.0 + 3.5,
-          (Math.cos(pr) - 0.5) * 5.0
-        );
+      hostEnergyRef.current = 0;
+
+      initPhysics.forEach((st, id) => {
+        const p = rattleProfilesRef.current.get(id);
+        st.pos.copy(st.homePos);
+        st.vel.set(0, 0, 0);
+        if (p) {
+          st.angVel.copy(p.baseSpin);
+          _tmpEuler.set(p.phaseX * 0.4, p.phaseY * 0.5, p.phaseZ * 0.4, 'XYZ');
+          _tmpQuat.setFromEuler(_tmpEuler);
+          st.rot.copy(st.targetRot).multiply(_tmpQuat).normalize();
+        } else {
+          st.rot.copy(st.targetRot);
+          st.angVel.set(0, 0, 0);
+        }
       });
     }
-  }, [board.seed, initPhysics, isShaking]);
+  }, [initPhysics, isShaking]);
 
-  // Interactive Host Pointer / Drag handling for shaking
+  // Interactive Host Pointer / Drag handling for rattling box
   useEffect(() => {
     if (!isShaking || !isHost) return;
 
@@ -149,19 +186,20 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
           ? Math.max(0, 1 - (elapsed - SETTLE_START_MS) / (TOTAL_SHAKE_MS - SETTLE_START_MS))
           : 1.0;
 
-      // Apply angular impulse to box
+      // Apply angular impulse to tray box
       const sensitivity = 0.007 * settleFactor;
       boxVelRef.current.y += dx * sensitivity;
       boxVelRef.current.x += dy * sensitivity;
-      boxVelRef.current.z += (dx * dy) * sensitivity * 0.1;
+      boxVelRef.current.z += dx * dy * sensitivity * 0.1;
 
-      // Impart velocity to tumbling dice
+      // Pump bounded in-slot rattle spin energy without throwing dice outside slots
+      hostEnergyRef.current = Math.min(
+        1.0,
+        hostEnergyRef.current + Math.hypot(dx, dy) * 0.008 * settleFactor
+      );
       physicsStatesRef.current.forEach((die) => {
-        die.vel.x += dx * 0.04 * settleFactor;
-        die.vel.z += dy * 0.04 * settleFactor;
-        die.vel.y += Math.hypot(dx, dy) * 0.02 * settleFactor;
-        die.angVel.x += dy * 0.15;
-        die.angVel.y += dx * 0.15;
+        die.angVel.x = THREE.MathUtils.clamp(die.angVel.x + dy * 0.12 * settleFactor, -22, 22);
+        die.angVel.y = THREE.MathUtils.clamp(die.angVel.y + dx * 0.12 * settleFactor, -22, 22);
       });
     };
 
@@ -187,13 +225,20 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
   useFrame((_, delta) => {
     const elapsed = Date.now() - startTimeRef.current;
     const safeDelta = Math.min(0.05, Math.max(0.001, delta));
+    const t = elapsed * 0.001;
 
     if (isShaking) {
+      if (!isHost && remoteOrientation?.angVel) {
+        hostEnergyRef.current = Math.max(
+          hostEnergyRef.current,
+          THREE.MathUtils.clamp(remoteOrientation.angVel * 0.45, 0, 1)
+        );
+      }
+      hostEnergyRef.current = THREE.MathUtils.damp(hostEnergyRef.current, 0, 4.5, safeDelta);
+
       if (elapsed < SETTLE_START_MS) {
-        // Active shaking phase (0 to 3.8s)
+        // Active in-slot rattling phase (0.0s to 4.0s)
         if (isHost) {
-          // Automatic rhythmic shake if host isn't furiously dragging
-          const t = elapsed * 0.001;
           const autoShakeX = Math.sin(t * 14) * 0.28 + Math.sin(t * 7) * 0.12;
           const autoShakeY = Math.cos(t * 11) * 0.24 + Math.cos(t * 5) * 0.1;
           const autoShakeZ = Math.sin(t * 16) * 0.2;
@@ -217,10 +262,8 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
             safeDelta
           );
 
-          // Dampen host angular impulse
           boxVelRef.current.multiplyScalar(0.92);
 
-          // Throttled network broadcast for multiplayer sync (20 fps)
           const now = Date.now();
           if (now - lastEmitTimeRef.current > 50 && onEmitOrientation) {
             lastEmitTimeRef.current = now;
@@ -228,11 +271,10 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
               rotX: boxEulerRef.current.x,
               rotY: boxEulerRef.current.y,
               rotZ: boxEulerRef.current.z,
-              angVel: boxVelRef.current.length(),
+              angVel: Math.max(boxVelRef.current.length(), hostEnergyRef.current),
             });
           }
         } else if (remoteOrientation) {
-          // Interpolate to host's synchronized orientation
           boxEulerRef.current.x = THREE.MathUtils.damp(
             boxEulerRef.current.x,
             remoteOrientation.rotX,
@@ -253,78 +295,51 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
           );
         }
 
-        // Dice tumbling simulation
+        const rampIn = THREE.MathUtils.clamp(elapsed / 180, 0.35, 1.0);
+        const preTaper =
+          elapsed > 3700 ? THREE.MathUtils.lerp(1.0, 0.88, (elapsed - 3700) / 300) : 1.0;
+        const energy = rampIn * preTaper * (1 + hostEnergyRef.current * 0.35);
+
         physicsStatesRef.current.forEach((st) => {
-          // Gravity & Box Inertia
-          st.vel.y -= 19 * safeDelta;
+          const p = rattleProfilesRef.current.get(st.id);
+          if (!p) return;
 
-          // Box tilt influence
-          st.vel.x += Math.sin(boxEulerRef.current.z) * 14 * safeDelta;
-          st.vel.z -= Math.sin(boxEulerRef.current.x) * 14 * safeDelta;
+          const rawDx =
+            (Math.sin(t * p.wobbleFreqX + p.phaseX) * 0.042 +
+              Math.cos(t * (p.wobbleFreqZ * 1.37) + p.phaseZ) * 0.018) *
+            energy;
+          const rawDz =
+            (Math.cos(t * p.wobbleFreqZ + p.phaseZ) * 0.042 +
+              Math.sin(t * (p.wobbleFreqX * 1.29) + p.phaseX) * 0.018) *
+            energy;
+          const dx = THREE.MathUtils.clamp(rawDx, -MAX_SLOT_OFFSET_XZ, MAX_SLOT_OFFSET_XZ);
+          const dz = THREE.MathUtils.clamp(rawDz, -MAX_SLOT_OFFSET_XZ, MAX_SLOT_OFFSET_XZ);
 
-          // Update position
-          st.pos.addScaledVector(st.vel, safeDelta);
+          const primaryHop = Math.abs(Math.sin(t * p.bounceFreq + p.phaseY));
+          const chatterHop = 0.25 * Math.abs(Math.sin(t * p.bounceFreq * 2.13 + p.phaseX));
+          const rawDy = (primaryHop * p.hopAmp + chatterHop * 0.14) * energy;
+          const dy = THREE.MathUtils.clamp(rawDy, 0, MAX_SLOT_HOP_Y);
 
-          // Update rotation
-          const rotDelta = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(
-              st.angVel.x * safeDelta,
-              st.angVel.y * safeDelta,
-              st.angVel.z * safeDelta,
-              'XYZ'
-            )
+          st.pos.set(st.homePos.x + dx, st.homePos.y + dy, st.homePos.z + dz);
+
+          // Relax back toward distinct per-die spin profile and integrate rotation in place
+          st.angVel.lerp(p.baseSpin, THREE.MathUtils.clamp(safeDelta * 2.2, 0, 1));
+          const spinBoost = (0.85 + 0.3 * primaryHop) * (1 + hostEnergyRef.current * 0.5);
+          _tmpEuler.set(
+            st.angVel.x * spinBoost * safeDelta,
+            st.angVel.y * spinBoost * safeDelta,
+            st.angVel.z * spinBoost * safeDelta,
+            'XYZ'
           );
-          st.rot.multiply(rotDelta);
-          st.rot.normalize();
+          _tmpQuat.setFromEuler(_tmpEuler);
+          st.rot.multiply(_tmpQuat).normalize();
+          st.vel.set(0, 0, 0);
 
-          // Bounce off tray floor
-          if (st.pos.y <= boundsInfo.minY) {
-            st.pos.y = boundsInfo.minY;
-            st.vel.y = Math.abs(st.vel.y) * 0.65;
-            st.angVel.x += (Math.random() - 0.5) * 8;
-            st.angVel.z += (Math.random() - 0.5) * 8;
-          }
-
-          // Bounce off tall lid ceiling
-          if (st.pos.y >= boundsInfo.maxY) {
-            st.pos.y = boundsInfo.maxY;
-            st.vel.y = -Math.abs(st.vel.y) * 0.65;
-            st.angVel.x += (Math.random() - 0.5) * 6;
-          }
-
-          // Bounce off tray walls
-          if (st.pos.x <= boundsInfo.minX) {
-            st.pos.x = boundsInfo.minX;
-            st.vel.x = Math.abs(st.vel.x) * 0.65;
-            st.angVel.y += (Math.random() - 0.5) * 8;
-          } else if (st.pos.x >= boundsInfo.maxX) {
-            st.pos.x = boundsInfo.maxX;
-            st.vel.x = -Math.abs(st.vel.x) * 0.65;
-            st.angVel.y += (Math.random() - 0.5) * 8;
-          }
-
-          if (st.pos.z <= boundsInfo.minZ) {
-            st.pos.z = boundsInfo.minZ;
-            st.vel.z = Math.abs(st.vel.z) * 0.65;
-            st.angVel.y += (Math.random() - 0.5) * 8;
-          } else if (st.pos.z >= boundsInfo.maxZ) {
-            st.pos.z = boundsInfo.maxZ;
-            st.vel.z = -Math.abs(st.vel.z) * 0.65;
-            st.angVel.y += (Math.random() - 0.5) * 8;
-          }
-
-          // Friction damping
-          st.vel.multiplyScalar(0.985);
-          st.angVel.multiplyScalar(0.98);
-
-          // Safety guard against NaN
           if (Number.isNaN(st.pos.x) || Number.isNaN(st.pos.y) || Number.isNaN(st.pos.z)) {
             st.pos.copy(st.homePos);
-            st.vel.set(0, 0, 0);
           }
           if (Number.isNaN(st.rot.x) || Number.isNaN(st.rot.w)) {
             st.rot.copy(st.targetRot);
-            st.angVel.set(0, 0, 0);
           }
         });
 
@@ -333,36 +348,76 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
           setLidOpenAmountState(0);
         }
       } else {
-        // Automatic Settlement phase (3.8s to 5.0s)
-        const settleProgress = (elapsed - SETTLE_START_MS) / (TOTAL_SHAKE_MS - SETTLE_START_MS);
-        const ease = Math.min(1.0, settleProgress);
+        // Controlled settlement phase (final second: 4.0s to 5.0s)
+        const settleT = THREE.MathUtils.clamp(
+          (elapsed - SETTLE_START_MS) / (TOTAL_SHAKE_MS - SETTLE_START_MS),
+          0,
+          1
+        );
+        const dampSq = (1 - settleT) * (1 - settleT);
+        const energy = dampSq * 0.88;
 
         // Box returns smoothly upright to (0, 0, 0)
         boxEulerRef.current.x = THREE.MathUtils.damp(boxEulerRef.current.x, 0, 9, safeDelta);
         boxEulerRef.current.y = THREE.MathUtils.damp(boxEulerRef.current.y, 0, 9, safeDelta);
         boxEulerRef.current.z = THREE.MathUtils.damp(boxEulerRef.current.z, 0, 9, safeDelta);
 
-        // Dice smoothly interpolate to exact home sockets and predetermined orientations
+        // Gradually reduce wobble/bounce inside slot and settle onto predetermined upward letter
         physicsStatesRef.current.forEach((st) => {
-          st.pos.lerp(st.homePos, THREE.MathUtils.clamp(safeDelta * (8 + ease * 12), 0, 1));
-          st.rot.slerp(st.targetRot, THREE.MathUtils.clamp(safeDelta * (6 + ease * 12), 0, 1));
-          st.rot.normalize();
+          const p = rattleProfilesRef.current.get(st.id);
+          if (p) {
+            const rawDx =
+              (Math.sin(t * p.wobbleFreqX + p.phaseX) * 0.042 +
+                Math.cos(t * (p.wobbleFreqZ * 1.37) + p.phaseZ) * 0.018) *
+              energy;
+            const rawDz =
+              (Math.cos(t * p.wobbleFreqZ + p.phaseZ) * 0.042 +
+                Math.sin(t * (p.wobbleFreqX * 1.29) + p.phaseX) * 0.018) *
+              energy;
+            const dx = THREE.MathUtils.clamp(rawDx, -MAX_SLOT_OFFSET_XZ, MAX_SLOT_OFFSET_XZ);
+            const dz = THREE.MathUtils.clamp(rawDz, -MAX_SLOT_OFFSET_XZ, MAX_SLOT_OFFSET_XZ);
+            const primaryHop = Math.abs(Math.sin(t * p.bounceFreq + p.phaseY));
+            const dy = THREE.MathUtils.clamp(primaryHop * p.hopAmp * energy, 0, MAX_SLOT_HOP_Y);
+
+            st.pos.set(st.homePos.x + dx, st.homePos.y + dy, st.homePos.z + dz);
+
+            _tmpEuler.set(
+              st.angVel.x * dampSq * safeDelta,
+              st.angVel.y * dampSq * safeDelta,
+              st.angVel.z * dampSq * safeDelta,
+              'XYZ'
+            );
+            _tmpQuat.setFromEuler(_tmpEuler);
+            st.rot.multiply(_tmpQuat);
+            st.rot.slerp(
+              st.targetRot,
+              THREE.MathUtils.clamp(safeDelta * (3.5 + settleT * 18), 0, 1)
+            );
+            st.rot.normalize();
+          } else {
+            st.pos.lerp(st.homePos, THREE.MathUtils.clamp(safeDelta * (8 + settleT * 12), 0, 1));
+            st.rot.slerp(st.targetRot, THREE.MathUtils.clamp(safeDelta * (6 + settleT * 12), 0, 1));
+            st.rot.normalize();
+          }
+
           st.vel.set(0, 0, 0);
-          st.angVel.set(0, 0, 0);
+          if (Number.isNaN(st.pos.x) || Number.isNaN(st.pos.y) || Number.isNaN(st.pos.z)) {
+            st.pos.copy(st.homePos);
+          }
+          if (Number.isNaN(st.rot.x) || Number.isNaN(st.rot.w)) {
+            st.rot.copy(st.targetRot);
+          }
         });
 
-        // Lid opens smoothly without forcing 60Hz React reconciliation
-        const nextLid = Math.round(THREE.MathUtils.clamp(ease * 0.4, 0, 1) * 20) / 20;
+        const nextLid = Math.round(THREE.MathUtils.clamp(settleT * 0.45, 0, 1) * 20) / 20;
         if (Math.abs(nextLid - lastLidQuantizedRef.current) >= 0.05) {
           lastLidQuantizedRef.current = nextLid;
           setLidOpenAmountState(nextLid);
         }
       }
 
-      // Check for completion
       if (elapsed >= TOTAL_SHAKE_MS && !hasSettledRef.current) {
         hasSettledRef.current = true;
-        // Snap exactly to predetermined targets
         boxEulerRef.current.set(0, 0, 0);
         physicsStatesRef.current.forEach((st) => {
           st.pos.copy(st.homePos);
@@ -379,7 +434,6 @@ export const GridIt3DShaker: React.FC<GridIt3DShakerProps> = ({
         boxGroupRef.current.rotation.copy(boxEulerRef.current);
       }
     } else {
-      // Stable gameplay state
       if (lastLidQuantizedRef.current !== 1.0) {
         lastLidQuantizedRef.current = 1.0;
         setLidOpenAmountState(1.0);

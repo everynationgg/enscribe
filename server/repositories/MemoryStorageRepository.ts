@@ -77,8 +77,16 @@ export class MemoryStorageRepository implements StorageRepository {
   }
 
   registerEphemeralGuest(profile: Profile): void {
-    const copy = structuredClone({ ...profile, isGuest: true });
-    this.ephemeralGuests.set(copy.id, copy);
+    const existing = this.ephemeralGuests.get(profile.id);
+    const merged: Profile = existing
+      ? {
+          ...existing,
+          username: profile.username,
+          avatarId: profile.avatarId || existing.avatarId,
+          isGuest: true,
+        }
+      : { ...profile, isGuest: true };
+    this.ephemeralGuests.set(merged.id, structuredClone(merged));
   }
 
   removeEphemeralGuest(playerId: string): void {

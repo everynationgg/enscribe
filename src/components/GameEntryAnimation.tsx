@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
 interface GameEntryAnimationProps {
-  gameId: 'chain_clash' | 'gridit';
+  gameId: 'chain_clash' | 'gridit' | 'guessit';
   onComplete: () => void;
 }
 
@@ -25,7 +25,7 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
     const prefersReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const durationMs = prefersReduced ? 450 : gameId === 'gridit' ? 2500 : 2400;
+    const durationMs = prefersReduced ? 450 : gameId === 'gridit' ? 2500 : gameId === 'guessit' ? 1800 : 2400;
     const timer = window.setTimeout(() => {
       doneRef.current();
     }, durationMs);
@@ -33,19 +33,32 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
   }, [gameId]);
 
   const isGridIt = gameId === 'gridit';
+  const isGuessIt = gameId === 'guessit';
 
   return (
     <div
-      className={`ens-intro-overlay ${isGridIt ? 'is-gridit' : 'is-chainit'}`}
+      className={`ens-intro-overlay ${isGridIt ? 'is-gridit' : isGuessIt ? 'is-gridit' : 'is-chainit'}`}
       role="status"
       aria-live="polite"
-      aria-label={isGridIt ? 'Entering GridIt' : 'Entering ChainIt'}
+      aria-label={isGridIt ? 'Entering GridIt' : isGuessIt ? 'Entering GuessIt' : 'Entering ChainIt'}
     >
       <div className="ens-sky-sparkles" aria-hidden="true" />
       <div className="ens-intro-ambient-ring" aria-hidden="true" />
 
       <div className="ens-intro-stage">
-        {isGridIt ? (
+        {isGuessIt ? (
+          <>
+            <img
+              src="/art/hero-mascot.png"
+              alt=""
+              style={{ width: 120, height: 120, objectFit: 'contain' }}
+            />
+            <div className="ens-intro-wordmark-wrap">
+              <div className="ens-intro-gridit-logo">GuessIt</div>
+              <div className="ens-intro-tagline">Decode phrases, crosswords &amp; relays!</div>
+            </div>
+          </>
+        ) : isGridIt ? (
           <>
             {/* Floating Shape Silhouettes */}
             <div className="ens-intro-shapes-row" aria-hidden="true">

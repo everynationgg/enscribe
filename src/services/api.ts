@@ -23,6 +23,17 @@ import {
   ThumbnailKey,
 } from '../../shared/types';
 import { GridItCustomTemplate } from '../../shared/gridit/editor';
+import {
+  GuessItAdventureClaimResult,
+  GuessItAdventureProgressClient,
+  GuessItCategory,
+  GuessItDifficulty,
+  GuessItGuessResponse,
+  GuessItMatchStateClient,
+  GuessItRoom,
+  GuessItRoomSettings,
+  GuessItTeamId,
+} from '../../shared/guessit/types';
 
 const DEFAULT_PROD_API_BASE_URL = 'https://enscribe-game.fly.dev';
 const envApiBase = (
@@ -400,4 +411,125 @@ export const api = {
         body: JSON.stringify({ text, targetLang }),
       }
     ),
+
+  // ==================== GUESSIT MULTIPLAYER, CROSSWORD & ADVENTURE ====================
+  listGuessItPublicRooms: () => request<GuessItRoom[]>('/api/guessit/rooms/public'),
+  getGuessItRoom: (idOrCode: string) =>
+    request<GuessItRoom>(`/api/guessit/rooms/${encodeURIComponent(idOrCode)}`),
+  createGuessItRoom: (data: {
+    hostId: string;
+    name?: string;
+    settings?: Partial<GuessItRoomSettings>;
+  }) =>
+    request<GuessItRoom>('/api/guessit/rooms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  joinGuessItRoom: (codeOrId: string, playerId: string) =>
+    request<GuessItRoom>('/api/guessit/rooms/join', {
+      method: 'POST',
+      body: JSON.stringify({ codeOrId, playerId }),
+    }),
+  leaveGuessItRoom: (roomId: string, playerId: string) =>
+    request<{ ok: boolean }>(`/api/guessit/rooms/${roomId}/leave`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  updateGuessItRoomSettings: (
+    roomId: string,
+    playerId: string,
+    settings: Partial<GuessItRoomSettings>
+  ) =>
+    request<GuessItRoom>(`/api/guessit/rooms/${roomId}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify({ playerId, settings }),
+    }),
+  setGuessItRoomReady: (roomId: string, playerId: string, isReady: boolean) =>
+    request<GuessItRoom>(`/api/guessit/rooms/${roomId}/ready`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, isReady }),
+    }),
+  switchGuessItTeam: (roomId: string, playerId: string, teamId: GuessItTeamId) =>
+    request<GuessItRoom>(`/api/guessit/rooms/${roomId}/team`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, teamId }),
+    }),
+  submitGuessItDuelChallenge: (
+    roomId: string,
+    playerId: string,
+    payload: {
+      source: 'custom_word' | 'my_templates' | 'curated_db';
+      answer?: string;
+      templateId?: string;
+      category?: GuessItCategory;
+      difficulty?: GuessItDifficulty;
+      clue?: string;
+    }
+  ) =>
+    request<GuessItRoom>(`/api/guessit/rooms/${roomId}/duel-challenge`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, ...payload }),
+    }),
+  sendGuessItRoomChat: (roomId: string, playerId: string, text: string) =>
+    request<GuessItRoom>(`/api/guessit/rooms/${roomId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, text }),
+    }),
+  startGuessItRoomMatch: (roomId: string, playerId: string) =>
+    request<{ room: GuessItRoom; match: GuessItMatchStateClient }>(
+      `/api/guessit/rooms/${roomId}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  joinGuessItRankedQueue: (
+    playerId: string,
+    mode: 'speed_rush' | 'precision_clash' = 'speed_rush',
+    format: 'classic' | 'crossword' = 'classic'
+  ) =>
+    request<{ status: 'queued' | 'matched'; match?: GuessItMatchStateClient }>(
+      '/api/guessit/matchmaking/ranked',
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId, mode, format }),
+      }
+    ),
+  leaveGuessItRankedQueue: (playerId: string) =>
+    request<{ ok: boolean }>(`/api/guessit/matchmaking/ranked/${playerId}`, {
+      method: 'DELETE',
+    }),
+  getGuessItMatch: (matchId: string, playerId: string) =>
+    request<GuessItMatchStateClient>(
+      `/api/guessit/matches/${matchId}?playerId=${encodeURIComponent(playerId)}`
+    ),
+  submitGuessItLetter: (matchId: string, playerId: string, letter: string) =>
+    request<GuessItGuessResponse>(`/api/guessit/matches/${matchId}/guess`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, letter }),
+    }),
+  sendGuessItMatchChat: (matchId: string, playerId: string, text: string) =>
+    request<GuessItMatchStateClient>(`/api/guessit/matches/${matchId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, text }),
+    }),
+  rematchGuessItMatch: (matchId: string, playerId: string) =>
+    request<GuessItMatchStateClient>(`/api/guessit/matches/${matchId}/rematch`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  getGuessItAdventureProgress: (playerId: string) =>
+    request<GuessItAdventureProgressClient>(
+      `/api/guessit/adventure/progress/${encodeURIComponent(playerId)}`
+    ),
+  startGuessItAdventureStage: (playerId: string, stageId: string) =>
+    request<GuessItMatchStateClient>('/api/guessit/adventure/start', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, stageId }),
+    }),
+  claimGuessItAdventureReward: (playerId: string, matchId: string) =>
+    request<GuessItAdventureClaimResult>('/api/guessit/adventure/claim', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, matchId }),
+    }),
 };

@@ -4,10 +4,13 @@ import path from 'node:path';
 import { generatePlayableBoard } from '../shared/gridit/engine.js';
 import { GRIDIT_LANGUAGES, resolveModeLanguage } from '../shared/gridit/languages.js';
 import {
+  DEFAULT_GRIDIT_MODS,
   MAX_GRIDIT_MULTIPLIER,
+  MIN_GRIDIT_MOD_DURATION_SEC,
   computeExpansionRings,
   generateModSchedule,
   getBoardSnapshotAtTime,
+  normalizeModConfig,
   resolveWordPathWithMods,
 } from '../shared/gridit/mods.js';
 import { GRIDIT_SHAPES, buildShapeTopology } from '../shared/gridit/shapes.js';
@@ -75,15 +78,34 @@ function run() {
   };
 
   const startedAt = 1_000_000;
+  assert.ok(MIN_GRIDIT_MOD_DURATION_SEC >= 10, 'Minimum mod duration constant must be >= 10s');
+  assert.ok(DEFAULT_GRIDIT_MODS.rainbowDurationSec >= 10, 'Default rainbow duration must be >= 10s');
+  assert.ok(DEFAULT_GRIDIT_MODS.lightningDurationSec >= 10, 'Default lightning duration must be >= 10s');
+  assert.ok(DEFAULT_GRIDIT_MODS.comboWindowSec >= 10, 'Default combo window must be >= 10s');
+
+  const clampedMods = normalizeModConfig({
+    rainbowWildcard: true,
+    goldenLetter: true,
+    lightningRound: true,
+    comboFever: true,
+    growingGrid: true,
+    rainbowDurationSec: 4,
+    lightningDurationSec: 6,
+    comboWindowSec: 5,
+  });
+  assert.ok(clampedMods.rainbowDurationSec >= 10, 'normalizeModConfig must clamp rainbow >= 10s');
+  assert.ok(clampedMods.lightningDurationSec >= 10, 'normalizeModConfig must clamp lightning >= 10s');
+  assert.ok(clampedMods.comboWindowSec >= 10, 'normalizeModConfig must clamp comboWindow >= 10s');
+
   const modConfig = {
     rainbowWildcard: true,
     goldenLetter: true,
     lightningRound: true,
     comboFever: true,
     growingGrid: true,
-    rainbowDurationSec: 5,
+    rainbowDurationSec: 10,
     lightningDurationSec: 10,
-    comboWindowSec: 8,
+    comboWindowSec: 10,
     maxMultiplierCap: MAX_GRIDIT_MULTIPLIER,
   };
 
@@ -92,11 +114,24 @@ function run() {
   const schedule2 = generateModSchedule(board, 120, modConfig, 55, startedAt);
   assert.deepEqual(schedule, schedule2, 'Schedule must be 100% deterministic for serverless sync');
 
+  for (const dur of [50, 90, 120]) {
+    const durSchedule = generateModSchedule(board, dur, modConfig, 55, startedAt);
+    for (const rw of durSchedule.rainbowWindows) {
+      assert.ok(rw.endAtMs - rw.startAtMs >= 10_000, `${dur}s rainbow window must be >= 10s`);
+    }
+    for (const gw of durSchedule.goldenWindows) {
+      assert.ok(gw.endAtMs - gw.startAtMs >= 10_000, `${dur}s golden window must be >= 10s`);
+    }
+    for (const lw of durSchedule.lightningWindows) {
+      assert.ok(lw.endAtMs - lw.startAtMs >= 10_000, `${dur}s lightning window must be >= 10s`);
+    }
+  }
+
   // Construct controlled schedule asserting stacked multipliers respect MAX 5x cap (Golden 2 * Lightning 3 * Combo 2.5 = 15 -> capped at 5!)
   const syntheticSchedule = {
     seed: 1,
     startedAtMs: startedAt,
-    rainbowWindows: [{ tileId: 't_15', startAtMs: startedAt + 1000, endAtMs: startedAt + 6000 }],
+    rainbowWindows: [{ tileId: 't_15', startAtMs: startedAt + 1000, endAtMs: startedAt + 11000 }],
     goldenWindows: [{ tileId: 't_1', startAtMs: startedAt, endAtMs: startedAt + 50000 }],
     lightningWindows: [{ startAtMs: startedAt + 10000, endAtMs: startedAt + 20000, multiplier: 3 }],
     growthWaves: [
@@ -108,10 +143,9 @@ function run() {
     ],
   };
 
-  // Rainbow Wildcard test: t_13(Q)-t_14(J)... let's use t_8(B)-t_9(I)-t_15(Z as Rainbow!) -> BI? = BIG/BID/BIN!
-  // Neighbor check: t_9(I) is at (1,2), t_15 is at (3,3) - not adjacent; t_10(N) is (2,2), t_15 is (3,3) -> t_8(B)-t_9(I)-t_14(J) adjacent? Let's put wildcard on t_14 -> t_4(R)-t_9(I)-t_14(*) = RIB/RID/RIG!
+  // Rainbow Wildcard test: t_4(R)-t_9(I)-t_14(*) = RIB/RID/RIG with 10s duration
   syntheticSchedule.rainbowWindows = [
-    { tileId: 't_14', startAtMs: startedAt + 1000, endAtMs: startedAt + 6000 },
+    { tileId: 't_14', startAtMs: startedAt + 1000, endAtMs: startedAt + 11000 },
   ];
   const wildRes = resolveWordPathWithMods(board, ['t_4', 't_9', 't_14'], words, new Set(), {
     nowMs: startedAt + 2000,
@@ -124,9 +158,9 @@ function run() {
   assert.equal(wildRes.usedRainbow, true);
   assert.equal(board.tiles[14].letter, 'J', 'Wildcard must NEVER mutate underlying tile letter');
 
-  // After ~5s rainbow window expires, R-I-J must reject!
+  // After 10s rainbow window expires, R-I-J must reject!
   const wildExpired = resolveWordPathWithMods(board, ['t_4', 't_9', 't_14'], words, new Set(), {
-    nowMs: startedAt + 7500,
+    nowMs: startedAt + 12500,
     schedule: syntheticSchedule,
     modConfig,
   });

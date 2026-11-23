@@ -103,6 +103,14 @@ io.on('connection', (socket) => {
     if (matchId) socket.leave(`match:${matchId}`);
   });
 
+  socket.on('guessit:join_match', (matchId: string) => {
+    if (matchId) socket.join(`match:${matchId}`);
+  });
+
+  socket.on('guessit:leave_match', (matchId: string) => {
+    if (matchId) socket.leave(`match:${matchId}`);
+  });
+
   socket.on('match:join_channel', ({ matchId, playerId }: { matchId: string; playerId: string }) => {
     const match = runtime.repo.getMatch(matchId);
     if (!match || !match.boards[playerId]) {

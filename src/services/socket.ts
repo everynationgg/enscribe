@@ -19,6 +19,12 @@ const REALTIME_EVENTS = [
   'gridit:matched',
   'gridit:rematch',
   'gridit:host_shake',
+  'guessit:room_updated',
+  'guessit:rooms_updated',
+  'guessit:match_started',
+  'guessit:match_state',
+  'guessit:matched',
+  'guessit:rematch',
 ];
 
 class UnifiedRealtimeClient {

@@ -12,6 +12,7 @@ import {
 } from './types.js';
 
 export const MAX_GRIDIT_MULTIPLIER = 5;
+export const MIN_GRIDIT_MOD_DURATION_SEC = 10;
 
 export type GridItModId =
   | 'rainbow_wildcard'
@@ -38,9 +39,9 @@ export const DEFAULT_GRIDIT_MODS: GridItModConfig = {
   lightningRound: false,
   comboFever: false,
   growingGrid: false,
-  rainbowDurationSec: 5,
+  rainbowDurationSec: 10,
   lightningDurationSec: 10,
-  comboWindowSec: 8,
+  comboWindowSec: 10,
   maxMultiplierCap: MAX_GRIDIT_MULTIPLIER,
 };
 
@@ -94,9 +95,18 @@ export function normalizeModConfig(input?: Partial<GridItModConfig> | null): Gri
     lightningRound: Boolean(input?.lightningRound),
     comboFever: Boolean(input?.comboFever),
     growingGrid: Boolean(input?.growingGrid),
-    rainbowDurationSec: Math.max(4, Math.min(8, Math.round(input?.rainbowDurationSec ?? 5))),
-    lightningDurationSec: Math.max(6, Math.min(15, Math.round(input?.lightningDurationSec ?? 10))),
-    comboWindowSec: Math.max(4, Math.min(15, Math.round(input?.comboWindowSec ?? 8))),
+    rainbowDurationSec: Math.max(
+      MIN_GRIDIT_MOD_DURATION_SEC,
+      Math.min(20, Math.round(input?.rainbowDurationSec ?? MIN_GRIDIT_MOD_DURATION_SEC))
+    ),
+    lightningDurationSec: Math.max(
+      MIN_GRIDIT_MOD_DURATION_SEC,
+      Math.min(20, Math.round(input?.lightningDurationSec ?? MIN_GRIDIT_MOD_DURATION_SEC))
+    ),
+    comboWindowSec: Math.max(
+      MIN_GRIDIT_MOD_DURATION_SEC,
+      Math.min(20, Math.round(input?.comboWindowSec ?? MIN_GRIDIT_MOD_DURATION_SEC))
+    ),
     maxMultiplierCap: MAX_GRIDIT_MULTIPLIER,
   };
 }
@@ -280,12 +290,18 @@ export function generateModSchedule(
   const growthWaves: GridItGrowthWave[] = [];
 
   if (cfg.rainbowWildcard && tileIds.length > 0) {
-    const durMs = cfg.rainbowDurationSec * 1000;
-    const strideMs = Math.max(18000, Math.floor(totalMs / 4));
-    for (let t = 6000; t + durMs < totalMs; t += strideMs) {
-      const tileId = tileIds[Math.floor(rand() * tileIds.length)];
+    const durMs = Math.max(MIN_GRIDIT_MOD_DURATION_SEC * 1000, cfg.rainbowDurationSec * 1000);
+    const minCooldownMs = 6000;
+    const strideMs = Math.max(durMs + minCooldownMs, Math.floor(totalMs / 4));
+    let prevIdx = -1;
+    for (let t = 6000; t + durMs <= totalMs; t += strideMs) {
+      let idx = Math.floor(rand() * tileIds.length);
+      if (tileIds.length > 1 && idx === prevIdx) {
+        idx = (idx + 1) % tileIds.length;
+      }
+      prevIdx = idx;
       rainbowWindows.push({
-        tileId,
+        tileId: tileIds[idx],
         startAtMs: startedAtMs + t,
         endAtMs: startedAtMs + t + durMs,
       });
@@ -293,29 +309,69 @@ export function generateModSchedule(
   }
 
   if (cfg.goldenLetter && tileIds.length > 0) {
-    // 1-2 golden tiles active across alternating 25s phases
+    // 1-2 golden tiles active across alternating phases (>= 10s min, smooth breathing gaps)
+    const minGoldenMs = MIN_GRIDIT_MOD_DURATION_SEC * 1000;
+    const transitionGapMs = 1500;
     const segmentMs = Math.max(22000, Math.floor(totalMs / 3));
-    for (let t = 0; t < totalMs; t += segmentMs) {
-      const idxA = Math.floor(rand() * tileIds.length);
+    let prevIdxA = -1;
+    let prevIdxB = -1;
+    let t = 0;
+    while (t < totalMs) {
+      const remaining = totalMs - t;
+      if (remaining < minGoldenMs) {
+        // Extend previous golden phase to match end instead of creating a <10s tail
+        if (goldenWindows.length > 0) {
+          const lastEnd = goldenWindows[goldenWindows.length - 1].endAtMs;
+          for (let i = goldenWindows.length - 1; i >= 0; i--) {
+            if (goldenWindows[i].endAtMs === lastEnd) {
+              goldenWindows[i].endAtMs = startedAtMs + totalMs;
+            } else {
+              break;
+            }
+          }
+        }
+        break;
+      }
+      const nextPhaseStart = t + segmentMs;
+      const isLastPhase = totalMs - nextPhaseStart < minGoldenMs;
+      const phaseEnd = isLastPhase
+        ? totalMs
+        : Math.max(t + minGoldenMs, Math.min(totalMs, nextPhaseStart - transitionGapMs));
+
+      let idxA = Math.floor(rand() * tileIds.length);
+      if (tileIds.length > 1 && (idxA === prevIdxA || idxA === prevIdxB)) {
+        idxA = (idxA + 1) % tileIds.length;
+      }
       goldenWindows.push({
         tileId: tileIds[idxA],
         startAtMs: startedAtMs + t,
-        endAtMs: startedAtMs + Math.min(totalMs, t + segmentMs),
+        endAtMs: startedAtMs + phaseEnd,
       });
+
+      let idxB = -1;
       if (tileIds.length > 16) {
-        const idxB = (idxA + Math.floor(tileIds.length / 2)) % tileIds.length;
-        goldenWindows.push({
-          tileId: tileIds[idxB],
-          startAtMs: startedAtMs + t,
-          endAtMs: startedAtMs + Math.min(totalMs, t + segmentMs),
-        });
+        idxB = (idxA + Math.floor(tileIds.length / 2)) % tileIds.length;
+        if (idxB === prevIdxA || idxB === prevIdxB || idxB === idxA) {
+          idxB = (idxB + 1) % tileIds.length;
+        }
+        if (idxB !== idxA) {
+          goldenWindows.push({
+            tileId: tileIds[idxB],
+            startAtMs: startedAtMs + t,
+            endAtMs: startedAtMs + phaseEnd,
+          });
+        }
       }
+      prevIdxA = idxA;
+      prevIdxB = idxB;
+      if (isLastPhase) break;
+      t = nextPhaseStart;
     }
   }
 
   if (cfg.lightningRound) {
-    // Strictly a 10-second 3x scoring surge without shortening total match duration
-    const durMs = cfg.lightningDurationSec * 1000;
+    // Strictly a >=10-second 3x scoring surge without shortening total match duration
+    const durMs = Math.max(MIN_GRIDIT_MOD_DURATION_SEC * 1000, cfg.lightningDurationSec * 1000);
     const firstAt = Math.round(totalMs * 0.42);
     if (firstAt + durMs <= totalMs) {
       lightningWindows.push({

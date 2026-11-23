@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Crown, Hand, Maximize2, Minus, Plus, Sparkles } from 'lucide-react';
+import { Hand, Maximize2, Minus, Plus, Sparkles } from 'lucide-react';
 import { GridItBoard, GridItShapeId, GridItTileNode } from '../../../shared/gridit/types';
 import { GridIt3DCanvas } from './3d/GridIt3DCanvas';
 
@@ -279,10 +279,6 @@ const GridItTileNodeView = memo<TileItemProps>(
                 <span className="ens-gridit-tile-letter">?</span>
               ) : isEmptySlot ? (
                 <span className="ens-gridit-tile-empty-dot">·</span>
-              ) : isRainbow ? (
-                <span className="ens-gridit-rainbow-glyph" title="Wildcard A-Z">
-                  <Sparkles size={Math.round(radius * 0.72)} strokeWidth={2.6} />
-                </span>
               ) : (
                 <>
                   <span className="ens-gridit-tile-letter">{letterUpper}</span>
@@ -292,18 +288,6 @@ const GridItTileNodeView = memo<TileItemProps>(
             </span>
           </div>
         </div>
-
-        {isGolden && !isPaused && !isEmptySlot && (
-          <span className="ens-gridit-mod-badge is-golden" aria-hidden="true">
-            <Crown size={9} fill="#fef08a" />
-            2×
-          </span>
-        )}
-        {isRainbow && !isPaused && !isEmptySlot && (
-          <span className="ens-gridit-mod-badge is-rainbow" aria-hidden="true">
-            ★ WILD
-          </span>
-        )}
 
         {isSelected && (
           <span className="ens-gridit-tile-order" aria-hidden="true">

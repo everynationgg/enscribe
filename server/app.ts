@@ -33,6 +33,18 @@ import {
   GridItNotFoundError,
 } from './games/gridit/GridItEngine.js';
 import { GridItUnavailableError, StoredGridItMatch } from './games/gridit/GridItStateStore.js';
+import {
+  GuessItBadRequestError,
+  GuessItEngine,
+  GuessItForbiddenError,
+  GuessItNotFoundError,
+  GuessItRateLimitError,
+} from './games/guessit/GuessItEngine.js';
+import {
+  GuessItUnavailableError,
+  StoredGuessItMatch,
+} from './games/guessit/GuessItStateStore.js';
+import { GuessItRoom } from '../shared/guessit/types.js';
 import { GridItRoom } from '../shared/gridit/multiplayerTypes.js';
 import { suggestTemplateFillerLettersWithGemini } from './games/gridit/geminiFiller.js';
 import { getServerDictionary } from './games/gridit/serverDictionary.js';
@@ -76,6 +88,7 @@ export interface EnscribeBackendRuntime {
   repo: MemoryStorageRepository;
   engine: ChainClashEngine;
   gridItEngine: GridItEngine;
+  guessItEngine: GuessItEngine;
   cloudSync: SupabaseCloudSync;
   guestStore: GuestSessionStore;
   isPlayerOnline: (playerId: string) => boolean;
@@ -85,6 +98,7 @@ export interface EnscribeBackendRuntime {
     matchRecord?: StoredGridItMatch | null,
     mode?: 'full' | 'delta'
   ) => Promise<void>;
+  broadcastGuessItMatch: (matchRecord: StoredGuessItMatch) => void;
   flushSideEffects: (persistSnapshot?: boolean) => Promise<void>;
   processTimersAndFlush: () => Promise<StoredMatch[]>;
   prewarm: () => Promise<void>;
@@ -140,6 +154,15 @@ export function createEnscribeApp(
   };
 
   const gridItEngine = new GridItEngine(repo, isPlayerOnline, {
+    forceLocalMemory: options.forceLocalGuestMemory,
+    isServerless,
+    resolveProfile: async (pid) => {
+      await ensureGuestProfilesRegistered([pid]);
+      return repo.getProfile(pid) ?? null;
+    },
+  });
+
+  const guessItEngine = new GuessItEngine(repo, isPlayerOnline, {
     forceLocalMemory: options.forceLocalGuestMemory,
     isServerless,
     resolveProfile: async (pid) => {
@@ -359,6 +382,37 @@ export function createEnscribeApp(
     }
   };
 
+  const broadcastGuessItRoom = async (
+    roomId: string,
+    roomSnapshot?: GuessItRoom
+  ): Promise<void> => {
+    try {
+      const room = roomSnapshot ?? (await guessItEngine.getRoom(roomId));
+      if (isServerless) {
+        pendingBroadcasts.push({ event: 'guessit:room_updated', payload: room });
+        pendingBroadcasts.push({ event: 'guessit:rooms_updated', payload: {} });
+      }
+      const audience = room.players.map((p) => p.playerId);
+      if (hooks.emitRoomAndPlayers) {
+        hooks.emitRoomAndPlayers(roomId, audience, 'guessit:room_updated', room);
+      } else {
+        hooks.emitRoom?.(roomId, 'guessit:room_updated', room);
+      }
+      hooks.emitGlobal?.('guessit:rooms_updated');
+    } catch {
+      queueEvent('guessit:rooms_updated', {});
+    }
+  };
+
+  const broadcastGuessItMatch = (matchRecord: StoredGuessItMatch): void => {
+    const nowMs = Date.now();
+    const audience = guessItEngine.getMatchAudienceIds(matchRecord);
+    for (const vid of audience) {
+      const sanitized = guessItEngine.sanitizeMatchForViewerRecord(matchRecord, vid, nowMs);
+      queueEvent('guessit:match_state', sanitized, vid);
+    }
+  };
+
   const processTimersAndFlush = async (): Promise<StoredMatch[]> => {
     const gridItExpired = await gridItEngine.processExpiredMatches().catch(() => []);
     for (const gm of gridItExpired) {
@@ -366,8 +420,16 @@ export function createEnscribeApp(
       if (gm.roomId) await broadcastGridItRoom(gm.roomId);
     }
 
+    const guessItExpired = await guessItEngine.processExpiredTimers().catch(() => []);
+    for (const hgm of guessItExpired) {
+      broadcastGuessItMatch(hgm);
+      if (hgm.status === 'finished' && hgm.roomId) {
+        await broadcastGuessItRoom(hgm.roomId);
+      }
+    }
+
     if (!initialized) {
-      if (gridItExpired.length > 0) {
+      if (gridItExpired.length > 0 || guessItExpired.length > 0) {
         await flushSideEffects(false);
       }
       return [];
@@ -382,7 +444,7 @@ export function createEnscribeApp(
         broadcastMatchState(refreshed);
       }
       await flushSideEffects(true);
-    } else if (gridItExpired.length > 0) {
+    } else if (gridItExpired.length > 0 || guessItExpired.length > 0) {
       await flushSideEffects(false);
     }
     return updatedMatches;
@@ -619,7 +681,7 @@ export function createEnscribeApp(
       const profile = guestStore.toGuestProfile(session);
       repo.registerEphemeralGuest(profile);
       lastSeenByPlayer.set(session.sessionId, Date.now());
-      res.status(200).json({ session, profile });
+      res.status(200).json({ session, profile: repo.getProfile(session.sessionId) ?? profile });
     } catch (err: any) {
       sendGuestError(res, err);
     }
@@ -634,7 +696,7 @@ export function createEnscribeApp(
       const profile = guestStore.toGuestProfile(session);
       repo.registerEphemeralGuest(profile);
       lastSeenByPlayer.set(session.sessionId, Date.now());
-      res.json({ session, profile });
+      res.json({ session, profile: repo.getProfile(session.sessionId) ?? profile });
     } catch (err: any) {
       sendGuestError(res, err);
     }
@@ -657,7 +719,7 @@ export function createEnscribeApp(
       const profile = guestStore.toGuestProfile(session);
       repo.registerEphemeralGuest(profile);
       lastSeenByPlayer.set(session.sessionId, Date.now());
-      res.json({ session, profile });
+      res.json({ session, profile: repo.getProfile(session.sessionId) ?? profile });
     } catch (err: any) {
       sendGuestError(res, err);
     }
@@ -681,7 +743,7 @@ export function createEnscribeApp(
       const profile = guestStore.toGuestProfile(session);
       repo.registerEphemeralGuest(profile);
       lastSeenByPlayer.set(session.sessionId, Date.now());
-      res.json({ session, profile });
+      res.json({ session, profile: repo.getProfile(session.sessionId) ?? profile });
     } catch (err: any) {
       sendGuestError(res, err);
     }
@@ -1754,18 +1816,20 @@ export function createEnscribeApp(
       } catch (err: any) {
         pendingBroadcasts = [];
         const status =
-          err instanceof GridItForbiddenError
+          err instanceof GridItForbiddenError || err instanceof GuessItForbiddenError
             ? 403
-            : err instanceof GridItNotFoundError
+            : err instanceof GridItNotFoundError || err instanceof GuessItNotFoundError
               ? 404
-              : err instanceof GridItBadRequestError
+              : err instanceof GridItBadRequestError || err instanceof GuessItBadRequestError
                 ? 400
-                : err instanceof GridItUnavailableError
-                  ? 503
-                  : 500;
+                : err instanceof GuessItRateLimitError
+                  ? 429
+                  : err instanceof GridItUnavailableError || err instanceof GuessItUnavailableError
+                    ? 503
+                    : 500;
         if (!res.headersSent) {
           res.status(status);
-          origJson({ error: err?.message || 'GridIt server error' });
+          origJson({ error: err?.message || 'Game module server error' });
         }
       }
     };
@@ -2059,14 +2123,301 @@ export function createEnscribeApp(
     })
   );
 
-  app.get(
-    '/api/gridit/leaderboard',
+    app.get('/api/gridit/leaderboard',
     handleGridItApi(async (_req, res) => {
       res.json({
         entries: await gridItEngine.listSessionLeaderboard(),
         guestNotice:
           'Guest sessions stay temporary and do not record permanent global GridIt ranks until ENGG account login launches.',
       });
+    })
+  );
+
+  // ==================== GUESSIT MULTIPLAYER, CROSSWORD & ADVENTURE API ====================
+
+  app.get(
+    '/api/guessit/rooms/public',
+    handleGridItApi(async (_req, res) => {
+      res.json(await guessItEngine.listPublicRooms());
+    })
+  );
+
+  app.get(
+    '/api/guessit/rooms/:idOrCode',
+    handleGridItApi(async (req, res) => {
+      res.json(await guessItEngine.getRoom(String(req.params.idOrCode)));
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms',
+    handleGridItApi(async (req, res) => {
+      const { hostId, name, settings } = req.body ?? {};
+      const room = await guessItEngine.createRoom({
+        hostId: String(hostId || ''),
+        name,
+        settings,
+      });
+      queueEvent('guessit:rooms_updated', {});
+      res.status(201).json(room);
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms/join',
+    handleGridItApi(async (req, res) => {
+      const { codeOrId, playerId } = req.body ?? {};
+      const room = await guessItEngine.joinRoom(String(codeOrId || ''), String(playerId || ''));
+      await broadcastGuessItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms/:id/leave',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const roomId = String(req.params.id);
+      const outcome = await guessItEngine.leaveRoom(roomId, String(playerId || ''));
+      if (!outcome.deleted) {
+        await broadcastGuessItRoom(roomId, outcome.room);
+      } else {
+        queueEvent('guessit:rooms_updated', {});
+      }
+      res.json({ ok: true });
+    })
+  );
+
+  app.patch(
+    '/api/guessit/rooms/:id/settings',
+    handleGridItApi(async (req, res) => {
+      const { playerId, settings } = req.body ?? {};
+      const room = await guessItEngine.updateRoomSettings(
+        String(req.params.id),
+        String(playerId || ''),
+        settings
+      );
+      await broadcastGuessItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms/:id/ready',
+    handleGridItApi(async (req, res) => {
+      const { playerId, isReady } = req.body ?? {};
+      const room = await guessItEngine.setPlayerReady(
+        String(req.params.id),
+        String(playerId || ''),
+        Boolean(isReady)
+      );
+      await broadcastGuessItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms/:id/team',
+    handleGridItApi(async (req, res) => {
+      const { playerId, teamId } = req.body ?? {};
+      const room = await guessItEngine.switchTeam(
+        String(req.params.id),
+        String(playerId || ''),
+        teamId === 'red' ? 'red' : 'blue'
+      );
+      await broadcastGuessItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms/:id/duel-challenge',
+    handleGridItApi(async (req, res) => {
+      const { playerId, source, answer, templateId, category, difficulty, clue } = req.body ?? {};
+      const room = await guessItEngine.submitDuelChallenge(
+        String(req.params.id),
+        String(playerId || ''),
+        {
+          source: source === 'my_templates' ? 'my_templates' : source === 'curated_db' ? 'curated_db' : 'custom_word',
+          answer,
+          templateId,
+          category,
+          difficulty,
+          clue,
+        }
+      );
+      await broadcastGuessItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms/:id/chat',
+    handleGridItApi(async (req, res) => {
+      const { playerId, text } = req.body ?? {};
+      const room = await guessItEngine.addRoomChat(
+        String(req.params.id),
+        String(playerId || ''),
+        String(text || '')
+      );
+      await broadcastGuessItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/guessit/rooms/:id/start',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const roomId = String(req.params.id);
+      const { room, matchRecord } = await guessItEngine.startRoomMatch(roomId, String(playerId || ''));
+      await broadcastGuessItRoom(room.id, room);
+      const audience = guessItEngine.getMatchAudienceIds(matchRecord);
+      for (const vid of audience) {
+        queueEvent('guessit:match_started', { roomId: room.id, matchId: matchRecord.id }, vid);
+      }
+      broadcastGuessItMatch(matchRecord);
+      res.status(201).json({
+        room,
+        match: guessItEngine.sanitizeMatchForViewerRecord(matchRecord, String(playerId || '')),
+      });
+    })
+  );
+
+  app.post(
+    '/api/guessit/matchmaking/ranked',
+    handleGridItApi(async (req, res) => {
+      const { playerId, mode, format } = req.body ?? {};
+      const outcome = await guessItEngine.joinRankedQueue(
+        String(playerId || ''),
+        mode === 'precision_clash' ? 'precision_clash' : 'speed_rush',
+        format === 'crossword' ? 'crossword' : 'classic'
+      );
+      if (outcome.status === 'matched' && outcome.match) {
+        broadcastGuessItMatch(outcome.match);
+        for (const pid of outcome.match.participantOrder) {
+          queueEvent(
+            'guessit:matched',
+            { matchId: outcome.match.id, mode: outcome.match.mode },
+            pid
+          );
+        }
+        res.json({
+          status: 'matched',
+          match: guessItEngine.sanitizeMatchForViewerRecord(outcome.match, String(playerId || '')),
+        });
+        return;
+      }
+      res.json({ status: 'queued' });
+    })
+  );
+
+  app.delete(
+    '/api/guessit/matchmaking/ranked/:playerId',
+    handleGridItApi(async (req, res) => {
+      await guessItEngine.leaveRankedQueue(String(req.params.playerId));
+      res.json({ ok: true });
+    })
+  );
+
+  app.get(
+    '/api/guessit/matches/:id',
+    handleGridItApi(async (req, res) => {
+      const playerId = String(req.query.playerId || '');
+      res.json(await guessItEngine.getMatchForViewer(String(req.params.id), playerId));
+    })
+  );
+
+  app.post(
+    '/api/guessit/matches/:id/guess',
+    handleGridItApi(async (req, res) => {
+      const { playerId, letter } = req.body ?? {};
+      const matchId = String(req.params.id);
+      const { response, matchRecord } = await guessItEngine.submitGuess(
+        matchId,
+        String(playerId || ''),
+        String(letter || '')
+      );
+      broadcastGuessItMatch(matchRecord);
+      if (matchRecord.status === 'finished' && matchRecord.roomId) {
+        await broadcastGuessItRoom(matchRecord.roomId);
+      }
+      res.json(response);
+    })
+  );
+
+  app.post(
+    '/api/guessit/matches/:id/chat',
+    handleGridItApi(async (req, res) => {
+      const { playerId, text } = req.body ?? {};
+      const matchState = await guessItEngine.addMatchChat(
+        String(req.params.id),
+        String(playerId || ''),
+        String(text || '')
+      );
+      queueEvent('guessit:match_state', matchState);
+      res.status(201).json(matchState);
+    })
+  );
+
+  app.post(
+    '/api/guessit/matches/:id/rematch',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const next = await guessItEngine.rematch(String(req.params.id), String(playerId || ''));
+      broadcastGuessItMatch(next);
+      for (const vid of guessItEngine.getMatchAudienceIds(next)) {
+        queueEvent('guessit:rematch', { oldMatchId: String(req.params.id), newMatchId: next.id }, vid);
+      }
+      res
+        .status(201)
+        .json(guessItEngine.sanitizeMatchForViewerRecord(next, String(playerId || '')));
+    })
+  );
+
+  app.get(
+    '/api/guessit/adventure/progress/:playerId',
+    handleGridItApi(async (req, res) => {
+      res.json(await guessItEngine.getAdventureProgress(String(req.params.playerId)));
+    })
+  );
+
+  app.post(
+    '/api/guessit/adventure/start',
+    handleGridItApi(async (req, res) => {
+      const { playerId, stageId } = req.body ?? {};
+      const match = await guessItEngine.startAdventureStageRecord(
+        String(playerId || ''),
+        String(stageId || '')
+      );
+      res
+        .status(201)
+        .json(guessItEngine.sanitizeMatchForViewerRecord(match, String(playerId || '')));
+    })
+  );
+
+  app.post(
+    '/api/guessit/adventure/claim',
+    handleGridItApi(async (req, res) => {
+      const { playerId, matchId } = req.body ?? {};
+      res.json(
+        await guessItEngine.claimAdventureReward(String(playerId || ''), String(matchId || ''))
+      );
+    })
+  );
+
+  app.post(
+    '/api/guessit/catalog/validate',
+    handleGridItApi(async (req, res) => {
+      const { answer, category, difficulty, clue, rankedEligible } = req.body ?? {};
+      const entry = await guessItEngine.validateAndAddCatalogCandidate({
+        answer: String(answer || ''),
+        category,
+        difficulty,
+        clue,
+        rankedEligible,
+      });
+      res.status(201).json(entry);
     })
   );
 
@@ -2127,11 +2478,13 @@ export function createEnscribeApp(
     repo,
     engine,
     gridItEngine,
+    guessItEngine,
     cloudSync,
     guestStore,
     isPlayerOnline,
     broadcastMatchState,
     broadcastGridItMatch,
+    broadcastGuessItMatch,
     flushSideEffects,
     processTimersAndFlush,
     prewarm,

@@ -1,0 +1,1174 @@
+/* ============================================================================
+   GUESSIT — Dedicated Visual Theme (Faithful to 8-Screen Reference)
+   Isolated .ens-guessit-* classes; preserves ChainIt and GridIt styles cleanly.
+   Portrait-first iPhone 15 (393x852) with safe-area padding and zero overflow.
+   ============================================================================ */
+
+.ens-guessit-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  max-width: 100%;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(110% 45% at 50% 0%, rgba(110, 56, 240, 0.42) 0%, transparent 62%),
+    radial-gradient(90% 45% at 85% 65%, rgba(236, 72, 153, 0.24) 0%, transparent 58%),
+    radial-gradient(90% 50% at 12% 35%, rgba(37, 99, 235, 0.36) 0%, transparent 58%),
+    linear-gradient(180deg, #091866 0%, #10288f 42%, #1b2288 78%, #261676 100%);
+  color: #ffffff;
+  font-family: var(--font-ui);
+  padding-top: max(10px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.ens-guessit-shell.is-scrollable {
+  overflow-y: auto;
+}
+
+.ens-guessit-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 14px 18px;
+  position: relative;
+  z-index: 2;
+}
+
+.ens-guessit-gameplay-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 12px 6px;
+  gap: 7px;
+  position: relative;
+  z-index: 2;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Shared Top Header (Matches Screens 1–8) */
+.ens-guessit-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 14px 6px;
+  position: relative;
+  z-index: 3;
+  flex-shrink: 0;
+}
+
+.ens-guessit-circle-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(196, 186, 255, 0.65);
+  background: linear-gradient(180deg, rgba(64, 72, 178, 0.92) 0%, rgba(33, 40, 128, 0.95) 100%);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(7, 13, 58, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.ens-guessit-circle-btn:active {
+  transform: scale(0.93);
+}
+
+.ens-guessit-brand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(18, 30, 108, 0.72);
+  border: 1.5px solid rgba(173, 188, 255, 0.48);
+  border-radius: 999px;
+  padding: 5px 12px 5px 8px;
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(5, 11, 54, 0.42);
+}
+
+.ens-guessit-coin-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(18, 25, 92, 0.84);
+  border: 1.5px solid rgba(250, 204, 21, 0.55);
+  border-radius: 999px;
+  padding: 4px 10px 4px 6px;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 13.5px;
+  color: #fffbeb;
+  box-shadow: 0 4px 14px rgba(15, 12, 64, 0.45);
+}
+
+.ens-guessit-screen-title-wordmark {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  background: linear-gradient(180deg, #ffffff 0%, #e9d5ff 55%, #f472b6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 6px rgba(139, 92, 246, 0.55));
+}
+
+.ens-guessit-mode-pill-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: rgba(34, 44, 138, 0.9);
+  border: 1.5px solid rgba(196, 186, 255, 0.62);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 13px;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(7, 13, 58, 0.4);
+}
+
+/* ==================== SCREEN 1 — ENTRY ==================== */
+.ens-guessit-entry-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 6px 8px 4px;
+}
+
+.ens-guessit-qtile {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #ffe291 0%, #f59e0b 65%, #d97706 100%);
+  border: 2px solid #fffbeb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 2px 3px rgba(120, 53, 15, 0.6);
+  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.45), inset 0 2px 0 rgba(255, 255, 255, 0.65);
+  margin-bottom: 4px;
+}
+
+.ens-guessit-logo-main {
+  font-family: var(--font-display);
+  font-size: 46px;
+  font-weight: 900;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  text-shadow:
+    0 3px 0 #2e1065,
+    0 6px 18px rgba(124, 58, 237, 0.8),
+    0 0 26px rgba(168, 85, 247, 0.65);
+}
+
+.ens-guessit-entry-sub {
+  margin: 6px 0 0;
+  max-width: 280px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #dbeafe;
+}
+
+.ens-guessit-mascot-stage {
+  position: relative;
+  width: 260px;
+  height: 175px;
+  margin: 6px auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ens-guessit-mascot-aura {
+  position: absolute;
+  width: 190px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.55) 0%, rgba(168, 85, 247, 0.25) 55%, transparent 75%);
+  filter: blur(8px);
+}
+
+.ens-guessit-mascot-img {
+  position: relative;
+  z-index: 2;
+  width: 158px;
+  height: 158px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 18px rgba(12, 18, 72, 0.65));
+  animation: ensGuessItFloat 3.4s ease-in-out infinite;
+}
+
+.ens-guessit-float-tile {
+  position: absolute;
+  z-index: 3;
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(8, 12, 58, 0.52), inset 0 2px 0 rgba(255, 255, 255, 0.72);
+}
+
+.ens-guessit-float-tile.is-a {
+  left: 8px;
+  top: 22px;
+  transform: rotate(-12deg);
+  background: linear-gradient(180deg, #fff5d6 0%, #fbbf24 100%);
+  border: 2.5px solid #fffbeb;
+  color: #451a03;
+}
+
+.ens-guessit-float-tile.is-z {
+  right: 8px;
+  top: 24px;
+  transform: rotate(11deg);
+  background: linear-gradient(180deg, #e0c3fc 0%, #8b5cf6 100%);
+  border: 2.5px solid #f5f3ff;
+  color: #ffffff;
+}
+
+@keyframes ensGuessItFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.ens-guessit-cta-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 6px;
+}
+
+.ens-guessit-big-cta {
+  width: 100%;
+  min-height: 60px;
+  border-radius: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.78);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow:
+    0 10px 22px rgba(7, 13, 58, 0.45),
+    inset 0 2px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -3px 0 rgba(15, 23, 86, 0.25);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.ens-guessit-big-cta:active {
+  transform: scale(0.97);
+}
+
+.ens-guessit-big-cta.is-gold {
+  background: linear-gradient(180deg, #ffdf65 0%, #f59e0b 58%, #e07600 100%);
+  border-color: #fffbeb;
+  text-shadow: 0 2px 4px rgba(120, 53, 15, 0.45);
+}
+
+.ens-guessit-big-cta.is-adventure {
+  background: linear-gradient(180deg, #a855f7 0%, #6366f1 55%, #3b82f6 100%);
+  border-color: #e0e7ff;
+}
+
+.ens-guessit-big-cta.is-templates {
+  background: linear-gradient(180deg, #8b5cf6 0%, #5b21b6 62%, #4338ca 100%);
+  border-color: #ddd6fe;
+}
+
+.ens-guessit-cta-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ==================== SCREEN 2 — MODE SELECT ==================== */
+.ens-guessit-subhead {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: #e0e7ff;
+  margin: 2px 0 8px;
+}
+
+.ens-guessit-mode-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.ens-guessit-mode-card {
+  width: 100%;
+  border-radius: 18px;
+  border: 1.8px solid rgba(196, 178, 255, 0.65);
+  background: linear-gradient(135deg, rgba(64, 58, 174, 0.88) 0%, rgba(34, 43, 134, 0.94) 100%);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  text-align: left;
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow:
+    0 6px 16px rgba(6, 11, 52, 0.45),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.12s ease, border-color 0.14s ease;
+}
+
+.ens-guessit-mode-card:active {
+  transform: scale(0.98);
+}
+
+.ens-guessit-mode-card.is-speed {
+  border-color: rgba(250, 204, 21, 0.72);
+  background: linear-gradient(135deg, rgba(112, 46, 175, 0.88) 0%, rgba(44, 52, 152, 0.94) 100%);
+}
+
+.ens-guessit-mode-card.is-duel {
+  border-color: rgba(167, 139, 250, 0.72);
+}
+
+.ens-guessit-mode-card.is-precision {
+  border-color: rgba(244, 114, 182, 0.72);
+}
+
+.ens-guessit-mode-card.is-royale {
+  border-color: rgba(251, 191, 36, 0.72);
+}
+
+.ens-guessit-mode-card.is-relay {
+  border-color: rgba(56, 189, 248, 0.78);
+}
+
+.ens-guessit-mode-card.is-crossword {
+  border-color: rgba(192, 132, 252, 0.85);
+  background: linear-gradient(135deg, rgba(118, 42, 186, 0.9) 0%, rgba(67, 29, 146, 0.94) 100%);
+}
+
+.ens-guessit-mode-badge-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(16, 22, 84, 0.75);
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ens-guessit-mode-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ens-guessit-mode-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.15;
+}
+
+.ens-guessit-mode-desc {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #dbeafe;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+
+.ens-guessit-cap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: rgba(15, 22, 82, 0.85);
+  border: 1px solid rgba(165, 180, 252, 0.45);
+  font-size: 11px;
+  font-weight: 900;
+  color: #e0e7ff;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ==================== SCREEN 3 — LOBBY ==================== */
+.ens-guessit-glass-card {
+  background: linear-gradient(180deg, rgba(44, 52, 152, 0.9) 0%, rgba(25, 33, 112, 0.95) 100%);
+  border: 1.5px solid rgba(186, 178, 255, 0.58);
+  border-radius: 20px;
+  padding: 12px;
+  box-shadow: 0 8px 20px rgba(7, 12, 52, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.ens-guessit-code-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(12, 18, 72, 0.85);
+  border: 1.5px solid rgba(165, 180, 252, 0.55);
+  margin: 6px 0 10px;
+}
+
+.ens-guessit-code-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ens-guessit-code-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #ffffff;
+}
+
+.ens-guessit-teams-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.ens-guessit-team-card {
+  border-radius: 18px;
+  padding: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ens-guessit-team-card.is-blue {
+  background: linear-gradient(180deg, rgba(22, 86, 198, 0.85) 0%, rgba(20, 48, 134, 0.92) 100%);
+  border: 2px solid #38bdf8;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.25);
+}
+
+.ens-guessit-team-card.is-red {
+  background: linear-gradient(180deg, rgba(154, 34, 146, 0.85) 0%, rgba(88, 22, 108, 0.92) 100%);
+  border: 2px solid #f472b6;
+  box-shadow: 0 0 18px rgba(244, 114, 182, 0.25);
+}
+
+.ens-guessit-team-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 900;
+}
+
+.ens-guessit-member-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 12px;
+  background: rgba(12, 18, 72, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 12px;
+  font-weight: 800;
+  min-width: 0;
+}
+
+.ens-guessit-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(165, 180, 252, 0.2);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ens-guessit-setting-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ens-guessit-gold-btn {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 18px;
+  border: 2px solid #fffbeb;
+  background: linear-gradient(180deg, #ffe266 0%, #fbbf24 55%, #e67e00 100%);
+  color: #3f1d00;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.42), inset 0 2px 0 rgba(255, 255, 255, 0.7);
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+
+.ens-guessit-gold-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ens-guessit-gold-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* ==================== SCREEN 4 & 5 — GAMEPLAY ==================== */
+.ens-guessit-vs-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ens-guessit-hud-player {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border-radius: 16px;
+  background: rgba(16, 28, 96, 0.86);
+  min-width: 0;
+}
+
+.ens-guessit-hud-player.is-blue {
+  border: 2px solid #38bdf8;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
+}
+
+.ens-guessit-hud-player.is-pink {
+  border: 2px solid #f472b6;
+  box-shadow: 0 0 14px rgba(244, 114, 182, 0.25);
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.ens-guessit-hud-name {
+  font-size: 11px;
+  font-weight: 800;
+  color: #dbeafe;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ens-guessit-hud-score {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.05;
+}
+
+.ens-guessit-vs-badge {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 900;
+  color: #fde047;
+  text-shadow: 0 2px 6px rgba(12, 18, 68, 0.7);
+}
+
+.ens-guessit-meta-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ens-guessit-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 12px;
+  background: rgba(34, 42, 134, 0.9);
+  border: 1.5px solid rgba(192, 184, 255, 0.55);
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ens-guessit-timer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 12px;
+  background: rgba(20, 28, 96, 0.9);
+  border: 1.5px solid rgba(250, 204, 21, 0.65);
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 900;
+  color: #fef08a;
+  flex-shrink: 0;
+}
+
+.ens-guessit-mistakes-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #dbeafe;
+  flex-shrink: 0;
+}
+
+.ens-guessit-mistake-pip {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.ens-guessit-mistake-pip.is-used {
+  background: #fb7185;
+  border-color: #ffe4e6;
+  box-shadow: 0 0 8px rgba(251, 113, 133, 0.85);
+  transform: scale(1.08);
+}
+
+/* Classic Multi-Word Tiles */
+.ens-guessit-tiles-rack {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 7px 11px;
+  padding: 8px 6px;
+  flex-shrink: 0;
+}
+
+.ens-guessit-word-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  flex-wrap: nowrap;
+}
+
+.ens-guessit-letter-tile {
+  width: var(--tile-size, 32px);
+  height: calc(var(--tile-size, 32px) * 1.15);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #eff4ff 78%, #d7e2ff 100%);
+  border: 1.8px solid #ffffff;
+  color: #172055;
+  font-family: var(--font-display);
+  font-size: calc(var(--tile-size, 32px) * 0.58);
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 0 #8a9ae0, 0 6px 12px rgba(5, 10, 48, 0.4);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.ens-guessit-letter-tile.is-blank {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, #e4ecff 100%);
+  color: #94a3b8;
+}
+
+.ens-guessit-letter-tile.is-just-revealed {
+  background: linear-gradient(180deg, #b8f9dd 0%, #6ee7b7 100%);
+  border-color: #ecfdf5;
+  color: #064e3b;
+  transform: translateY(-2px);
+}
+
+.ens-guessit-letter-tile.is-punct {
+  width: calc(var(--tile-size, 32px) * 0.72);
+  background: rgba(34, 46, 138, 0.85);
+  border-color: rgba(165, 180, 252, 0.65);
+  color: #fde047;
+  box-shadow: none;
+}
+
+.ens-guessit-space-gap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+}
+
+.ens-guessit-space-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.45);
+}
+
+/* Replaceable Wrong-Guess Penalty Animation Area */
+.ens-guessit-penalty-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  gap: 4px;
+  min-height: 112px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ens-guessit-penalty-stage.is-compact {
+  min-height: 52px;
+  flex-direction: row;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(17, 25, 88, 0.72);
+  border-radius: 14px;
+  border: 1.5px solid rgba(251, 113, 133, 0.5);
+  padding: 6px 12px;
+}
+
+.ens-guessit-penalty-mascots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ens-guessit-penalty-mascot-img {
+  width: 78px;
+  height: 78px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 14px rgba(8, 12, 54, 0.55));
+}
+
+.ens-guessit-penalty-mascot-img.is-shaken {
+  animation: ensGuessItWobble 0.42s ease-in-out infinite alternate;
+}
+
+@keyframes ensGuessItWobble {
+  0% {
+    transform: rotate(-5deg) translateY(0);
+  }
+  100% {
+    transform: rotate(5deg) translateY(-3px);
+  }
+}
+
+.ens-guessit-wrong-headline {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 900;
+  color: #ff6b8b;
+  text-shadow: 0 2px 8px rgba(136, 19, 55, 0.7);
+}
+
+.ens-guessit-penalty-sub {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #e0e7ff;
+}
+
+.ens-guessit-penalty-track {
+  width: 100%;
+  max-width: 240px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(15, 20, 74, 0.85);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+}
+
+.ens-guessit-penalty-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff4d79 0%, #fb7185 55%, #fbcfe8 100%);
+  transition: width 60ms linear;
+}
+
+/* Glossy 3D A-Z Keyboard */
+.ens-guessit-keyboard {
+  background: linear-gradient(180deg, rgba(30, 40, 128, 0.92) 0%, rgba(16, 22, 82, 0.96) 100%);
+  border: 1.5px solid rgba(165, 180, 252, 0.55);
+  border-radius: 18px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 10px 24px rgba(5, 8, 42, 0.55);
+  flex-shrink: 0;
+}
+
+.ens-guessit-kb-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+
+.ens-guessit-key {
+  flex: 1;
+  max-width: 34px;
+  min-width: 0;
+  height: 41px;
+  border-radius: 10px;
+  border: 1.5px solid #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #eef2ff 78%, #d8e1ff 100%);
+  color: #161d4e;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 0 #8f9ee2, 0 4px 8px rgba(7, 11, 46, 0.35);
+  transition: transform 0.08s ease, opacity 0.12s ease, background 0.15s ease;
+  padding: 0;
+}
+
+.ens-guessit-key:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #8f9ee2;
+}
+
+.ens-guessit-key.is-correct {
+  background: linear-gradient(180deg, #74f9c8 0%, #10b981 100%);
+  border-color: #d1fae5;
+  color: #052e16;
+  box-shadow: 0 3px 0 #047857;
+}
+
+.ens-guessit-key.is-wrong {
+  background: linear-gradient(180deg, #ff7a98 0%, #e11d48 100%);
+  border-color: #fecdd3;
+  color: #ffffff;
+  box-shadow: 0 3px 0 #9f1239;
+}
+
+.ens-guessit-key:disabled {
+  cursor: not-allowed;
+}
+
+.ens-guessit-key.is-locked-dim:not(.is-correct):not(.is-wrong) {
+  opacity: 0.52;
+}
+
+/* ==================== SCREEN 5 — CROSSWORD GRID ==================== */
+.ens-guessit-cw-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 2px;
+}
+
+.ens-guessit-cw-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cw-cols, 10), minmax(0, 1fr));
+  gap: 3px;
+  width: 100%;
+  max-width: min(358px, calc(var(--cw-cols, 10) * 34px));
+  margin: 0 auto;
+}
+
+.ens-guessit-cw-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(11px, 3.6vw, 17px);
+  min-width: 0;
+}
+
+.ens-guessit-cw-cell.is-empty {
+  background: transparent;
+}
+
+.ens-guessit-cw-cell.is-letter {
+  background: linear-gradient(180deg, #ffffff 0%, #edf2ff 80%, #d2ddff 100%);
+  border: 1.5px solid #ffffff;
+  color: #172055;
+  box-shadow: 0 2px 0 #8a9be0, 0 3px 6px rgba(6, 10, 44, 0.35);
+}
+
+.ens-guessit-cw-cell.is-letter.is-intersection {
+  border-color: #fde047;
+}
+
+.ens-guessit-cw-cell.is-letter.is-revealed {
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  color: #172055;
+}
+
+.ens-guessit-cw-cell.is-letter.is-revealed.is-intersection {
+  background: linear-gradient(180deg, #befbe3 0%, #6ee7b7 100%);
+  border-color: #ecfdf5;
+  color: #064e3b;
+}
+
+.ens-guessit-cw-cell.is-space {
+  background: rgba(125, 211, 252, 0.14);
+  border: 1px dashed rgba(125, 211, 252, 0.5);
+  border-radius: 5px;
+}
+
+.ens-guessit-cw-cell.is-punct {
+  background: rgba(36, 48, 138, 0.85);
+  border: 1px solid rgba(165, 180, 252, 0.65);
+  color: #fde047;
+}
+
+/* ==================== SCREEN 6 — SOLO ADVENTURE MAP ==================== */
+.ens-guessit-chapter-banner {
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(84, 52, 186, 0.92) 0%, rgba(38, 52, 152, 0.95) 100%);
+  border: 1.8px solid rgba(250, 204, 21, 0.6);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: 0 8px 20px rgba(7, 11, 52, 0.48);
+  margin-bottom: 12px;
+}
+
+.ens-guessit-map-canvas {
+  position: relative;
+  border-radius: 24px;
+  border: 2px solid rgba(186, 178, 255, 0.52);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(168, 85, 247, 0.35) 0%, transparent 45%),
+    radial-gradient(circle at 80% 60%, rgba(56, 189, 248, 0.25) 0%, transparent 50%),
+    linear-gradient(180deg, #171866 0%, #24218a 50%, #162472 100%);
+  padding: 18px 14px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ens-guessit-map-node-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ens-guessit-map-node-row.is-right {
+  flex-direction: row-reverse;
+}
+
+.ens-guessit-stage-btn {
+  position: relative;
+  min-width: 92px;
+  height: 54px;
+  border-radius: 999px;
+  border: 2.5px solid #ffffff;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 900;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 7px 16px rgba(6, 10, 44, 0.55);
+  transition: transform 0.14s ease;
+}
+
+.ens-guessit-stage-btn.is-completed {
+  background: linear-gradient(180deg, #5ef5c0 0%, #10b981 100%);
+  border-color: #d1fae5;
+  color: #052e16;
+}
+
+.ens-guessit-stage-btn.is-current {
+  background: linear-gradient(180deg, #d8b4fe 0%, #8b5cf6 58%, #5b21b6 100%);
+  border-color: #fde047;
+  box-shadow: 0 0 22px rgba(250, 204, 21, 0.65), 0 7px 16px rgba(6, 10, 44, 0.55);
+}
+
+.ens-guessit-stage-btn.is-locked {
+  background: linear-gradient(180deg, #475569 0%, #1e293b 100%);
+  border-color: #94a3b8;
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.ens-guessit-stage-btn.is-selected {
+  transform: scale(1.06);
+  outline: 3px solid rgba(250, 204, 21, 0.85);
+}
+
+.ens-guessit-dialogue-dock {
+  margin-top: 10px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(44, 52, 154, 0.94) 0%, rgba(23, 30, 108, 0.98) 100%);
+  border: 1.8px solid rgba(196, 184, 255, 0.65);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 24px rgba(5, 10, 46, 0.55);
+}
+
+/* ==================== SCREEN 7 — RESULTS ==================== */
+.ens-guessit-victory-title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1;
+  background: linear-gradient(180deg, #ffffff 0%, #fae8ff 52%, #f472b6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 10px rgba(192, 38, 211, 0.65));
+}
+
+.ens-guessit-winner-banner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 20px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
+  border: 1.8px solid #dbeafe;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 900;
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.45);
+}
+
+.ens-guessit-score-cards {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.ens-guessit-result-card {
+  border-radius: 18px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+}
+
+.ens-guessit-result-card.is-blue {
+  background: linear-gradient(180deg, rgba(24, 92, 206, 0.85) 0%, rgba(16, 46, 134, 0.95) 100%);
+  border: 2px solid #38bdf8;
+}
+
+.ens-guessit-result-card.is-pink {
+  background: linear-gradient(180deg, rgba(162, 34, 152, 0.85) 0%, rgba(92, 20, 112, 0.95) 100%);
+  border: 2px solid #f472b6;
+}
+
+/* ==================== SCREEN 8 — ADVENTURE REWARD ==================== */
+.ens-guessit-reward-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.ens-guessit-reward-tile {
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(58, 62, 174, 0.88) 0%, rgba(30, 38, 124, 0.96) 100%);
+  border: 1.6px solid rgba(196, 184, 255, 0.65);
+  padding: 12px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  box-shadow: 0 8px 18px rgba(7, 11, 52, 0.45);
+}
+
+.ens-guessit-reward-val {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 900;
+  color: #ffffff;
+}
+
+.ens-guessit-reward-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #dbeafe;
+}
+
+.ens-guessit-progress-bar-track {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(12, 18, 72, 0.88);
+  border: 1.5px solid rgba(165, 180, 252, 0.48);
+  overflow: hidden;
+  flex: 1;
+}
+
+.ens-guessit-progress-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #a855f7 0%, #38bdf8 100%);
+  transition: width 0.35s ease;
+}

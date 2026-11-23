@@ -23,6 +23,17 @@ export const REGISTERED_GAMES: GameModuleDescriptor[] = [
     minPlayers: 1,
     maxPlayers: 6,
   },
+  {
+    id: 'guessit',
+    slug: 'guessit',
+    name: 'GuessIt',
+    tagline: 'Decode phrases, crosswords & team relays at top speed.',
+    status: 'playable',
+    badgeText: 'NEW',
+    supportedModes: ['classic', 'speed_race', 'solo', 'ranked'],
+    minPlayers: 1,
+    maxPlayers: 8,
+  },
 ];
 
 export const HUB_GAME_TILES: HubGameTile[] = [
@@ -45,6 +56,16 @@ export const HUB_GAME_TILES: HubGameTile[] = [
     badgeText: 'NEW',
     themeVariant: 'gridit',
     gameId: 'gridit',
+  },
+  {
+    id: 'tile_guessit',
+    slug: 'guessit',
+    name: 'GuessIt',
+    tagline: 'Guess phrases, crosswords & team relays before the clock hits zero!',
+    status: 'playable',
+    badgeText: 'NEW',
+    themeVariant: 'guessit',
+    gameId: 'guessit',
   },
   {
     id: 'tile_upcoming_1',

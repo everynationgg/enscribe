@@ -9,6 +9,22 @@ const sharedDieGeometry = new RoundedBoxGeometry(0.85, 0.85, 0.85, 4, 0.13);
 
 const orderBadgeCache = new Map<number, THREE.CanvasTexture>();
 
+// Shared immutable palette constants + reusable scratch colors (zero per-frame GC allocations)
+const COLOR_WHITE = new THREE.Color('#ffffff');
+const COLOR_BLACK = new THREE.Color('#000000');
+const COLOR_SELECT_TINT = new THREE.Color('#fef08a');
+const COLOR_SELECT_EMISSIVE = new THREE.Color('#f59e0b');
+const COLOR_HINT_EMISSIVE = new THREE.Color('#38bdf8');
+const COLOR_GOLD_SIDE = new THREE.Color('#facc15');
+const COLOR_GOLD_TOP = new THREE.Color('#fde047');
+const COLOR_GOLD_SIDE_EMISSIVE = new THREE.Color('#d97706');
+const COLOR_GOLD_TOP_EMISSIVE = new THREE.Color('#92400e');
+
+const _tmpColor = new THREE.Color();
+const _tmpEmissive = new THREE.Color();
+const _tmpTargetColor = new THREE.Color();
+const _tmpTargetEmissive = new THREE.Color();
+
 function getOrderBadgeTexture(order: number): THREE.CanvasTexture {
   const cached = orderBadgeCache.get(order);
   if (cached) return cached;
@@ -76,32 +92,33 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
     const groupRef = useRef<THREE.Group>(null);
     const isSelected = selectedIndex >= 0;
 
-    // Determine letters for all 6 faces:
-    // BoxGeometry material faces order: [+X (right), -X (left), +Y (top), -Y (bottom), +Z (front), -Z (back)]
-    // Top face (+Y, index 2) MUST be the assigned letter!
+    // Smooth blend states for activation/expiration without jarring swaps
+    const rainbowBlendRef = useRef(isRainbow ? 1 : 0);
+    const goldenBlendRef = useRef(isGolden ? 1 : 0);
+    const selectedBlendRef = useRef(isSelected ? 1 : 0);
+    const hintBlendRef = useRef(isHinted ? 1 : 0);
+    const matDirtyRef = useRef(true);
+    const wasMatActiveRef = useRef(isRainbow || isGolden || isSelected || isHinted);
+
+    // Build stable 6-face materials once per tile face content; modifier colors/shaders
+    // animate smoothly in place inside useFrame without tearing down materials.
+    // Order: [+X (right), -X (left), +Y (TOP), -Y (bottom), +Z (front), -Z (back)]
     const faceMaterials = useMemo(() => {
       const topLetter = tile.letter || '·';
       const altPool = BOGGLE_DIE_FACES[tileIndex % BOGGLE_DIE_FACES.length];
-      const baseProps: THREE.MeshStandardMaterialParameters = isGolden
-        ? { roughness: 0.22, metalness: 0.15 }
-        : isRainbow
-          ? { roughness: 0.25, metalness: 0.08 }
-          : { roughness: 0.28, metalness: 0.04 };
 
       const makeFaceMat = (letter: string, isTop: boolean) => {
         const tex = getLetterTexture(letter, {
-          isGolden,
-          isRainbow,
           isPaused: isTop ? isPaused : false,
           isEmptySlot: isTop ? isEmptySlot : false,
         });
         return new THREE.MeshStandardMaterial({
           map: tex,
-          ...baseProps,
+          roughness: 0.28,
+          metalness: 0.04,
         });
       };
 
-      // 6 materials for [+X, -X, +Y (TOP), -Y, +Z, -Z] — reused across selection/hint changes
       return [
         makeFaceMat(altPool[0] ?? 'A', false),
         makeFaceMat(altPool[1] ?? 'B', false),
@@ -110,7 +127,7 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
         makeFaceMat(altPool[3] ?? 'D', false),
         makeFaceMat(altPool[4] ?? 'E', false),
       ];
-    }, [tile.letter, tileIndex, isRainbow, isGolden, isPaused, isEmptySlot]);
+    }, [tile.letter, tileIndex, isPaused, isEmptySlot]);
 
     useEffect(() => {
       return () => {
@@ -120,50 +137,9 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
       };
     }, [faceMaterials]);
 
-    // Update color/emissive highlight in place without re-allocating GPU materials
     useEffect(() => {
-      const colorHex = isGolden
-        ? isSelected
-          ? '#fffbeb'
-          : '#ffffff'
-        : isRainbow
-          ? '#ffffff'
-          : isSelected
-            ? '#fef08a'
-            : '#ffffff';
-      const emissiveHex = isGolden
-        ? isSelected
-          ? '#f59e0b'
-          : '#d97706'
-        : isRainbow
-          ? isSelected
-            ? '#ec4899'
-            : '#c084fc'
-          : isSelected
-            ? '#f59e0b'
-            : isHinted
-              ? '#38bdf8'
-              : '#000000';
-      const emissiveIntensity = isGolden
-        ? isSelected
-          ? 0.65
-          : 0.1
-        : isRainbow
-          ? isSelected
-            ? 0.75
-            : 0.18
-          : isSelected
-            ? 0.65
-            : isHinted
-              ? 0.5
-              : 0;
-
-      for (const mat of faceMaterials) {
-        mat.color.set(colorHex);
-        mat.emissive.set(emissiveHex);
-        mat.emissiveIntensity = emissiveIntensity;
-      }
-    }, [faceMaterials, isGolden, isRainbow, isSelected, isHinted]);
+      matDirtyRef.current = true;
+    }, [faceMaterials, isRainbow, isGolden, isSelected, isHinted]);
 
     // Target home resting transform
     const homePos = useMemo(
@@ -182,14 +158,20 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
       [baseRotationEuler]
     );
 
-    useFrame((_, delta) => {
+    useFrame((state, delta) => {
       const grp = groupRef.current;
       if (!grp) return;
 
       const safeDelta = Math.min(0.05, Math.max(0.001, delta));
+      const t = state.clock.elapsedTime;
 
+      // 1. Update transform (shaking in-slot vs settled gameplay)
       if (isShaking && physicsState) {
-        if (!Number.isNaN(physicsState.pos.x) && !Number.isNaN(physicsState.pos.y) && !Number.isNaN(physicsState.pos.z)) {
+        if (
+          !Number.isNaN(physicsState.pos.x) &&
+          !Number.isNaN(physicsState.pos.y) &&
+          !Number.isNaN(physicsState.pos.z)
+        ) {
           grp.position.copy(physicsState.pos);
         } else {
           grp.position.copy(homePos);
@@ -200,19 +182,145 @@ export const GridIt3DSingleDie = memo<GridIt3DSingleDieProps>(
           grp.quaternion.copy(targetQuaternion);
         }
       } else {
-        // Stable gameplay mode: smooth lift when selected
         const targetY = isSelected ? homePos.y + 0.24 : homePos.y;
         grp.position.x = homePos.x;
         grp.position.z = homePos.z;
         const currentY = Number.isNaN(grp.position.y) ? homePos.y : grp.position.y;
         grp.position.y = THREE.MathUtils.damp(currentY, targetY, 14, safeDelta);
 
-        // Align smoothly to target resting orientation
         if (Number.isNaN(grp.quaternion.x) || Number.isNaN(grp.quaternion.w)) {
           grp.quaternion.copy(targetQuaternion);
         } else {
           grp.quaternion.slerp(targetQuaternion, THREE.MathUtils.clamp(safeDelta * 10, 0, 1));
         }
+      }
+
+      // 2. Smoothly blend Rainbow / Golden / Selection / Hint cube materials in place
+      const rb = (rainbowBlendRef.current = THREE.MathUtils.damp(
+        rainbowBlendRef.current,
+        isRainbow ? 1 : 0,
+        4.2,
+        safeDelta
+      ));
+      const gd = (goldenBlendRef.current = THREE.MathUtils.damp(
+        goldenBlendRef.current,
+        isGolden ? 1 : 0,
+        4.2,
+        safeDelta
+      ));
+      const sel = (selectedBlendRef.current = THREE.MathUtils.damp(
+        selectedBlendRef.current,
+        isSelected ? 1 : 0,
+        16,
+        safeDelta
+      ));
+      const hnt = (hintBlendRef.current = THREE.MathUtils.damp(
+        hintBlendRef.current,
+        isHinted ? 1 : 0,
+        8,
+        safeDelta
+      ));
+
+      const isActive = rb > 0.001 || gd > 0.001 || sel > 0.001 || hnt > 0.001;
+      if (isActive || wasMatActiveRef.current || matDirtyRef.current) {
+        const shimmer = 0.5 + 0.5 * Math.sin(t * 2.4 + tileIndex * 0.7);
+        const baseHue = (t * 0.32 + tileIndex * 0.11) % 1;
+        const modSuppression = Math.max(rb, gd);
+
+        for (let faceIdx = 0; faceIdx < faceMaterials.length; faceIdx++) {
+          const mat = faceMaterials[faceIdx];
+          const isTop = faceIdx === 2;
+
+          // Base neutral ivory die
+          _tmpColor.copy(COLOR_WHITE);
+          _tmpEmissive.copy(COLOR_BLACK);
+          let emissiveIntensity = 0;
+          let metalness = 0.04;
+          let roughness = 0.28;
+
+          // Golden Letter: metallic gold cube body + edge glow + high-contrast top face
+          if (gd > 0.001) {
+            const gCol = isTop ? COLOR_GOLD_TOP : COLOR_GOLD_SIDE;
+            const gEm = isTop ? COLOR_GOLD_TOP_EMISSIVE : COLOR_GOLD_SIDE_EMISSIVE;
+            const gEmInt = isTop ? 0.14 + shimmer * 0.05 : 0.3 + shimmer * 0.12;
+            const gMet = isTop ? 0.42 : 0.78;
+            const gRough = isTop ? 0.2 : 0.18;
+
+            _tmpColor.lerp(gCol, gd);
+            _tmpEmissive.lerp(gEm, gd);
+            emissiveIntensity = THREE.MathUtils.lerp(emissiveIntensity, gEmInt, gd);
+            metalness = THREE.MathUtils.lerp(metalness, gMet, gd);
+            roughness = THREE.MathUtils.lerp(roughness, gRough, gd);
+          }
+
+          // Rainbow Wildcard: animated iridescent cube body + bright legible top face
+          if (rb > 0.001) {
+            const faceHue = isTop ? baseHue : (baseHue + faceIdx * 0.16) % 1;
+            _tmpTargetColor.setHSL(faceHue, isTop ? 0.84 : 0.92, isTop ? 0.78 : 0.62);
+            _tmpTargetEmissive.setHSL(
+              (faceHue + (isTop ? 0.1 : 0.08)) % 1,
+              isTop ? 0.9 : 0.95,
+              isTop ? 0.55 : 0.5
+            );
+            const rEmInt = isTop ? 0.14 : 0.46;
+            const rMet = isTop ? 0.18 : 0.28;
+            const rRough = isTop ? 0.2 : 0.18;
+
+            _tmpColor.lerp(_tmpTargetColor, rb);
+            _tmpEmissive.lerp(_tmpTargetEmissive, rb);
+            emissiveIntensity = THREE.MathUtils.lerp(emissiveIntensity, rEmInt, rb);
+            metalness = THREE.MathUtils.lerp(metalness, rMet, rb);
+            roughness = THREE.MathUtils.lerp(roughness, rRough, rb);
+          }
+
+          // Hint glow (underneath selection)
+          if (hnt > 0.001) {
+            const hWeight = hnt * (1 - modSuppression * 0.65);
+            _tmpEmissive.lerp(COLOR_HINT_EMISSIVE, hWeight);
+            emissiveIntensity += (isTop ? 0.22 : 0.45) * hnt * (1 - sel);
+          }
+
+          // Selection highlight (preserves modifier hue while clearly indicating active trace)
+          if (sel > 0.001) {
+            const normalWeight = sel * (1 - modSuppression);
+            if (normalWeight > 0.001) {
+              _tmpColor.lerp(COLOR_SELECT_TINT, normalWeight);
+              _tmpEmissive.lerp(COLOR_SELECT_EMISSIVE, normalWeight);
+              emissiveIntensity = THREE.MathUtils.lerp(
+                emissiveIntensity,
+                isTop ? 0.28 : 0.55,
+                normalWeight
+              );
+            }
+            if (modSuppression > 0.001) {
+              emissiveIntensity += (isTop ? 0.14 : 0.25) * sel * modSuppression;
+            }
+          }
+
+          mat.color.copy(_tmpColor);
+          mat.emissive.copy(_tmpEmissive);
+          mat.emissiveIntensity = emissiveIntensity;
+          mat.metalness = metalness;
+          mat.roughness = roughness;
+        }
+
+        wasMatActiveRef.current = isActive;
+        matDirtyRef.current = false;
+      }
+
+      // Expose inspectable runtime metadata cleanly on group.userData
+      grp.userData.tileId = tile.id;
+      grp.userData.letter = tile.letter;
+      grp.userData.isRainbow = isRainbow;
+      grp.userData.isGolden = isGolden;
+      grp.userData.rainbowBlend = rb;
+      grp.userData.goldenBlend = gd;
+      if (!grp.userData.homePos) {
+        grp.userData.homePos = { x: homePos.x, y: homePos.y, z: homePos.z };
+      } else {
+        grp.userData.homePos.x = homePos.x;
+        grp.userData.homePos.y = homePos.y;
+        grp.userData.homePos.z = homePos.z;
       }
     });
 

@@ -1,4 +1,4 @@
-export type GameModuleId = 'chain_clash' | 'gridit';
+export type GameModuleId = 'chain_clash' | 'gridit' | 'guessit';
 
 export interface GameModuleDescriptor {
   id: GameModuleId;
@@ -19,7 +19,7 @@ export interface HubGameTile {
   tagline: string;
   status: 'playable' | 'coming_soon';
   badgeText: string;
-  themeVariant: 'chainit' | 'gridit' | 'coming_soon';
+  themeVariant: 'chainit' | 'gridit' | 'guessit' | 'coming_soon';
   gameId?: GameModuleId;
 }
 
@@ -285,3 +285,4 @@ export interface GuessResult {
 export * from './gridit/types.js';
 export * from './gridit/multiplayerTypes.js';
 export * from './gridit/mods.js';
+export * from './guessit/types.js';

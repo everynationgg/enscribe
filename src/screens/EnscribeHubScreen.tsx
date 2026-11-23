@@ -118,12 +118,28 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
             <div className="ens-hub-tiles-stack">
               {playableTiles.map((tile) => {
                 const isGridIt = tile.themeVariant === 'gridit';
-                const artSrc = isGridIt ? '/art/hub-gridit-card.png' : '/art/hub-chainit-card.png';
+                const isGuessIt = tile.themeVariant === 'guessit';
+                const artSrc = isGridIt
+                  ? '/art/hub-gridit-card.png'
+                  : isGuessIt
+                    ? '/art/chapter1-banner-art.png'
+                    : '/art/hub-chainit-card.png';
+                const ctaLabel = isGridIt
+                  ? 'Open GridIt'
+                  : isGuessIt
+                    ? 'Play GuessIt'
+                    : 'Play ChainIt';
+                const variantClass = isGridIt
+                  ? 'is-gridit'
+                  : isGuessIt
+                    ? 'is-guessit'
+                    : 'is-chainit';
+
                 return (
                   <button
                     key={tile.id}
                     type="button"
-                    className={`ens-hub-game-tile ${isGridIt ? 'is-gridit' : 'is-chainit'}`}
+                    className={`ens-hub-game-tile ${variantClass}`}
                     onClick={() => handleTileClick(tile)}
                   >
                     <img src={artSrc} alt="" className="ens-hub-tile-art" aria-hidden="true" />
@@ -131,7 +147,7 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
                     <span className="ens-home-mode-sheen" aria-hidden="true" />
 
                     <div className="ens-hub-tile-content">
-                      <span className={`ens-hub-tile-badge ${isGridIt ? 'is-new' : 'is-live'}`}>
+                      <span className={`ens-hub-tile-badge ${isGridIt || isGuessIt ? 'is-new' : 'is-live'}`}>
                         {tile.badgeText}
                       </span>
 
@@ -140,13 +156,13 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
                         <div className="ens-hub-tile-tagline">{tile.tagline}</div>
                       </div>
 
-                      <div className={`ens-hub-tile-cta ${isGridIt ? 'is-gold' : 'is-lavender'}`}>
+                      <div className={`ens-hub-tile-cta ${isGridIt || isGuessIt ? 'is-gold' : 'is-lavender'}`}>
                         <Play
                           size={14}
-                          fill={isGridIt ? '#ffffff' : '#4a1d96'}
-                          color={isGridIt ? '#ffffff' : '#4a1d96'}
+                          fill={isGridIt || isGuessIt ? '#ffffff' : '#4a1d96'}
+                          color={isGridIt || isGuessIt ? '#ffffff' : '#4a1d96'}
                         />
-                        <span>{isGridIt ? 'Open GridIt' : 'Play ChainIt'}</span>
+                        <span>{ctaLabel}</span>
                       </div>
                     </div>
                   </button>

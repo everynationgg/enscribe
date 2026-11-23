@@ -12,6 +12,10 @@ import {
   GridItModConfig,
   GridItRoom,
   GridItShapeId,
+  GuessItAdventureClaimResult,
+  GuessItAdventureProgressClient,
+  GuessItMatchStateClient,
+  GuessItRoom,
   InAppNotification,
   MatchHistorySummary,
   MatchStateClient,
@@ -62,6 +66,14 @@ import { GridItMultiplayerGameplayScreen } from './screens/GridItMultiplayerGame
 import { GridItRankedScreen } from './screens/GridItRankedScreen';
 import { GridItLeaderboardScreen } from './screens/GridItLeaderboardScreen';
 import { GridItCustomTemplate } from '../shared/gridit/editor';
+import { GuessItEntryScreen } from './screens/guessit/GuessItEntryScreen';
+import { GuessItModeSelectScreen } from './screens/guessit/GuessItModeSelectScreen';
+import { GuessItLobbyScreen } from './screens/guessit/GuessItLobbyScreen';
+import { GuessItClassicGameplayScreen } from './screens/guessit/GuessItClassicGameplayScreen';
+import { GuessItCrosswordGameplayScreen } from './screens/guessit/GuessItCrosswordGameplayScreen';
+import { GuessItAdventureMapScreen } from './screens/guessit/GuessItAdventureMapScreen';
+import { GuessItResultsScreen } from './screens/guessit/GuessItResultsScreen';
+import { GuessItAdventureRewardScreen } from './screens/guessit/GuessItAdventureRewardScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { PlayScreen } from './screens/PlayScreen';
 import { SoloScreen } from './screens/SoloScreen';
@@ -75,7 +87,13 @@ import { GameplayScreen } from './screens/GameplayScreen';
 
 type ActiveRoute =
   | { view: 'hub' }
-  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' }
+  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' | 'guessit' }
+  | { view: 'guessit_entry' }
+  | { view: 'guessit_modes' }
+  | { view: 'guessit_lobby'; roomId: string }
+  | { view: 'guessit_match'; matchId: string }
+  | { view: 'guessit_adventure' }
+  | { view: 'guessit_adventure_reward' }
   | { view: 'gridit_home' }
   | { view: 'gridit_solo_setup' }
   | { view: 'gridit_editor'; returnToLobbyRoomId?: string | null }
@@ -147,6 +165,14 @@ export const App: React.FC = () => {
   const [activeGridItMatch, setActiveGridItMatch] = useState<GridItMatchStateClient | null>(null);
   const [gridItQuickQueued, setGridItQuickQueued] = useState(false);
   const [gridItRankedQueued, setGridItRankedQueued] = useState(false);
+  const [guessItPublicRooms, setGuessItPublicRooms] = useState<GuessItRoom[]>([]);
+  const [activeGuessItRoom, setActiveGuessItRoom] = useState<GuessItRoom | null>(null);
+  const [activeGuessItMatch, setActiveGuessItMatch] = useState<GuessItMatchStateClient | null>(null);
+  const [guessItAdventureProgress, setGuessItAdventureProgress] =
+    useState<GuessItAdventureProgressClient | null>(null);
+  const [guessItAdventureClaim, setGuessItAdventureClaim] =
+    useState<GuessItAdventureClaimResult | null>(null);
+  const [guessItRankedKey, setGuessItRankedKey] = useState<string | null>(null);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [ongoingMatches, setOngoingMatches] = useState<OngoingMatchSummary[]>([]);
@@ -367,6 +393,8 @@ export const App: React.FC = () => {
   const currentProfileRef = useRef(currentProfile);
   const pendingChainMatchByIdRef = useRef<Map<string, MatchStateClient>>(new Map());
   const pendingGridItMatchByIdRef = useRef<Map<string, GridItMatchStateClient>>(new Map());
+  const pendingGuessItMatchByIdRef = useRef<Map<string, GuessItMatchStateClient>>(new Map());
+  const claimedAdventureMatchIdsRef = useRef<Set<string>>(new Set());
   routeRef.current = route;
   showNotifModalRef.current = showNotifModal;
   currentProfileRef.current = currentProfile;
@@ -383,8 +411,27 @@ export const App: React.FC = () => {
         setRoute({ view: 'hub' });
         return;
       }
-      if (current.view === 'gridit_home') {
+      if (current.view === 'gridit_home' || current.view === 'guessit_entry') {
         setRoute({ view: 'hub' });
+        return;
+      }
+      if (current.view === 'guessit_modes' || current.view === 'guessit_adventure') {
+        setRoute({ view: 'guessit_entry' });
+        return;
+      }
+      if (current.view === 'guessit_lobby') {
+        setActiveGuessItRoom(null);
+        setRoute({ view: 'guessit_modes' });
+        return;
+      }
+      if (current.view === 'guessit_match') {
+        const wasAdventure = activeGuessItMatch?.mode === 'solo_adventure';
+        setActiveGuessItMatch(null);
+        setRoute({ view: wasAdventure ? 'guessit_adventure' : 'guessit_modes' });
+        return;
+      }
+      if (current.view === 'guessit_adventure_reward') {
+        setRoute({ view: 'guessit_adventure' });
         return;
       }
       if (
@@ -468,6 +515,15 @@ export const App: React.FC = () => {
     }
     if (activeProfileId && !playerSession?.isOffline && route.view === 'gridit_rooms') {
       api.listGridItPublicRooms().then(setGridItPublicRooms).catch(() => undefined);
+    }
+    if (activeProfileId && !playerSession?.isOffline && route.view === 'guessit_modes') {
+      api.listGuessItPublicRooms().then(setGuessItPublicRooms).catch(() => undefined);
+    }
+    if (activeProfileId && !playerSession?.isOffline && route.view === 'guessit_adventure') {
+      api
+        .getGuessItAdventureProgress(activeProfileId)
+        .then(setGuessItAdventureProgress)
+        .catch(() => undefined);
     }
   }, [activeProfileId, playerSession?.isOffline, route.view]);
 
@@ -642,6 +698,55 @@ export const App: React.FC = () => {
       setRoute({ view: 'gridit_match', matchId: newMatchId });
     };
 
+    const onGuessItRoomUpdated = (room: GuessItRoom) => {
+      setActiveGuessItRoom((prev) => (prev && prev.id === room.id ? room : prev));
+    };
+
+    const onGuessItRoomsUpdated = () => {
+      if (routeRef.current.view === 'guessit_modes') {
+        api.listGuessItPublicRooms().then(setGuessItPublicRooms).catch(() => undefined);
+      }
+    };
+
+    const onGuessItMatchStarted = ({ roomId, matchId }: { roomId: string; matchId: string }) => {
+      const pending = pendingGuessItMatchByIdRef.current.get(matchId);
+      if (pending) {
+        pendingGuessItMatchByIdRef.current.delete(matchId);
+        setActiveGuessItMatch(pending);
+      }
+      setRoute((prev) => {
+        if (prev.view === 'guessit_lobby' && prev.roomId === roomId) {
+          return { view: 'guessit_match', matchId };
+        }
+        return prev;
+      });
+    };
+
+    const onGuessItMatched = ({ matchId }: { matchId: string }) => {
+      const pending = pendingGuessItMatchByIdRef.current.get(matchId);
+      if (pending) {
+        pendingGuessItMatchByIdRef.current.delete(matchId);
+        setActiveGuessItMatch(pending);
+      }
+      setGuessItRankedKey(null);
+      notify('Ranked GuessIt match found!');
+      setRoute({ view: 'guessit_match', matchId });
+    };
+
+    const onGuessItMatchState = (match: GuessItMatchStateClient) => {
+      const curr = routeRef.current;
+      if (curr.view === 'guessit_match' && curr.matchId === match.id) {
+        setActiveGuessItMatch(match);
+      } else {
+        pendingGuessItMatchByIdRef.current.set(match.id, match);
+      }
+    };
+
+    const onGuessItRematch = ({ newMatchId }: { newMatchId: string }) => {
+      notify('GuessIt rematch started!');
+      setRoute({ view: 'guessit_match', matchId: newMatchId });
+    };
+
     socket.on('room:updated', onRoomUpdated);
     socket.on('room:match_started', onRoomMatchStarted);
     socket.on('match:state', onMatchState);
@@ -656,6 +761,12 @@ export const App: React.FC = () => {
     socket.on('gridit:match_state', onGridItMatchState);
     socket.on('gridit:match_delta', onGridItMatchDelta);
     socket.on('gridit:rematch', onGridItRematch);
+    socket.on('guessit:room_updated', onGuessItRoomUpdated);
+    socket.on('guessit:rooms_updated', onGuessItRoomsUpdated);
+    socket.on('guessit:match_started', onGuessItMatchStarted);
+    socket.on('guessit:matched', onGuessItMatched);
+    socket.on('guessit:match_state', onGuessItMatchState);
+    socket.on('guessit:rematch', onGuessItRematch);
 
     return () => {
       socket.off('connect', identify);
@@ -673,6 +784,12 @@ export const App: React.FC = () => {
       socket.off('gridit:match_state', onGridItMatchState);
       socket.off('gridit:match_delta', onGridItMatchDelta);
       socket.off('gridit:rematch', onGridItRematch);
+      socket.off('guessit:room_updated', onGuessItRoomUpdated);
+      socket.off('guessit:rooms_updated', onGuessItRoomsUpdated);
+      socket.off('guessit:match_started', onGuessItMatchStarted);
+      socket.off('guessit:matched', onGuessItMatched);
+      socket.off('guessit:match_state', onGuessItMatchState);
+      socket.off('guessit:rematch', onGuessItRematch);
     };
   }, [activeProfileId, playerSession?.isOffline, notify, refreshPlatformData]);
 
@@ -680,7 +797,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!activeProfileId || playerSession?.isOffline) return;
     const socket = getSocket();
-    if (route.view === 'lobby' || route.view === 'gridit_lobby') {
+    if (route.view === 'lobby' || route.view === 'gridit_lobby' || route.view === 'guessit_lobby') {
       const rid = route.roomId;
       socket.emit('room:join_channel', rid);
       return () => {
@@ -698,10 +815,19 @@ export const App: React.FC = () => {
         socket.emit('gridit:leave_match', mid);
       };
     }
+    if (route.view === 'guessit_match') {
+      const mid = route.matchId;
+      socket.emit('guessit:join_match', mid);
+      return () => {
+        socket.emit('guessit:leave_match', mid);
+      };
+    }
   }, [activeProfileId, playerSession?.isOffline, route.view, (route as any).roomId, (route as any).matchId]);
 
   const activeGridItRoomRef = useRef(activeGridItRoom);
   const activeGridItMatchRef = useRef(activeGridItMatch);
+  const activeGuessItRoomRef = useRef(activeGuessItRoom);
+  const activeGuessItMatchRef = useRef(activeGuessItMatch);
   const activeRoomRef = useRef(activeRoom);
   const activeMatchRef = useRef(activeMatch);
   const typingThrottleTimerRef = useRef<number | null>(null);
@@ -709,6 +835,8 @@ export const App: React.FC = () => {
   const pendingTypingPayloadRef = useRef<{ matchId: string; playerId: string; preview: string } | null>(null);
   activeGridItRoomRef.current = activeGridItRoom;
   activeGridItMatchRef.current = activeGridItMatch;
+  activeGuessItRoomRef.current = activeGuessItRoom;
+  activeGuessItMatchRef.current = activeGuessItMatch;
   activeRoomRef.current = activeRoom;
   activeMatchRef.current = activeMatch;
 
@@ -802,7 +930,10 @@ export const App: React.FC = () => {
     if (
       !activeProfileId ||
       playerSession?.isOffline ||
-      (route.view !== 'gridit_lobby' && route.view !== 'gridit_match')
+      (route.view !== 'gridit_lobby' &&
+        route.view !== 'gridit_match' &&
+        route.view !== 'guessit_lobby' &&
+        route.view !== 'guessit_match')
     ) {
       return;
     }
@@ -829,6 +960,21 @@ export const App: React.FC = () => {
             )
             .then(setActiveGridItMatch)
             .catch(() => undefined);
+        } else if (route.view === 'guessit_lobby') {
+          api
+            .getGuessItRoom(route.roomId)
+            .then((r) => {
+              setActiveGuessItRoom(r);
+              if (r.status === 'in_progress' && r.activeMatchId) {
+                setRoute({ view: 'guessit_match', matchId: r.activeMatchId });
+              }
+            })
+            .catch(() => undefined);
+        } else if (route.view === 'guessit_match') {
+          api
+            .getGuessItMatch(route.matchId, activeProfileId)
+            .then(setActiveGuessItMatch)
+            .catch(() => undefined);
         }
         scheduleTick();
       }, delayMs);
@@ -838,6 +984,80 @@ export const App: React.FC = () => {
       if (timer) window.clearTimeout(timer);
     };
   }, [route, activeProfileId, playerSession?.isOffline]);
+
+  // Route restoration for GuessIt Multiplayer lobbies & matches
+  useEffect(() => {
+    if (!activeProfileId || playerSession?.isOffline) return;
+    if (route.view === 'guessit_lobby') {
+      if (activeGuessItRoomRef.current?.id === route.roomId) return;
+      api
+        .getGuessItRoom(route.roomId)
+        .then((r) => {
+          setActiveGuessItRoom(r);
+          if (r.status === 'in_progress' && r.activeMatchId) {
+            setRoute({ view: 'guessit_match', matchId: r.activeMatchId });
+          }
+        })
+        .catch((err) => {
+          notify(err.message || 'GuessIt room not found');
+          setActiveGuessItRoom(null);
+          setRoute({ view: 'guessit_modes' });
+        });
+    } else if (route.view === 'guessit_match') {
+      const pending = pendingGuessItMatchByIdRef.current.get(route.matchId);
+      if (pending) {
+        pendingGuessItMatchByIdRef.current.delete(route.matchId);
+        setActiveGuessItMatch(pending);
+        return;
+      }
+      if (activeGuessItMatchRef.current?.id === route.matchId) return;
+      api
+        .getGuessItMatch(route.matchId, activeProfileId)
+        .then(setActiveGuessItMatch)
+        .catch((err) => {
+          notify(err.message || 'GuessIt match not found');
+          setActiveGuessItMatch(null);
+          setRoute({ view: 'guessit_entry' });
+        });
+    }
+  }, [route, activeProfileId, playerSession?.isOffline, notify]);
+
+  // Server-confirmed Solo Adventure reward claim upon stage victory (strictly idempotent)
+  useEffect(() => {
+    if (
+      route.view !== 'guessit_match' ||
+      !activeGuessItMatch ||
+      activeGuessItMatch.mode !== 'solo_adventure' ||
+      activeGuessItMatch.status !== 'finished' ||
+      !activeProfileId ||
+      !activeGuessItMatch.winnerIds.includes(activeProfileId)
+    ) {
+      return;
+    }
+    if (claimedAdventureMatchIdsRef.current.has(activeGuessItMatch.id)) return;
+    claimedAdventureMatchIdsRef.current.add(activeGuessItMatch.id);
+
+    api
+      .claimGuessItAdventureReward(activeProfileId, activeGuessItMatch.id)
+      .then((res) => {
+        setGuessItAdventureClaim(res);
+        setGuessItAdventureProgress(res.progress);
+        setCurrentProfile((prev) =>
+          prev
+            ? {
+                ...prev,
+                matchPointsBalance: res.newCoinsBalance,
+                rankPoints: res.newRankPoints,
+              }
+            : prev
+        );
+        setRoute({ view: 'guessit_adventure_reward' });
+      })
+      .catch((err) => {
+        claimedAdventureMatchIdsRef.current.delete(activeGuessItMatch.id);
+        notify(err?.message || 'Could not claim Adventure reward');
+      });
+  }, [route.view, activeGuessItMatch, activeProfileId, notify]);
 
   // Restore room or match state cleanly on route change or browser refresh (skips duplicate fetch when state is already populated)
   useEffect(() => {
@@ -1115,11 +1335,342 @@ export const App: React.FC = () => {
           onComplete={() => {
             if (route.gameId === 'gridit') {
               setRoute({ view: 'gridit_home' });
+            } else if (route.gameId === 'guessit') {
+              setRoute({ view: 'guessit_entry' });
             } else {
               setRoute({ view: 'tab', tab: 'home' });
             }
           }}
         />
+      );
+    }
+
+    if (route.view === 'guessit_entry') {
+      return (
+        <GuessItEntryScreen
+          profile={currentProfile}
+          onExitToHub={() => setRoute({ view: 'hub' })}
+          onPlayMultiplayer={() => setRoute({ view: 'guessit_modes' })}
+          onSoloAdventure={() => setRoute({ view: 'guessit_adventure' })}
+          onOpenTemplates={() => setRoute({ view: 'tab', tab: 'templates' })}
+        />
+      );
+    }
+
+    if (route.view === 'guessit_modes') {
+      return (
+        <GuessItModeSelectScreen
+          publicRooms={guessItPublicRooms}
+          rankedSearchingKey={guessItRankedKey}
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'guessit_entry' })}
+          onRefreshRooms={() => {
+            api.listGuessItPublicRooms().then(setGuessItPublicRooms).catch(() => undefined);
+          }}
+          onCreateRoom={async (settings) => {
+            try {
+              const room = await api.createGuessItRoom({
+                hostId: playerSession.playerId,
+                settings,
+              });
+              setActiveGuessItRoom(room);
+              setRoute({ view: 'guessit_lobby', roomId: room.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onJoinRoomByCode={async (codeOrId) => {
+            try {
+              const room = await api.joinGuessItRoom(codeOrId, playerSession.playerId);
+              setActiveGuessItRoom(room);
+              if (room.status === 'in_progress' && room.activeMatchId) {
+                setRoute({ view: 'guessit_match', matchId: room.activeMatchId });
+              } else {
+                setRoute({ view: 'guessit_lobby', roomId: room.id });
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onJoinRanked={async (mode, format) => {
+            try {
+              const res = await api.joinGuessItRankedQueue(playerSession.playerId, mode, format);
+              if (res.status === 'matched' && res.match) {
+                setGuessItRankedKey(null);
+                setActiveGuessItMatch(res.match);
+                setRoute({ view: 'guessit_match', matchId: res.match.id });
+              } else {
+                setGuessItRankedKey(`${mode}:${format}`);
+                notify('Searching Ranked GuessIt queue...');
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onLeaveRanked={async () => {
+            await api.leaveGuessItRankedQueue(playerSession.playerId).catch(() => undefined);
+            setGuessItRankedKey(null);
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'guessit_lobby' && activeGuessItRoom?.id === route.roomId) {
+      return (
+        <GuessItLobbyScreen
+          room={activeGuessItRoom}
+          session={playerSession}
+          templates={templates}
+          onBack={() => {
+            const rid = activeGuessItRoom.id;
+            setActiveGuessItRoom(null);
+            setRoute({ view: 'guessit_modes' });
+            api.leaveGuessItRoom(rid, playerSession.playerId).catch(() => undefined);
+          }}
+          onUpdateSettings={async (partial) => {
+            try {
+              const updated = await api.updateGuessItRoomSettings(
+                activeGuessItRoom.id,
+                playerSession.playerId,
+                partial
+              );
+              setActiveGuessItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onToggleReady={async (isReady) => {
+            try {
+              const updated = await api.setGuessItRoomReady(
+                activeGuessItRoom.id,
+                playerSession.playerId,
+                isReady
+              );
+              setActiveGuessItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSwitchTeam={async (teamId) => {
+            try {
+              const updated = await api.switchGuessItTeam(
+                activeGuessItRoom.id,
+                playerSession.playerId,
+                teamId
+              );
+              setActiveGuessItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSubmitDuelChallenge={async (payload) => {
+            try {
+              const updated = await api.submitGuessItDuelChallenge(
+                activeGuessItRoom.id,
+                playerSession.playerId,
+                payload
+              );
+              setActiveGuessItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSendChat={async (text) => {
+            try {
+              const updated = await api.sendGuessItRoomChat(
+                activeGuessItRoom.id,
+                playerSession.playerId,
+                text
+              );
+              setActiveGuessItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onStartMatch={async () => {
+            try {
+              const res = await api.startGuessItRoomMatch(
+                activeGuessItRoom.id,
+                playerSession.playerId
+              );
+              setActiveGuessItRoom(res.room);
+              setActiveGuessItMatch(res.match);
+              setRoute({ view: 'guessit_match', matchId: res.match.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onNotify={notify}
+        />
+      );
+    }
+
+    if (route.view === 'guessit_match' && activeGuessItMatch?.id === route.matchId) {
+      if (activeGuessItMatch.status === 'finished') {
+        if (
+          activeGuessItMatch.mode === 'solo_adventure' &&
+          activeGuessItMatch.winnerIds.includes(playerSession.playerId)
+        ) {
+          return (
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fef08a',
+                fontWeight: 800,
+              }}
+            >
+              Claiming Adventure Reward...
+            </div>
+          );
+        }
+
+        return (
+          <GuessItResultsScreen
+            match={activeGuessItMatch}
+            onPlayAgain={async () => {
+              try {
+                const next = await api.rematchGuessItMatch(
+                  activeGuessItMatch.id,
+                  playerSession.playerId
+                );
+                setActiveGuessItMatch(next);
+                setRoute({ view: 'guessit_match', matchId: next.id });
+              } catch (err: any) {
+                notify(err.message);
+              }
+            }}
+            onBackToLobby={() => {
+              const rid = activeGuessItMatch.roomId;
+              const wasAdv = activeGuessItMatch.mode === 'solo_adventure';
+              setActiveGuessItMatch(null);
+              if (wasAdv) {
+                setRoute({ view: 'guessit_adventure' });
+              } else if (rid) {
+                setRoute({ view: 'guessit_lobby', roomId: rid });
+              } else {
+                setRoute({ view: 'guessit_modes' });
+              }
+            }}
+          />
+        );
+      }
+
+      const exitMatch = () => {
+        const wasAdv = activeGuessItMatch.mode === 'solo_adventure';
+        setActiveGuessItMatch(null);
+        setRoute({ view: wasAdv ? 'guessit_adventure' : 'guessit_modes' });
+      };
+
+      const submitGuessHandler = async (letter: string) => {
+        const res = await api.submitGuessItLetter(
+          activeGuessItMatch.id,
+          playerSession.playerId,
+          letter
+        );
+        setActiveGuessItMatch(res.match);
+        return { correct: res.correct, message: res.message };
+      };
+
+      if (activeGuessItMatch.format === 'crossword') {
+        return (
+          <GuessItCrosswordGameplayScreen
+            match={activeGuessItMatch}
+            onExit={exitMatch}
+            onSubmitLetter={submitGuessHandler}
+          />
+        );
+      }
+
+      return (
+        <GuessItClassicGameplayScreen
+          match={activeGuessItMatch}
+          onExit={exitMatch}
+          onSubmitLetter={submitGuessHandler}
+          onSendChat={async (text) => {
+            try {
+              const next = await api.sendGuessItMatchChat(
+                activeGuessItMatch.id,
+                playerSession.playerId,
+                text
+              );
+              setActiveGuessItMatch(next);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'guessit_adventure') {
+      if (!guessItAdventureProgress) {
+        return (
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#dbeafe',
+              fontWeight: 800,
+            }}
+          >
+            Loading Chapter 1: The Missing Reel...
+          </div>
+        );
+      }
+      return (
+        <GuessItAdventureMapScreen
+          progress={guessItAdventureProgress}
+          onBack={() => setRoute({ view: 'guessit_entry' })}
+          onStartStage={async (stageId) => {
+            try {
+              const match = await api.startGuessItAdventureStage(playerSession.playerId, stageId);
+              setActiveGuessItMatch(match);
+              setRoute({ view: 'guessit_match', matchId: match.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'guessit_adventure_reward' && guessItAdventureClaim) {
+      return (
+        <GuessItAdventureRewardScreen
+          claimResult={guessItAdventureClaim}
+          chapterTitle={
+            guessItAdventureProgress?.chapters[0]
+              ? `Chapter ${guessItAdventureProgress.chapters[0].chapterNumber}: ${guessItAdventureProgress.chapters[0].title}`
+              : 'Chapter 1: The Missing Reel'
+          }
+          onContinue={() => {
+            setActiveGuessItMatch(null);
+            setRoute({ view: 'guessit_adventure' });
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'guessit_lobby' || route.view === 'guessit_match') {
+      return (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#c7d5ff',
+            fontWeight: 800,
+            fontSize: 15,
+          }}
+        >
+          Loading GuessIt {route.view === 'guessit_lobby' ? 'lobby' : 'match'}...
+        </div>
       );
     }
 

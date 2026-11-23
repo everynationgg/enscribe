@@ -23,7 +23,7 @@ const MOD_LIST: ModDescriptor[] = [
   {
     key: 'rainbowWildcard',
     title: 'Rainbow Wildcard',
-    description: 'A glowing wildcard (~5s) that can represent any letter A–Z',
+    description: 'A glowing wildcard (10s) that can represent any letter A–Z',
     accentClass: 'is-rainbow',
     icon: <Sparkles size={16} color="#ffffff" />,
   },
