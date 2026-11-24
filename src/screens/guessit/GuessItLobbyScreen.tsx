@@ -26,6 +26,7 @@ import {
 import { PlayerSession, Template } from '../../../shared/types';
 import { AvatarBadge } from '../../components/Artwork';
 import { GuessItCinemaFooterArt } from '../../games/guessit/GuessItMascot';
+import { buildRoomShareUrl, copyTextToClipboard } from '../../services/shareLink';
 
 interface GuessItLobbyScreenProps {
   room: GuessItRoom;
@@ -89,8 +90,9 @@ export const GuessItLobbyScreen: React.FC<GuessItLobbyScreenProps> = ({
   const redTeam = room.players.filter((p) => p.teamId === 'red');
 
   const handleCopyCode = () => {
-    navigator.clipboard?.writeText(room.code).catch(() => undefined);
-    onNotify(`Copied Room Code: ${room.code}`);
+    const shareUrl = buildRoomShareUrl('guessit', room.code);
+    void copyTextToClipboard(shareUrl);
+    onNotify(`Invite link copied! (${room.code})`);
   };
 
   const handleSaveChallenge = async () => {
@@ -161,13 +163,14 @@ export const GuessItLobbyScreen: React.FC<GuessItLobbyScreenProps> = ({
       <div className="ens-guessit-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Room Code Box matching Screen 3 */}
         <div className="ens-guessit-code-box">
-          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#c7d2fe' }}>Room Code</span>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#c7d2fe' }}>Room Invite Link</span>
           <div className="ens-guessit-code-row">
             <span className="ens-guessit-code-val">{room.code}</span>
             <button
               type="button"
               onClick={handleCopyCode}
-              aria-label="Copy Room Code"
+              aria-label="Copy Invite Link"
+              title="Copy Invite Link"
               style={{
                 border: 'none',
                 background: 'rgba(165, 180, 252, 0.2)',

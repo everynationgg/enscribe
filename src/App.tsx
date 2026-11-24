@@ -31,6 +31,12 @@ import {
 import { api, setGuestSessionToken } from './services/api';
 import { getSocket } from './services/socket';
 import {
+  GAME_DISPLAY_NAMES,
+  PendingRoomInvite,
+  clearRoomInviteFromUrl,
+  parseRoomInviteFromUrl,
+} from './services/shareLink';
+import {
   createOfflineGuestSession,
   deleteGuestLocalTemplate,
   duplicateGuestLocalTemplate,
@@ -186,6 +192,11 @@ export const App: React.FC = () => {
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [toast, setToast] = useState<string | null>(null);
+  const [pendingInvite, setPendingInvite] = useState<PendingRoomInvite | null>(() =>
+    parseRoomInviteFromUrl()
+  );
+  const [joiningInvite, setJoiningInvite] = useState(false);
+  const inviteJoinInFlightRef = useRef(false);
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
@@ -1104,11 +1115,84 @@ export const App: React.FC = () => {
     }
   }, [route, activeProfileId, playerSession?.isOffline, notify]);
 
+  const joinInvitedRoom = useCallback(
+    async (invite: PendingRoomInvite, playerId: string) => {
+      try {
+        if (invite.game === 'chainit') {
+          const room = await api.joinRoom(invite.code, playerId);
+          setActiveRoom(room);
+          if (room.status === 'in_progress' && room.activeMatchId) {
+            setRoute({ view: 'match', matchId: room.activeMatchId });
+          } else {
+            setRoute({ view: 'lobby', roomId: room.id });
+          }
+          notify(`Joined ChainIt room ${room.code}!`);
+          return;
+        }
+        if (invite.game === 'gridit') {
+          const res = await api.joinGridItRoom(invite.code, playerId, false);
+          setActiveGridItRoom(res.room);
+          if (res.room.status === 'in_progress' && res.room.activeMatchId) {
+            setRoute({ view: 'gridit_match', matchId: res.room.activeMatchId });
+          } else {
+            setRoute({ view: 'gridit_lobby', roomId: res.room.id });
+          }
+          notify(`Joined GridIt room ${res.room.code}!`);
+          return;
+        }
+        const room = await api.joinGuessItRoom(invite.code, playerId);
+        setActiveGuessItRoom(room);
+        if (room.status === 'in_progress' && room.activeMatchId) {
+          setRoute({ view: 'guessit_match', matchId: room.activeMatchId });
+        } else {
+          setRoute({ view: 'guessit_lobby', roomId: room.id });
+        }
+        notify(`Joined GuessIt room ${room.code}!`);
+      } catch (err: any) {
+        notify(err?.message || `Could not join ${GAME_DISPLAY_NAMES[invite.game]} room.`);
+        setRoute({ view: 'hub' });
+      }
+    },
+    [notify]
+  );
+
+  useEffect(() => {
+    if (
+      authChecking ||
+      !pendingInvite ||
+      !currentProfile ||
+      !playerSession ||
+      inviteJoinInFlightRef.current
+    ) {
+      return;
+    }
+    if (isOffline || playerSession.isOffline) {
+      setPendingInvite(null);
+      clearRoomInviteFromUrl();
+      notify('Joining rooms requires an online connection.');
+      return;
+    }
+    const invite = pendingInvite;
+    inviteJoinInFlightRef.current = true;
+    setJoiningInvite(true);
+    setPendingInvite(null);
+    clearRoomInviteFromUrl();
+    joinInvitedRoom(invite, playerSession.playerId).finally(() => {
+      inviteJoinInFlightRef.current = false;
+      setJoiningInvite(false);
+    });
+  }, [authChecking, pendingInvite, currentProfile, playerSession, isOffline, joinInvitedRoom, notify]);
+
   const handleEnterGuest = async (nickname: string, avatarId: string) => {
     saveCachedGuestPrefs(nickname, avatarId);
     setAuthError(null);
 
     if (isOffline) {
+      if (pendingInvite) {
+        setPendingInvite(null);
+        clearRoomInviteFromUrl();
+        notify('Joining rooms requires an online connection.');
+      }
       const offlineSess = createOfflineGuestSession(nickname, avatarId);
       setGuestSessionToken(null);
       setPlayerSession(offlineSess);
@@ -1116,13 +1200,36 @@ export const App: React.FC = () => {
       setActiveRoom(null);
       setActiveMatch(null);
       setRoute({ view: 'hub' });
-      notify(`Entered Offline Solo as ${offlineSess.nickname}`);
+      if (!pendingInvite) {
+        notify(`Entered Offline Solo as ${offlineSess.nickname}`);
+      }
       return;
     }
 
     const res = await api.claimGuestNickname(nickname, avatarId);
     const nextSess = guestSessionToPlayerSession(res.session, false);
     setGuestSessionToken(nextSess.sessionToken);
+
+    if (pendingInvite) {
+      const invite = pendingInvite;
+      inviteJoinInFlightRef.current = true;
+      setJoiningInvite(true);
+      setPendingInvite(null);
+      clearRoomInviteFromUrl();
+      setPlayerSession(nextSess);
+      setCurrentProfile(res.profile);
+      setActiveRoom(null);
+      setActiveMatch(null);
+      void refreshPlatformData(nextSess.playerId, nextSess);
+      try {
+        await joinInvitedRoom(invite, nextSess.playerId);
+      } finally {
+        inviteJoinInFlightRef.current = false;
+        setJoiningInvite(false);
+      }
+      return;
+    }
+
     setPlayerSession(nextSess);
     setCurrentProfile(res.profile);
     setActiveRoom(null);
@@ -1312,8 +1419,27 @@ export const App: React.FC = () => {
         <GuestEntryScreen
           isOffline={isOffline}
           initialError={authError}
+          pendingInvite={pendingInvite}
           onEnterGuest={handleEnterGuest}
         />
+      );
+    }
+
+    if (joiningInvite) {
+      return (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#c7d5ff',
+            fontWeight: 800,
+            fontSize: 15,
+          }}
+        >
+          Joining room...
+        </div>
       );
     }
 

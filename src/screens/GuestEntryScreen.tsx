@@ -3,10 +3,12 @@ import { ArrowRight, ShieldCheck, Sparkles, WifiOff } from 'lucide-react';
 import { AvatarBadge } from '../components/Artwork';
 import { EnscribeBrandLogo } from '../components/BrandedHeader';
 import { loadCachedGuestPrefs } from '../services/session';
+import { GAME_DISPLAY_NAMES, PendingRoomInvite } from '../services/shareLink';
 
 interface GuestEntryScreenProps {
   isOffline: boolean;
   initialError?: string | null;
+  pendingInvite?: PendingRoomInvite | null;
   onEnterGuest: (nickname: string, avatarId: string) => Promise<void>;
 }
 
@@ -22,6 +24,7 @@ const AVATAR_OPTIONS = [
 export const GuestEntryScreen: React.FC<GuestEntryScreenProps> = ({
   isOffline,
   initialError = null,
+  pendingInvite = null,
   onEnterGuest,
 }) => {
   const cached = loadCachedGuestPrefs();
@@ -81,6 +84,25 @@ export const GuestEntryScreen: React.FC<GuestEntryScreenProps> = ({
               Pick a unique temporary nickname for this session
             </div>
           </div>
+
+          {pendingInvite && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.38) 0%, rgba(56, 189, 248, 0.26) 100%)',
+                border: '1.5px solid rgba(196, 181, 253, 0.72)',
+                borderRadius: 14,
+                padding: '10px 12px',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#ffffff' }}>
+                Invited to {GAME_DISPLAY_NAMES[pendingInvite.game]} &bull; Room {pendingInvite.code}
+              </div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#dbeafe', marginTop: 2 }}>
+                Enter a nickname to join the room directly
+              </div>
+            </div>
+          )}
 
           {isOffline && (
             <div className="ens-guest-offline-banner">
@@ -170,7 +192,17 @@ export const GuestEntryScreen: React.FC<GuestEntryScreenProps> = ({
             disabled={submitting}
             className="ens-grad-btn is-purple is-lg is-full"
           >
-            <span>{submitting ? 'Reserving Nickname...' : isOffline ? 'Enter Offline Solo' : 'Enter Game Hub'}</span>
+            <span>
+              {submitting
+                ? pendingInvite
+                  ? 'Joining Room...'
+                  : 'Reserving Nickname...'
+                : isOffline
+                  ? 'Enter Offline Solo'
+                  : pendingInvite
+                    ? `Join ${GAME_DISPLAY_NAMES[pendingInvite.game]} Room`
+                    : 'Enter Game Hub'}
+            </span>
             <ArrowRight size={18} />
           </button>
 

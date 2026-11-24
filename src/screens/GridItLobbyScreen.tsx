@@ -20,6 +20,7 @@ import { AvatarBadge } from '../components/Artwork';
 import { loadGridItWordSet } from '../games/gridit/dictionary';
 import { buildSampleValidTemplate, localGridItTemplateStore } from '../games/gridit/templateStorage';
 import { api } from '../services/api';
+import { buildRoomShareUrl, copyTextToClipboard } from '../services/shareLink';
 
 interface GridItLobbyScreenProps {
   room: GridItRoom;
@@ -78,8 +79,9 @@ export const GridItLobbyScreen: React.FC<GridItLobbyScreenProps> = ({
   }, [room.settings.mode, room.settings.language]);
 
   const handleCopyCode = () => {
-    navigator.clipboard?.writeText(room.code).catch(() => undefined);
-    onNotify(`Copied Room Code: ${room.code}`);
+    const shareUrl = buildRoomShareUrl('gridit', room.code);
+    void copyTextToClipboard(shareUrl);
+    onNotify(`Invite link copied! (${room.code})`);
   };
 
   const handleQuickCreateBattleBoard = async () => {
@@ -161,7 +163,7 @@ export const GridItLobbyScreen: React.FC<GridItLobbyScreenProps> = ({
               type="button"
               className="ens-share-pill"
               onClick={handleCopyCode}
-              title="Copy Room Code"
+              title="Copy Invite Link"
             >
               <span>{room.code}</span>
               <Copy size={13} />

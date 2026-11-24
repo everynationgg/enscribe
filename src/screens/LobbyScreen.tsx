@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Profile, Room, RoomRules, Template } from '../../shared/types';
 import { api } from '../services/api';
+import { buildRoomShareUrl, copyTextToClipboard } from '../services/shareLink';
 import { AvatarBadge, TemplateThumb } from '../components/Artwork';
 
 interface LobbyScreenProps {
@@ -72,8 +73,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   }, [room.messages.length]);
 
   const handleCopyCode = () => {
-    navigator.clipboard?.writeText(room.code).catch(() => undefined);
-    onNotify(`Room code ${room.code} copied!`);
+    const shareUrl = buildRoomShareUrl('chainit', room.code);
+    void copyTextToClipboard(shareUrl);
+    onNotify(`Invite link copied! (${room.code})`);
   };
 
   const handleSendChat = async (e: React.FormEvent) => {
@@ -157,8 +159,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: '#c7d5ff' }}>Share Code</span>
-          <button type="button" className="ens-share-pill" onClick={handleCopyCode}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: '#c7d5ff' }}>Share Link</span>
+          <button
+            type="button"
+            className="ens-share-pill"
+            onClick={handleCopyCode}
+            title="Copy invite link"
+          >
             <span>{room.code}</span>
             <Copy size={13} />
           </button>
