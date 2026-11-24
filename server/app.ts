@@ -55,6 +55,7 @@ import {
   validateChainWords,
 } from './games/chain-clash/puzzleAssignment.js';
 import {
+  generateLocalWordChainSync,
   generateWordChain,
   getSyncOneWordClue,
   resolveOneWordClue,
@@ -1392,10 +1393,15 @@ export function createEnscribeApp(
       if (publicRooms.length > 0) {
         const target = publicRooms[0];
         if (!target.players.some((p) => p.playerId === playerId)) {
+          const officialTemplates = repo.listTemplates().filter((t) => t.status === 'official');
+          const randomOfficial =
+            officialTemplates.length > 0
+              ? officialTemplates[Math.floor(Math.random() * officialTemplates.length)]
+              : null;
           repo.upsertRoomPlayer(target.id, String(playerId), {
             isReady: true,
             puzzleStatus: 'ready',
-            submittedTemplateId: 'tpl_official_fantasy_1',
+            submittedTemplateId: randomOfficial?.id ?? 'tpl_official_fantasy_1',
           });
         }
         const updated = repo.getRoomById(target.id)!;
@@ -1513,7 +1519,7 @@ export function createEnscribeApp(
   app.post(
     '/api/solo/start',
     handleApi(true, (req, res) => {
-      const { playerId, stageId, templateId } = req.body ?? {};
+      const { playerId, stageId, templateId, fresh } = req.body ?? {};
       const profile = repo.getProfile(String(playerId));
       if (!profile) {
         res.status(404).json({ error: 'Profile not found' });
@@ -1526,6 +1532,15 @@ export function createEnscribeApp(
         res.status(404).json({ error: 'Puzzle template not found' });
         return;
       }
+
+      const completedStages = repo.getCompletedSoloStages(String(playerId));
+      const isReplayOrFresh =
+        Boolean(fresh) || (Boolean(stage) && !templateId && completedStages.includes(stage!.id));
+      const words = isReplayOrFresh
+        ? generateLocalWordChainSync(stage?.theme ?? tpl.theme, stage?.wordCount ?? tpl.words.length, {
+            excludeWords: tpl.words,
+          }).words
+        : [...tpl.words];
 
       const match = engine.createMatch({
         roomId: null,
@@ -1542,7 +1557,7 @@ export function createEnscribeApp(
           {
             recipientPlayerId: String(playerId),
             authorPlayerId: null,
-            words: [...tpl.words],
+            words,
           },
         ],
       });
@@ -1627,7 +1642,10 @@ export function createEnscribeApp(
     handleApi(false, async (req, res) => {
       const theme = String(req.body?.theme || 'Adventure').trim().slice(0, 30);
       const length = Number(req.body?.length || 5);
-      const generated = await generateWordChain(theme, length);
+      const excludeWords = Array.isArray(req.body?.excludeWords)
+        ? req.body.excludeWords.map((w: unknown) => String(w || ''))
+        : undefined;
+      const generated = await generateWordChain(theme, length, { excludeWords });
       res.json(generated);
     })
   );

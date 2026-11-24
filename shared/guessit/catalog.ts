@@ -12,6 +12,7 @@ import {
   GuessItDifficulty,
   GuessItWordEntry,
 } from './types.js';
+import { GUESSIT_EXPANDED_SEED_SPECS } from './wordBank.js';
 
 export const GUESSIT_CATEGORIES: GuessItCategory[] = [
   'Movies',
@@ -54,7 +55,7 @@ function makeSeedWord(
   };
 }
 
-export const GUESSIT_WORD_CATALOG: GuessItWordEntry[] = [
+const CORE_GUESSIT_CATALOG: GuessItWordEntry[] = [
   // Movies (incl. multi-word classics + crossword-friendly titles)
   makeSeedWord('mv_01', 'STAR WARS', 'Movies', 'easy', 'Iconic space opera saga', { chapterId: 'ch_1' }),
   makeSeedWord('mv_02', 'THE AVENGERS', 'Movies', 'medium', 'Earth’s mightiest heroes assemble', { chapterId: 'ch_1' }),
@@ -172,6 +173,48 @@ export const GUESSIT_WORD_CATALOG: GuessItWordEntry[] = [
   makeSeedWord('gk_10', 'TREASURE CHEST', 'General Knowledge', 'easy', 'Locked wooden box brimming with gold'),
 ];
 
+function buildMergedGuessItCatalog(): GuessItWordEntry[] {
+  const seenAnswers = new Set<string>();
+  const out: GuessItWordEntry[] = [];
+  for (const entry of CORE_GUESSIT_CATALOG) {
+    if (!seenAnswers.has(entry.answer)) {
+      seenAnswers.add(entry.answer);
+      out.push(entry);
+    }
+  }
+  for (const spec of GUESSIT_EXPANDED_SEED_SPECS) {
+    const entry = makeSeedWord(spec.id, spec.answer, spec.category, spec.difficulty, spec.clue);
+    if (!seenAnswers.has(entry.answer)) {
+      seenAnswers.add(entry.answer);
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+export const GUESSIT_WORD_CATALOG: GuessItWordEntry[] = buildMergedGuessItCatalog();
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffledWithSeed<T>(items: T[], seed: number): T[] {
+  const rand = mulberry32(seed);
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 /**
  * Validates AI-generated or external candidate word entries before admitting to catalog.
  */
@@ -222,9 +265,14 @@ export function pickWordFromCatalog(
     seed?: number;
   }
 ): GuessItWordEntry {
-  const combined = [...GUESSIT_WORD_CATALOG, ...extraCatalog].filter(
-    (w) => w.validationStatus === 'approved' && (!options.rankedOnly || w.rankedEligible)
-  );
+  const deduped = new Map<string, GuessItWordEntry>();
+  for (const w of [...GUESSIT_WORD_CATALOG, ...extraCatalog]) {
+    if (w.validationStatus === 'approved' && (!options.rankedOnly || w.rankedEligible)) {
+      if (!deduped.has(w.answer)) deduped.set(w.answer, w);
+    }
+  }
+  const combined = Array.from(deduped.values());
+
   let pool = combined.filter(
     (w) =>
       (!options.category || w.category === options.category) &&
@@ -244,7 +292,13 @@ export function pickWordFromCatalog(
   if (pool.length === 0) {
     pool = combined;
   }
-  const idx = Math.abs(Math.floor(options.seed ?? Date.now())) % pool.length;
+
+  const rawSeed =
+    options.seed !== undefined
+      ? Math.abs(Math.floor(options.seed))
+      : Math.floor(Math.random() * 0x7fffffff);
+  const rand = mulberry32((rawSeed ^ 0x9e3779b9) >>> 0);
+  const idx = Math.floor(rand() * pool.length);
   return pool[idx];
 }
 
@@ -263,42 +317,75 @@ export function pickCrosswordForCategory(
   }
 ): { category: GuessItCategory; layout: GuessItCrosswordLayout } {
   const targetCount = options.entryCount ?? (options.difficulty === 'hard' ? 4 : 3);
-  const seed = Math.abs(Math.floor(options.seed ?? Date.now()));
-  const pool = [...GUESSIT_WORD_CATALOG, ...extraCatalog]
-    .filter(
-      (w) =>
-        w.validationStatus === 'approved' &&
-        (!options.rankedOnly || w.rankedEligible) &&
-        (!options.category || w.category === options.category) &&
-        w.answer.length <= 12
-    );
+  const baseSeed =
+    options.seed !== undefined
+      ? Math.abs(Math.floor(options.seed))
+      : Math.floor(Math.random() * 0x7fffffff);
 
-  // Fallback pool across all categories if single category has few short words
-  const broadPool = [...GUESSIT_WORD_CATALOG, ...extraCatalog].filter(
-    (w) =>
+  const deduped = new Map<string, GuessItWordEntry>();
+  for (const w of [...GUESSIT_WORD_CATALOG, ...extraCatalog]) {
+    if (
       w.validationStatus === 'approved' &&
       (!options.rankedOnly || w.rankedEligible) &&
-      w.answer.length <= 12
-  );
+      w.answer.length <= 13
+    ) {
+      if (!deduped.has(w.answer)) deduped.set(w.answer, w);
+    }
+  }
+  const broadPool = Array.from(deduped.values());
 
-  const candidatesSource = pool.length >= targetCount ? pool : broadPool;
-  const freshPool = candidatesSource.filter(
-    (w) => !options.excludeAnswers || !options.excludeAnswers.has(w.answer)
-  );
-  const effectivePool = freshPool.length >= targetCount ? freshPool : candidatesSource;
+  const catPool = options.category
+    ? broadPool.filter((w) => w.category === options.category)
+    : broadPool;
+  const diffCatPool = options.difficulty
+    ? catPool.filter((w) => w.difficulty === options.difficulty)
+    : catPool;
 
-  for (let attempt = 0; attempt < 28; attempt++) {
+  const isFresh = (w: GuessItWordEntry) =>
+    !options.excludeAnswers || !options.excludeAnswers.has(w.answer);
+
+  const freshDiffCat = diffCatPool.filter(isFresh);
+  const freshCat = catPool.filter(isFresh);
+  const freshBroad = broadPool.filter(isFresh);
+
+  const effectivePool =
+    freshDiffCat.length >= targetCount + 2
+      ? freshDiffCat
+      : freshCat.length >= targetCount
+        ? freshCat
+        : catPool.length >= targetCount
+          ? catPool
+          : freshBroad.length >= targetCount
+            ? freshBroad
+            : broadPool;
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const attemptSeed = (baseSeed + attempt * 2654435761) >>> 0;
+    const shuffled = shuffledWithSeed(effectivePool, attemptSeed);
     const picked: string[] = [];
     const seen = new Set<string>();
-    for (let step = 0; step < effectivePool.length && picked.length < targetCount; step++) {
-      const idx = (seed + attempt * 7 + step * 3) % effectivePool.length;
-      const ans = effectivePool[idx].answer;
-      if (!seen.has(ans)) {
-        seen.add(ans);
-        picked.push(ans);
+    for (const item of shuffled) {
+      if (!seen.has(item.answer)) {
+        seen.add(item.answer);
+        picked.push(item.answer);
+        if (picked.length >= targetCount) break;
       }
     }
-    const layout = generateCrosswordLayout(picked, seed + attempt);
+    if (picked.length < targetCount) continue;
+    const layout = generateCrosswordLayout(picked, attemptSeed);
+    if (layout) {
+      return { category: options.category ?? 'Movies', layout };
+    }
+  }
+
+  // Fallback across the full category pool before ever falling back to static trio
+  const fullFallbackPool = catPool.length >= targetCount ? catPool : broadPool;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const attemptSeed = (baseSeed + 99991 + attempt * 1013904223) >>> 0;
+    const picked = shuffledWithSeed(fullFallbackPool, attemptSeed)
+      .slice(0, targetCount)
+      .map((w) => w.answer);
+    const layout = generateCrosswordLayout(picked, attemptSeed);
     if (layout) {
       return { category: options.category ?? 'Movies', layout };
     }

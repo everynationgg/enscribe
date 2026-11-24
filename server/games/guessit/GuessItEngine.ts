@@ -78,6 +78,40 @@ const VALID_MODES: GuessItMultiplayerMode[] = [
 export class GuessItEngine {
   private store: GuessItStateStore;
   private resolveProfileFn?: (playerId: string) => Promise<Profile | null>;
+  private recentAnswersByPlayer = new Map<string, string[]>();
+
+  private getRecentAnswersForPlayers(playerIds: string[], extraSeed?: string[]): Set<string> {
+    const out = new Set<string>();
+    for (const ans of extraSeed ?? []) {
+      for (const part of String(ans).split(' / ')) {
+        const clean = part.trim();
+        if (clean) out.add(clean);
+      }
+    }
+    for (const pid of playerIds) {
+      const hist = this.recentAnswersByPlayer.get(pid);
+      if (!hist) continue;
+      for (const ans of hist) out.add(ans);
+    }
+    return out;
+  }
+
+  private recordAnswersForPlayers(playerIds: string[], answers: string[]): void {
+    const normalizedParts: string[] = [];
+    for (const ans of answers) {
+      for (const part of String(ans).split(' / ')) {
+        const clean = part.trim();
+        if (clean) normalizedParts.push(clean);
+      }
+    }
+    if (normalizedParts.length === 0) return;
+
+    for (const pid of playerIds) {
+      const prev = this.recentAnswersByPlayer.get(pid) ?? [];
+      const next = [...prev, ...normalizedParts];
+      this.recentAnswersByPlayer.set(pid, next.slice(-250));
+    }
+  }
 
   constructor(
     private repo: StorageRepository,
@@ -690,9 +724,16 @@ export class GuessItEngine {
       let chosenClue = payload.clue?.trim().slice(0, 90);
 
       if (payload.source === 'curated_db') {
-        const picked = pickWordFromCatalog(extraWords, { category, difficulty, seed: Date.now() });
+        const excludeAnswers = this.getRecentAnswersForPlayers([playerId], room.recentAnswers);
+        const picked = pickWordFromCatalog(extraWords, {
+          category,
+          difficulty,
+          excludeAnswers,
+          seed: crypto.randomInt(1, 2147483647),
+        });
         chosenAnswer = picked.answer;
         chosenClue = chosenClue || picked.clue;
+        this.recordAnswersForPlayers([playerId], [chosenAnswer]);
       } else {
         let candidate = payload.answer || '';
         if (payload.source === 'my_templates' && payload.templateId) {
@@ -811,7 +852,7 @@ export class GuessItEngine {
     const updatedRoom = await this.store.mutateRoom<GuessItRoom>(roomId, (room) => {
       room.status = 'in_progress';
       room.activeMatchId = matchRecord.id;
-      room.recentAnswers = Array.from(new Set([...room.recentAnswers, ...matchRecord.usedAnswers])).slice(-24);
+      room.recentAnswers = Array.from(new Set([...room.recentAnswers, ...matchRecord.usedAnswers])).slice(-150);
       return { result: this.sanitizeRoom(room) };
     });
 
@@ -852,8 +893,8 @@ export class GuessItEngine {
       };
     }
 
-    const usedSet = new Set<string>(params.usedSeedAnswers ?? []);
-    const seed = Math.floor(Math.random() * 1000000) + 1;
+    const usedSet = this.getRecentAnswersForPlayers(participantOrder, params.usedSeedAnswers);
+    const seed = crypto.randomInt(1, 2147483647);
 
     let roundBuild: {
       units: Record<string, StoredGuessItUnitState>;
@@ -901,6 +942,8 @@ export class GuessItEngine {
         seed,
       });
     }
+
+    this.recordAnswersForPlayers(participantOrder, roundBuild.addedAnswers);
 
     const match: StoredGuessItMatch = {
       id: matchId,
@@ -1471,11 +1514,12 @@ export class GuessItEngine {
         participants: rec.participants,
         participantOrder: rec.participantOrder,
         survivorIds: rec.survivorIds,
-        usedAnswers: new Set(rec.usedAnswers),
+        usedAnswers: this.getRecentAnswersForPlayers(rec.participantOrder, rec.usedAnswers),
         isRanked: rec.isRanked,
         duelSubmissions: rec.duelSubmissionsSnapshot,
-        seed: rec.createdAt + nextRoundIdx * 97,
+        seed: crypto.randomInt(1, 2147483647),
       });
+      this.recordAnswersForPlayers(rec.participantOrder, nextBuild.addedAnswers);
 
       const outcome = await this.store.mutateMatch(matchId, (match) => {
         if (match.status !== 'round_over') return match;
@@ -1629,7 +1673,7 @@ export class GuessItEngine {
         avatarId: oldMatch.participants[pid].avatarId,
         teamId: oldMatch.participants[pid].teamId,
       })),
-      usedSeedAnswers: oldMatch.usedAnswers.slice(-15),
+      usedSeedAnswers: oldMatch.usedAnswers.slice(-150),
     });
     if (oldMatch.roomId) {
       await this.store.mutateRoom(oldMatch.roomId, (room) => {
@@ -1836,6 +1880,7 @@ export class GuessItEngine {
     let targetChapter = GUESSIT_ADVENTURE_CHAPTERS[0];
     let targetStage: GuessItAdventureStage | null = null;
     let stageUnlocked = false;
+    let stageCompleted = false;
 
     for (let cIdx = 0; cIdx < GUESSIT_ADVENTURE_CHAPTERS.length; cIdx++) {
       const rawCh = GUESSIT_ADVENTURE_CHAPTERS[cIdx];
@@ -1845,6 +1890,7 @@ export class GuessItEngine {
         targetChapter = rawCh;
         targetStage = rawCh.stages[sIdx];
         stageUnlocked = Boolean(clientCh?.stages[sIdx]?.progress.unlocked);
+        stageCompleted = Boolean(clientCh?.stages[sIdx]?.progress.completed);
         break;
       }
     }
@@ -1854,16 +1900,49 @@ export class GuessItEngine {
       throw new GuessItForbiddenError('Complete previous stage first to unlock this stage.');
     }
 
+    let stageForRun: GuessItAdventureStage = targetStage;
+    if (stageCompleted) {
+      const extraWords = await this.store.listApprovedExtraWords();
+      const excludeAnswers = this.getRecentAnswersForPlayers([playerId], targetStage.answers);
+      const replaySeed = crypto.randomInt(1, 2147483647);
+      if (targetStage.format === 'crossword') {
+        const cw = pickCrosswordForCategory(extraWords, {
+          category: targetStage.category,
+          difficulty: targetStage.difficulty,
+          excludeAnswers,
+          entryCount: Math.max(2, targetStage.answers.length),
+          seed: replaySeed,
+        });
+        stageForRun = {
+          ...targetStage,
+          answers: cw.layout.entries.map((e) => e.answer),
+          clue: `${targetStage.category} Replay Crossword`,
+        };
+      } else {
+        const picked = pickWordFromCatalog(extraWords, {
+          category: targetStage.category,
+          difficulty: targetStage.difficulty,
+          excludeAnswers,
+          seed: replaySeed,
+        });
+        stageForRun = {
+          ...targetStage,
+          answers: [picked.answer],
+          clue: picked.clue ?? targetStage.clue,
+        };
+      }
+    }
+
     const settings: GuessItRoomSettings = this.normalizeSettings({
       mode: 'speed_rush',
-      format: targetStage.format,
-      category: targetStage.category,
-      difficulty: targetStage.difficulty,
+      format: stageForRun.format,
+      category: stageForRun.category,
+      difficulty: stageForRun.difficulty,
       wordSource: 'curated_db',
       roundsCount: 1,
-      maxMistakes: targetStage.maxMistakes,
-      roundTimeSeconds: targetStage.timeLimitSeconds,
-      penaltyMs: targetStage.penaltyMs,
+      maxMistakes: stageForRun.maxMistakes,
+      roundTimeSeconds: stageForRun.timeLimitSeconds,
+      penaltyMs: stageForRun.penaltyMs,
       capacity: 2,
       isPublic: false,
     });
@@ -1881,9 +1960,9 @@ export class GuessItEngine {
           teamId: null,
         },
       ],
-      stageId: targetStage.id,
+      stageId: stageForRun.id,
       chapterId: targetChapter.id,
-      customStage: targetStage,
+      customStage: stageForRun,
     });
   }
 

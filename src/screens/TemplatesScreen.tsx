@@ -491,7 +491,11 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
                     className="ens-gen-chain-btn"
                     onClick={async () => {
                       try {
-                        const gen = await api.generateChain(editTheme || 'Adventure', Math.max(4, editWords.length));
+                        const gen = await api.generateChain(
+                          editTheme || 'Adventure',
+                          Math.max(4, editWords.length),
+                          editWords.filter(Boolean)
+                        );
                         setIsCreatingNew(true);
                         setEditingId(undefined);
                         setEditName(gen.name);

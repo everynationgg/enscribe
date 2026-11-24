@@ -494,7 +494,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     type="button"
                     className="ens-btn-white"
                     onClick={async () => {
-                      const gen = await api.generateChain('Adventure', Math.max(4, customWords.length));
+                      const gen = await api.generateChain(
+                        'Adventure',
+                        Math.max(4, customWords.length),
+                        customWords.filter(Boolean)
+                      );
                       setCustomWords(gen.words);
                     }}
                   >

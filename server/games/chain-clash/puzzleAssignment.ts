@@ -1,4 +1,27 @@
 import { Template } from '../../../shared/types.js';
+import { generateLocalWordChainSync } from './clueProvider.js';
+
+const recentAssignedSignatures: string[] = [];
+const recentAssignedSigSet = new Set<string>();
+const recentAssignedWords: string[] = [];
+
+function recordAssignedChain(words: string[]): void {
+  const sig = words.join('>');
+  if (!recentAssignedSigSet.has(sig)) {
+    recentAssignedSignatures.push(sig);
+    recentAssignedSigSet.add(sig);
+    while (recentAssignedSignatures.length > 200) {
+      const dropped = recentAssignedSignatures.shift()!;
+      recentAssignedSigSet.delete(dropped);
+    }
+  }
+  for (const w of words) {
+    recentAssignedWords.push(w);
+    while (recentAssignedWords.length > 120) {
+      recentAssignedWords.shift();
+    }
+  }
+}
 
 export function normalizeChainWord(raw: string): string {
   return raw.trim().toUpperCase();
@@ -107,36 +130,67 @@ export function pickCuratedChainsForPlayers(
     throw new Error('No curated official templates available in database.');
   }
 
-  const eligible = officialTemplates.filter(
-    (t) => !playerIds.includes(t.ownerId)
-  );
+  const targetLen = desiredLength >= 3 ? Math.min(8, desiredLength) : 5;
+  const eligible = officialTemplates.filter((t) => !playerIds.includes(t.ownerId));
   const pool = eligible.length > 0 ? eligible : officialTemplates;
 
   const trimOrFit = (words: string[]): string[] => {
-    if (desiredLength >= 3 && words.length > desiredLength) {
-      return words.slice(0, desiredLength);
+    if (targetLen >= 3 && words.length > targetLen) {
+      return words.slice(0, targetLen);
     }
     return [...words];
   };
 
+  const pickFreshChain = (extraExcludeSigs: Set<string>): { authorPlayerId: string | null; words: string[] } => {
+    const unseenTemplates = pool.filter((t) => {
+      const fitted = trimOrFit(t.words);
+      const sig = fitted.join('>');
+      return !recentAssignedSigSet.has(sig) && !extraExcludeSigs.has(sig);
+    });
+
+    // Blend curated official templates with dynamically synthesized graph chains
+    // (~65% dynamic graph chains, ~35% unseen official templates) for virtually limitless variety
+    const useDynamic = unseenTemplates.length === 0 || Math.random() < 0.65;
+    if (!useDynamic && unseenTemplates.length > 0) {
+      const chosen = unseenTemplates[Math.floor(Math.random() * unseenTemplates.length)];
+      const words = trimOrFit(chosen.words);
+      recordAssignedChain(words);
+      extraExcludeSigs.add(words.join('>'));
+      return {
+        authorPlayerId: chosen.ownerId === 'system' ? null : chosen.ownerId,
+        words,
+      };
+    }
+
+    const gen = generateLocalWordChainSync('Adventure', targetLen, {
+      excludeWords: recentAssignedWords.slice(-24),
+      excludeChains: [...recentAssignedSignatures, ...extraExcludeSigs],
+    });
+    recordAssignedChain(gen.words);
+    extraExcludeSigs.add(gen.words.join('>'));
+    return {
+      authorPlayerId: null,
+      words: gen.words,
+    };
+  };
+
+  const sessionSigs = new Set<string>();
+
   if (sameChainForAll) {
-    const chosen = pool[Math.floor(Math.random() * pool.length)];
-    const words = trimOrFit(chosen.words);
+    const picked = pickFreshChain(sessionSigs);
     return playerIds.map((pid) => ({
       recipientPlayerId: pid,
-      authorPlayerId: chosen.ownerId === 'system' ? null : chosen.ownerId,
-      words,
+      authorPlayerId: picked.authorPlayerId,
+      words: [...picked.words],
     }));
   }
 
-  // Distinct curated chains where possible
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  return playerIds.map((pid, idx) => {
-    const tpl = shuffled[idx % shuffled.length];
+  return playerIds.map((pid) => {
+    const picked = pickFreshChain(sessionSigs);
     return {
       recipientPlayerId: pid,
-      authorPlayerId: tpl.ownerId === 'system' ? null : tpl.ownerId,
-      words: trimOrFit(tpl.words),
+      authorPlayerId: picked.authorPlayerId,
+      words: picked.words,
     };
   });
 }

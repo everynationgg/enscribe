@@ -1,287 +1,16 @@
+import {
+  CHAIN_SYNONYMS,
+  ChainHistoryTracker,
+  generateUniqueGraphChain,
+} from '../../../shared/chainit/wordGraph.js';
 import { validateSingleChainWord } from './puzzleAssignment.js';
 
-const LOCAL_SYNONYMS: Record<string, string> = {
-  HIGH: 'TALL',
-  SCHOOL: 'ACADEMY',
-  BUS: 'SHUTTLE',
-  STOP: 'HALT',
-  SIGN: 'SYMBOL',
-  LANGUAGE: 'TONGUE',
-  ARTS: 'CRAFTS',
-  CENTER: 'HUB',
-  DRAGON: 'WYVERN',
-  FIRE: 'FLAME',
-  STORM: 'TEMPEST',
-  CLOUD: 'MIST',
-  CASTLE: 'FORTRESS',
-  WATER: 'AQUA',
-  FALL: 'DROP',
-  RIVER: 'STREAM',
-  BANK: 'SHORE',
-  VAULT: 'SAFE',
-  CHEESE: 'CHEDDAR',
-  BURGER: 'PATTY',
-  KING: 'MONARCH',
-  CRAB: 'SHELLFISH',
-  CAKE: 'PASTRY',
-  WALK: 'STROLL',
-  STAR: 'CELESTIAL',
-  SHIP: 'VESSEL',
-  WRECK: 'RUIN',
-  DIVER: 'SWIMMER',
-  DOWN: 'BELOW',
-  THUNDER: 'ROAR',
-  GOD: 'DEITY',
-  FATHER: 'SIRE',
-  TIME: 'CLOCK',
-  KEEPER: 'GUARDIAN',
-  GHOST: 'PHANTOM',
-  TOWN: 'VILLAGE',
-  HALL: 'CORRIDOR',
-  MIRROR: 'GLASS',
-  IMAGE: 'PICTURE',
-  LIGHT: 'GLOW',
-  YEAR: 'ANNUAL',
-  BOOK: 'NOVEL',
-  SUN: 'SOLAR',
-  FLOWER: 'BLOSSOM',
-  POT: 'KETTLE',
-  LUCK: 'FORTUNE',
-  MOON: 'LUNAR',
-  HOUSE: 'HOME',
-  BOAT: 'CRAFT',
-  ALPHA: 'FIRST',
-  BETA: 'SECOND',
-  GAMMA: 'THIRD',
-  DELTA: 'FOURTH',
-  ICE: 'FROST',
-  CREAM: 'DAIRY',
-  CONE: 'WAFFLE',
-  RAIN: 'DRIZZLE',
-  BOW: 'ARCH',
-  TIE: 'KNOT',
-  BREAKER: 'CRASHER',
-  COFFEE: 'ESPRESSO',
-  BEAN: 'SEED',
-  BAG: 'SACK',
-  PIPE: 'TUBE',
-  DREAM: 'VISION',
-  CATCHER: 'TRAPPER',
-  NIGHT: 'DUSK',
-  MARE: 'STEED',
-  SHADOW: 'SILHOUETTE',
-  BOX: 'CRATE',
-  OFFICE: 'BUREAU',
-  CHAIR: 'SEAT',
-  BOARD: 'PLANK',
-  GAME: 'MATCH',
-  PLAN: 'SCHEME',
-  SPACE: 'COSMOS',
-  STATION: 'OUTPOST',
-  WAGON: 'CART',
-  WHEEL: 'RIM',
-  BASE: 'FOUNDATION',
-  BALL: 'SPHERE',
-  PARK: 'GARDEN',
-  BENCH: 'PEW',
-  GOLD: 'AURIC',
-  RUSH: 'HURRY',
-  HOUR: 'MINUTE',
-  GLASS: 'CRYSTAL',
-  FOOT: 'STEP',
-  PRINT: 'STAMP',
-  PAPER: 'SHEET',
-  CLIP: 'CLASP',
-  FLASH: 'SPARK',
-  BACK: 'REAR',
-  PACK: 'BUNDLE',
-  ROCK: 'STONE',
-  BAND: 'TROUPE',
-  AID: 'HELP',
-  KEY: 'CIPHER',
-  HOLE: 'GAP',
-  PUNCH: 'STRIKE',
-  LINE: 'QUEUE',
-  DANCE: 'WALTZ',
-  FLOOR: 'GROUND',
-  SNOW: 'SLEET',
-  MAN: 'FELLOW',
-  KIND: 'GENTLE',
-  HEART: 'CORE',
-  BEAT: 'PULSE',
-  STREET: 'AVENUE',
-  CAR: 'AUTO',
-  WASH: 'RINSE',
-  CYCLE: 'LOOP',
-  GREEN: 'EMERALD',
-  WOOD: 'TIMBER',
-  LAND: 'TERRAIN',
-  MARK: 'TRACE',
-  OCEAN: 'SEA',
-  WAVE: 'SWELL',
-  LENGTH: 'SPAN',
-  POWER: 'FORCE',
-  GRID: 'MATRIX',
-  LOCK: 'LATCH',
-  SMITH: 'FORGER',
-  CROWN: 'TIARA',
-  JEWEL: 'GEM',
-  TONE: 'PITCH',
-  WING: 'PINION',
-  SPAN: 'ARCH',
-  BASKET: 'HAMPER',
-  COURT: 'ARENA',
-  SIDE: 'FLANK',
-  KICK: 'PUNT',
-  OFF: 'AWAY',
-  STAGE: 'PLATFORM',
-  FRIGHT: 'TERROR',
-  MAGIC: 'SORCERY',
-  WAND: 'STAFF',
-  SPELL: 'CHARM',
-  BOUND: 'LEAP',
-  BOOKMARK: 'TAB',
-  COLD: 'CHILL',
-  BREW: 'STEEP',
-  CUP: 'MUG',
-  CAKEWALK: 'BREEZE',
-  APPLE: 'ORCHARD',
-  PIE: 'TART',
-  PAN: 'SKILLET',
-  HOT: 'WARM',
-  DOG: 'HOUND',
-  CAT: 'FELINE',
-  FISH: 'TROUT',
-  TANK: 'VAT',
-  TOP: 'SUMMIT',
-  HAT: 'CAP',
-  TRICK: 'STUNT',
-  SHOT: 'BLAST',
-  GUN: 'RIFLE',
-  POWDER: 'DUST',
-  ROOM: 'CHAMBER',
-  MATE: 'ALLY',
-  TEAM: 'SQUAD',
-  WORK: 'LABOR',
-  OUT: 'EXIT',
-  DOOR: 'PORTAL',
-  BELL: 'CHIME',
-  TOWER: 'SPIRE',
-  BRIDGE: 'VIADUCT',
-  PORT: 'HARBOR',
-  CITY: 'METRO',
-  LIMIT: 'CAP',
-  SPEED: 'PACE',
-  WAY: 'PATH',
-  FINDER: 'SCOUT',
-  CAMP: 'TENT',
-  GROUND: 'EARTH',
-  ZERO: 'NONE',
-  GRAVITY: 'WEIGHT',
-  WARP: 'BEND',
-  DRIVE: 'MOTOR',
-  IN: 'INSIDE',
-  UP: 'ABOVE',
-  OVER: 'ACROSS',
-  UNDER: 'BENEATH',
-  WORLD: 'GLOBE',
-  WIDE: 'BROAD',
-  WEB: 'NET',
-};
-
-const CHAIN_GRAPH: Record<string, string[]> = {
-  HIGH: ['SCHOOL', 'WAY', 'LAND', 'TIDE', 'NOON', 'JUMP'],
-  SCHOOL: ['BUS', 'YARD', 'BOOK', 'BOARD', 'HOUSE', 'WORK'],
-  BUS: ['STOP', 'LINE', 'DRIVER', 'LANE'],
-  STOP: ['SIGN', 'WATCH', 'LIGHT', 'GAP'],
-  SIGN: ['LANGUAGE', 'POST', 'BOARD', 'OFF'],
-  LANGUAGE: ['ARTS', 'BARRIER', 'LAB'],
-  ARTS: ['CENTER', 'CRAFT', 'COUNCIL'],
-  CENTER: ['STAGE', 'COURT', 'PIECE', 'LINE'],
-  DRAGON: ['FIRE', 'FLY', 'SCALE', 'FRUIT', 'KEEP'],
-  FIRE: ['STORM', 'PLACE', 'TRUCK', 'WORK', 'BALL', 'SIDE'],
-  STORM: ['CLOUD', 'FRONT', 'TROOPER', 'WATCH'],
-  CLOUD: ['BURST', 'COVER', 'NINE', 'BANK'],
-  CASTLE: ['TOWER', 'GATE', 'WALL', 'ROCK'],
-  TOWER: ['BRIDGE', 'CLOCK', 'BLOCK', 'TOP'],
-  WATER: ['FALL', 'FRONT', 'MARK', 'MELON', 'PROOF', 'WHEEL'],
-  FALL: ['BACK', 'OUT', 'GUY', 'LEAF'],
-  RIVER: ['BANK', 'BOAT', 'BED', 'SIDE'],
-  BANK: ['VAULT', 'NOTE', 'ACCOUNT', 'ROLL'],
-  STAR: ['LIGHT', 'SHIP', 'FISH', 'DUST', 'GAZER'],
-  LIGHT: ['YEAR', 'HOUSE', 'BULB', 'SPEED', 'WEIGHT'],
-  HOUSE: ['BOAT', 'WORK', 'PARTY', 'GUEST', 'HOLD'],
-  BOAT: ['DOCK', 'HOUSE', 'YARD', 'RACE'],
-  MOON: ['LIGHT', 'BEAM', 'WALK', 'STONE'],
-  SUN: ['FLOWER', 'BURN', 'RISE', 'SHINE', 'GLASS'],
-  FLOWER: ['POT', 'BED', 'SHOP', 'POWER'],
-  ICE: ['CREAM', 'BERG', 'CUBE', 'BREAKER', 'COLD'],
-  CREAM: ['CONE', 'CAKE', 'CHEESE', 'SODA'],
-  CHEESE: ['BURGER', 'CAKE', 'BOARD', 'STEAK'],
-  BURGER: ['KING', 'JOINT', 'BUN', 'FRIES'],
-  KING: ['CRAB', 'CROWN', 'SIZE', 'FISHER'],
-  CAKE: ['WALK', 'MIX', 'SHOP', 'PAN'],
-  COFFEE: ['BEAN', 'SHOP', 'CUP', 'BREAK'],
-  BEAN: ['BAG', 'STALK', 'COUNTER', 'POT'],
-  NIGHT: ['MARE', 'FALL', 'OWL', 'CLUB', 'SHIFT'],
-  SHADOW: ['BOX', 'LAND', 'PLAY', 'ZONE'],
-  BOX: ['OFFICE', 'CAR', 'SEAT', 'TOP'],
-  OFFICE: ['CHAIR', 'HOUR', 'SPACE', 'DESK'],
-  FOOT: ['BALL', 'PRINT', 'STEP', 'NOTE', 'PATH'],
-  BALL: ['PARK', 'ROOM', 'GAME', 'POINT'],
-  PARK: ['BENCH', 'WAY', 'LANE', 'RANGER'],
-  GOLD: ['RUSH', 'MINE', 'FISH', 'MEDAL', 'COIN'],
-  RUSH: ['HOUR', 'ORDER', 'JOB'],
-  HOUR: ['GLASS', 'HAND', 'MARK'],
-  GLASS: ['HOUSE', 'WARE', 'TOP', 'EYE'],
-  PAPER: ['CLIP', 'WORK', 'TRAIL', 'PLANE'],
-  BACK: ['PACK', 'YARD', 'STAGE', 'DOOR', 'BONE'],
-  ROCK: ['BAND', 'STAR', 'CLIMB', 'WALL'],
-  BAND: ['AID', 'STAND', 'WAGON', 'WIDTH'],
-  KEY: ['HOLE', 'BOARD', 'STONE', 'NOTE'],
-  SNOW: ['BALL', 'MAN', 'STORM', 'DROP', 'FLAKE'],
-  STREET: ['CAR', 'LIGHT', 'FOOD', 'WISE'],
-  CAR: ['WASH', 'POOL', 'PARK', 'PORT'],
-  GREEN: ['HOUSE', 'WOOD', 'LAND', 'ROOM', 'LIGHT'],
-  OCEAN: ['WAVE', 'FRONT', 'VIEW', 'FLOOR'],
-  WAVE: ['LENGTH', 'BAND', 'POOL', 'RIDER'],
-  MAGIC: ['WAND', 'TRICK', 'CARPET', 'MIRROR'],
-  GHOST: ['TOWN', 'SHIP', 'WRITER', 'STORY'],
-  TOWN: ['HALL', 'SQUARE', 'HOUSE'],
-  HALL: ['WAY', 'MARK', 'PASS'],
-  MIRROR: ['IMAGE', 'HALL', 'BALL'],
-  BOOK: ['MARK', 'SHOP', 'WORM', 'SHELF'],
-  DOOR: ['BELL', 'WAY', 'STEP', 'KNOB'],
-  GAME: ['PLAN', 'BOARD', 'TIME', 'SHOW'],
-  TIME: ['KEEPER', 'LINE', 'ZONE', 'OUT'],
-  POWER: ['GRID', 'HOUSE', 'PLANT', 'PLAY'],
-  SPACE: ['SHIP', 'STATION', 'SUIT', 'WALK'],
-  THUNDER: ['STORM', 'BOLT', 'BIRD', 'CLOUD'],
-  RAIN: ['BOW', 'DROP', 'FOREST', 'COAT'],
-  APPLE: ['PIE', 'SAUCE', 'TREE', 'CIDER'],
-  HOT: ['DOG', 'SPOT', 'CAKE', 'SPRING'],
-  DOG: ['HOUSE', 'PARK', 'TAG', 'WOOD'],
-  CUP: ['CAKE', 'BOARD', 'HOLDER'],
-  WORK: ['OUT', 'SHOP', 'BENCH', 'DAY'],
-  STAGE: ['FRIGHT', 'COACH', 'HAND', 'LIGHT'],
-  CAMP: ['FIRE', 'GROUND', 'SITE'],
-  SPEED: ['BOAT', 'WAY', 'LIMIT', 'TRAP'],
-  WORLD: ['WIDE', 'CUP', 'MAP', 'VIEW'],
-};
-
-const THEME_SEEDS: Record<string, string[]> = {
-  fantasy: ['DRAGON', 'MAGIC', 'CASTLE', 'GOLD', 'MOON'],
-  'science fiction': ['SPACE', 'STAR', 'LIGHT', 'TIME', 'POWER'],
-  'sci-fi': ['SPACE', 'STAR', 'LIGHT', 'TIME', 'POWER'],
-  education: ['HIGH', 'SCHOOL', 'BOOK', 'KEY', 'PAPER'],
-  'school life': ['HIGH', 'SCHOOL', 'BOOK', 'BACK', 'CAMP'],
-  food: ['CHEESE', 'ICE', 'COFFEE', 'APPLE', 'HOT'],
-  nature: ['WATER', 'RIVER', 'SUN', 'RAIN', 'OCEAN'],
-  horror: ['GHOST', 'NIGHT', 'SHADOW', 'STAGE', 'MIRROR'],
-  mythology: ['THUNDER', 'DRAGON', 'MOON', 'GOLD', 'KING'],
-  sports: ['FOOT', 'BALL', 'SNOW', 'SPEED', 'GAME'],
-  everyday: ['STREET', 'DOOR', 'KEY', 'WORK', 'HOUSE'],
-};
+const globalChainHistory = new ChainHistoryTracker({
+  chains: 300,
+  starts: 65,
+  words: 200,
+  edges: 350,
+});
 
 function sanitizeCandidate(raw: string, target: string): string | null {
   const clean = raw.trim().toUpperCase();
@@ -297,7 +26,7 @@ function sanitizeCandidate(raw: string, target: string): string | null {
  */
 export function getSyncOneWordClue(word: string): string | null {
   const upper = word.trim().toUpperCase();
-  return LOCAL_SYNONYMS[upper] ?? null;
+  return CHAIN_SYNONYMS[upper] ?? null;
 }
 
 /**
@@ -306,7 +35,7 @@ export function getSyncOneWordClue(word: string): string | null {
  */
 export async function resolveOneWordClue(word: string): Promise<string> {
   const target = word.trim().toUpperCase();
-  const local = LOCAL_SYNONYMS[target];
+  const local = CHAIN_SYNONYMS[target];
   if (local) return local;
 
   try {
@@ -329,67 +58,105 @@ export async function resolveOneWordClue(word: string): Promise<string> {
 }
 
 /**
- * Generates a valid multi-word connected chain for a theme using the built-in link graph
- * plus optional free Datamuse bigram follower queries when extending chains.
+ * Synchronous, ultra-fast (<1ms) unique word-chain generator backed by
+ * the 50,000+ path graph and anti-repetition history tracker.
+ */
+export function generateLocalWordChainSync(
+  themeRaw: string,
+  desiredLength: number,
+  options?: { excludeWords?: string[]; excludeChains?: string[] }
+): { name: string; theme: string; words: string[] } {
+  return generateUniqueGraphChain({
+    theme: themeRaw,
+    length: desiredLength,
+    excludeWords: options?.excludeWords,
+    excludeChains: options?.excludeChains,
+    recentHistory: globalChainHistory,
+  });
+}
+
+/**
+ * Generates a valid multi-word connected chain for a theme without repeating recent words.
+ * Uses Gemini 2.5 Flash if GEMINI_API_KEY is configured (with strict anti-repetition & validation),
+ * and immediately serves from the 50,000+ path graph when unavailable or offline.
  */
 export async function generateWordChain(
   themeRaw: string,
-  desiredLength: number
+  desiredLength: number,
+  options?: { excludeWords?: string[]; excludeChains?: string[] }
 ): Promise<{ name: string; theme: string; words: string[] }> {
   const length = Math.max(3, Math.min(8, Math.round(desiredLength || 5)));
   const cleanTheme = themeRaw.trim() || 'Adventure';
-  const themeKey = cleanTheme.toLowerCase();
-  const seeds = THEME_SEEDS[themeKey] ?? [
-    ...Object.values(THEME_SEEDS).flat(),
-  ];
+  const excludeWords = options?.excludeWords ?? [];
 
-  // Try building from the deterministic/randomized local graph first
-  const startPool = [...seeds].sort(() => Math.random() - 0.5);
-  for (const startWord of startPool) {
-    const chain = [startWord];
-    const used = new Set(chain);
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (apiKey) {
+    try {
+      const avoidList = Array.from(
+        new Set(excludeWords.map((w) => w.trim().toUpperCase()).filter(Boolean))
+      ).slice(0, 24);
+      const prompt = [
+        `Generate a brand-new, creative English compound-word / two-word-phrase chain for the game ChainIt.`,
+        `Theme: "${cleanTheme}". Exact word count: ${length}.`,
+        `Rules:`,
+        `1. Return ONLY single alphabetic uppercase English words (no spaces, hyphens, or numbers).`,
+        `2. Every consecutive pair (word[i] + " " + word[i+1]) MUST form a common, recognizable English compound word or everyday phrase (e.g. STAR -> LIGHT -> HOUSE -> BOAT -> DOCK).`,
+        `3. All ${length} words in the chain must be distinct.`,
+        avoidList.length > 0 ? `4. Do NOT use any of these recent words: ${avoidList.join(', ')}.` : '',
+        `Respond ONLY with JSON: {"name": "<short creative 2-3 word title>", "words": ["WORD1", ...]}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
 
-    while (chain.length < length) {
-      const prev = chain[chain.length - 1];
-      let nextCandidates = (CHAIN_GRAPH[prev] || []).filter((w) => !used.has(w));
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(
+          apiKey
+        )}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json', temperature: 1.0 },
+          }),
+          signal: AbortSignal.timeout(3000),
+        }
+      );
 
-      if (nextCandidates.length === 0) {
-        // Optional free Datamuse follower lookup (`lc=prev`)
-        try {
-          const res = await fetch(
-            `https://api.datamuse.com/words?lc=${encodeURIComponent(prev.toLowerCase())}&max=14`,
-            { signal: AbortSignal.timeout(1400) }
-          );
-          if (res.ok) {
-            const rows = (await res.json()) as Array<{ word: string }>;
-            nextCandidates = rows
-              .map((r) => r.word.trim().toUpperCase())
-              .filter((w) => !used.has(w) && validateSingleChainWord(w).valid && w.length >= 3);
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const parsed = JSON.parse(text) as { name?: string; words?: string[] };
+          const rawWords = Array.isArray(parsed?.words) ? parsed.words : [];
+          const normalized = rawWords
+            .map((w) => validateSingleChainWord(String(w || '')).normalized)
+            .filter((w) => validateSingleChainWord(w).valid);
+          const unique = Array.from(new Set(normalized));
+          const avoidSet = new Set(avoidList);
+          const hasAvoided = unique.some((w) => avoidSet.has(w));
+          const sig = unique.slice(0, length).join('>');
+
+          if (
+            unique.length === length &&
+            !hasAvoided &&
+            !globalChainHistory.hasChain(sig) &&
+            !options?.excludeChains?.includes(sig)
+          ) {
+            const finalWords = unique.slice(0, length);
+            globalChainHistory.record(finalWords);
+            return {
+              name: String(parsed.name || `${cleanTheme} Spark`).trim().slice(0, 36),
+              theme: cleanTheme,
+              words: finalWords,
+            };
           }
-        } catch {
-          // ignore network error
         }
       }
-
-      if (nextCandidates.length === 0) break;
-      const picked = nextCandidates[Math.floor(Math.random() * Math.min(nextCandidates.length, 4))];
-      chain.push(picked);
-      used.add(picked);
-    }
-
-    if (chain.length >= length) {
-      return {
-        name: `${cleanTheme} Mix`,
-        theme: cleanTheme,
-        words: chain.slice(0, length),
-      };
+    } catch {
+      // Fall back cleanly to local combinatorial graph below
     }
   }
 
-  // Fallback guaranteed valid chain
-  return {
-    name: `${cleanTheme} Express`,
-    theme: cleanTheme,
-    words: ['SUN', 'FLOWER', 'POT', 'LUCK', 'CHARM'].slice(0, length),
-  };
+  return generateLocalWordChainSync(cleanTheme, length, options);
 }

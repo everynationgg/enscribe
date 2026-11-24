@@ -7,7 +7,14 @@ import {
   SoloStage,
   Template,
 } from '../../../shared/types';
+import {
+  CHAIN_SYNONYMS,
+  ChainHistoryTracker,
+  generateUniqueGraphChain,
+} from '../../../shared/chainit/wordGraph';
 import { loadGuestCompletedSoloStages, markGuestSoloStageCompleted } from '../../services/session';
+
+const offlineChainHistory = new ChainHistoryTracker();
 
 const OFFLINE_SOLO_CATALOG: Array<Omit<SoloStage, 'completed'> & { words: string[] }> = [
   {
@@ -190,7 +197,7 @@ function buildOfflineClientState(rec: OfflineMatchRecord): MatchStateClient {
     }
     const clueWord =
       isActive && (revealed >= 2 || rec.wrongAttemptsCurrentWord >= 2)
-        ? OFFLINE_SYNONYMS[word] ?? null
+        ? CHAIN_SYNONYMS[word] ?? OFFLINE_SYNONYMS[word] ?? null
         : null;
 
     return {
@@ -271,14 +278,26 @@ export function startOfflineSoloMatch(
   stageId?: string,
   customTemplate?: Template
 ): { stageId: string | null; match: MatchStateClient } {
+  const completed = new Set(loadGuestCompletedSoloStages());
   const stage = stageId
     ? OFFLINE_SOLO_CATALOG.find((s) => s.id === stageId) ?? OFFLINE_SOLO_CATALOG[0]
     : null;
   const words = customTemplate?.words?.length
     ? customTemplate.words.map((w) => w.toUpperCase())
     : stage
-      ? [...stage.words]
-      : [...OFFLINE_SOLO_CATALOG[0].words];
+      ? completed.has(stage.id)
+        ? generateUniqueGraphChain({
+            theme: stage.theme,
+            length: stage.wordCount,
+            excludeWords: stage.words,
+            recentHistory: offlineChainHistory,
+          }).words
+        : [...stage.words]
+      : generateUniqueGraphChain({
+          theme: 'Adventure',
+          length: 5,
+          recentHistory: offlineChainHistory,
+        }).words;
   const now = Date.now();
   const matchId = `match_offline_${Math.random().toString(36).slice(2, 10)}`;
   const rec: OfflineMatchRecord = {
