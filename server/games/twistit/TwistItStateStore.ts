@@ -239,7 +239,7 @@ export class TwistItStateStore {
   async enqueueQuickMatch(playerId: string): Promise<string[] | null> {
     const staleCutoff = Date.now() - 2 * 60 * 1000;
     if (this.useCloud && this.supabase) {
-      await this.supabase
+      const { error: upsertErr } = await this.supabase
         .from('twistit_matchmaking_queue')
         .upsert(
           {
@@ -249,13 +249,18 @@ export class TwistItStateStore {
           },
           { onConflict: 'player_id' }
         );
-      const { data } = await this.supabase.rpc('dequeue_twistit_quick_pair', {
-        p_stale_before: new Date(staleCutoff).toISOString(),
-      });
-      if (data && data.matched && Array.isArray(data.players) && data.players.length === 2) {
-        return data.players.map(String);
+      if (!upsertErr) {
+        const { data, error: rpcErr } = await this.supabase.rpc('dequeue_twistit_quick_pair', {
+          p_stale_before: new Date(staleCutoff).toISOString(),
+        });
+        if (!rpcErr) {
+          if (data && data.matched && Array.isArray(data.players) && data.players.length === 2) {
+            return data.players.map(String);
+          }
+          return null;
+        }
       }
-      return null;
+      // Fall through to single-instance in-memory queue if migration 004 isn't applied yet
     }
 
     for (const [pid, ts] of this.quickQueue.entries()) {

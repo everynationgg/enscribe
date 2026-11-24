@@ -2030,7 +2030,7 @@ export const App: React.FC = () => {
               setActiveTwistItMatch(m);
               setRoute({ view: 'twistit_match', matchId: m.id });
             } catch (err: any) {
-              if (/fetch|network/i.test(String(err?.message)) || !navigator.onLine) {
+              if (/fetch|network|404|502|503/i.test(String(err?.message)) || !navigator.onLine) {
                 const m = startOfflineTwistItSolo(playerSession.playerId, playerSession.nickname);
                 setActiveTwistItMatch(m);
                 setRoute({ view: 'twistit_match', matchId: m.id });
