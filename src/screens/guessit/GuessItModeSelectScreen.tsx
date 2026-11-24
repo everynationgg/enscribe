@@ -22,6 +22,7 @@ import { GUESSIT_CATEGORIES } from '../../../shared/guessit/catalog';
 interface GuessItModeSelectScreenProps {
   publicRooms: GuessItRoom[];
   rankedSearchingKey: string | null;
+  initialPathway?: 'rooms' | 'ranked';
   isOffline: boolean;
   onBack: () => void;
   onRefreshRooms: () => void;
@@ -69,6 +70,7 @@ const CROSSWORD_COMPATIBLE_MODES: Array<{
 export const GuessItModeSelectScreen: React.FC<GuessItModeSelectScreenProps> = ({
   publicRooms,
   rankedSearchingKey,
+  initialPathway = 'rooms',
   isOffline,
   onBack,
   onRefreshRooms,
@@ -77,7 +79,7 @@ export const GuessItModeSelectScreen: React.FC<GuessItModeSelectScreenProps> = (
   onJoinRanked,
   onLeaveRanked,
 }) => {
-  const [pathway, setPathway] = useState<'rooms' | 'ranked'>('rooms');
+  const [pathway, setPathway] = useState<'rooms' | 'ranked'>(initialPathway);
   const [showCrosswordPicker, setShowCrosswordPicker] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [codeInput, setCodeInput] = useState('');

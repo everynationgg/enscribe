@@ -34,6 +34,17 @@ export const REGISTERED_GAMES: GameModuleDescriptor[] = [
     minPlayers: 1,
     maxPlayers: 8,
   },
+  {
+    id: 'twistit',
+    slug: 'twistit',
+    name: 'TwistIt',
+    tagline: 'Unscramble six letters to discover words solo or 1v1.',
+    status: 'playable',
+    badgeText: 'NEW',
+    supportedModes: ['solo', 'speed_race'],
+    minPlayers: 1,
+    maxPlayers: 2,
+  },
 ];
 
 export const HUB_GAME_TILES: HubGameTile[] = [
@@ -68,21 +79,13 @@ export const HUB_GAME_TILES: HubGameTile[] = [
     gameId: 'guessit',
   },
   {
-    id: 'tile_upcoming_1',
-    slug: 'upcoming-1',
-    name: 'New Word Game',
-    tagline: 'A fresh multiplayer word challenge is in the works.',
-    status: 'coming_soon',
-    badgeText: 'COMING SOON',
-    themeVariant: 'coming_soon',
-  },
-  {
-    id: 'tile_upcoming_2',
-    slug: 'upcoming-2',
-    name: 'Mystery Mode',
-    tagline: 'More Enscribe word arenas unlocking soon.',
-    status: 'coming_soon',
-    badgeText: 'COMING SOON',
-    themeVariant: 'coming_soon',
+    id: 'tile_twistit',
+    slug: 'twistit',
+    name: 'TwistIt',
+    tagline: 'Twist letters into words in solo or 1v1 speed races!',
+    status: 'playable',
+    badgeText: 'NEW',
+    themeVariant: 'twistit',
+    gameId: 'twistit',
   },
 ];

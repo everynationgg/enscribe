@@ -34,6 +34,13 @@ import {
   GuessItRoomSettings,
   GuessItTeamId,
 } from '../../shared/guessit/types';
+import {
+  TwistItMatchView,
+  TwistItRoomSettings,
+  TwistItRoomView,
+  TwistItSoloStats,
+  TwistItSubmitResult,
+} from '../../shared/twistit/types';
 
 const DEFAULT_PROD_API_BASE_URL = 'https://enscribe-game.fly.dev';
 const envApiBase = (
@@ -531,5 +538,92 @@ export const api = {
     request<GuessItAdventureClaimResult>('/api/guessit/adventure/claim', {
       method: 'POST',
       body: JSON.stringify({ playerId, matchId }),
+    }),
+  getTwistItSoloStats: (playerId: string) =>
+    request<TwistItSoloStats>(
+      `/api/twistit/solo/stats?playerId=${encodeURIComponent(playerId)}`
+    ),
+  startTwistItSolo: (playerId: string, excludePuzzleIds: string[] = []) =>
+    request<TwistItMatchView>('/api/twistit/solo/start', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, excludePuzzleIds }),
+    }),
+  listTwistItPublicRooms: () => request<TwistItRoomView[]>('/api/twistit/rooms/public'),
+  createTwistItRoom: (hostId: string, settings?: Partial<TwistItRoomSettings>) =>
+    request<TwistItRoomView>('/api/twistit/rooms/create', {
+      method: 'POST',
+      body: JSON.stringify({ playerId: hostId, settings }),
+    }),
+  joinTwistItRoom: (code: string, playerId: string) =>
+    request<TwistItRoomView>('/api/twistit/rooms/join', {
+      method: 'POST',
+      body: JSON.stringify({ code, playerId }),
+    }),
+  leaveTwistItRoom: (code: string, playerId: string) =>
+    request<{ ok: boolean; room: TwistItRoomView | null }>(
+      `/api/twistit/rooms/${encodeURIComponent(code)}/leave`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  setTwistItRoomReady: (code: string, playerId: string, ready: boolean) =>
+    request<TwistItRoomView>(`/api/twistit/rooms/${encodeURIComponent(code)}/ready`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, ready }),
+    }),
+  updateTwistItRoomSettings: (
+    code: string,
+    playerId: string,
+    settings: Partial<TwistItRoomSettings>
+  ) =>
+    request<TwistItRoomView>(`/api/twistit/rooms/${encodeURIComponent(code)}/settings`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, settings }),
+    }),
+  sendTwistItRoomChat: (code: string, playerId: string, message: string) =>
+    request<TwistItRoomView>(`/api/twistit/rooms/${encodeURIComponent(code)}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, message }),
+    }),
+  startTwistItRoomMatch: (code: string, playerId: string) =>
+    request<{ room: TwistItRoomView; match: TwistItMatchView }>(
+      `/api/twistit/rooms/${encodeURIComponent(code)}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  rematchTwistItRoom: (code: string, playerId: string) =>
+    request<{ room: TwistItRoomView; match: TwistItMatchView }>(
+      `/api/twistit/rooms/${encodeURIComponent(code)}/rematch`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  getTwistItRoom: (code: string) =>
+    request<TwistItRoomView>(`/api/twistit/rooms/${encodeURIComponent(code)}`),
+  joinTwistItQuickMatch: (playerId: string) =>
+    request<
+      | { status: 'queued' }
+      | { status: 'matched'; room: TwistItRoomView; match: TwistItMatchView }
+    >('/api/twistit/matchmaking/quick/join', {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  leaveTwistItQuickMatch: (playerId: string) =>
+    request<{ ok: boolean }>('/api/twistit/matchmaking/quick/leave', {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  getTwistItMatch: (matchId: string, playerId: string) =>
+    request<TwistItMatchView>(
+      `/api/twistit/matches/${encodeURIComponent(matchId)}?playerId=${encodeURIComponent(playerId)}`
+    ),
+  submitTwistItWord: (matchId: string, playerId: string, word: string) =>
+    request<TwistItSubmitResult>(`/api/twistit/matches/${encodeURIComponent(matchId)}/submit`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, word }),
     }),
 };

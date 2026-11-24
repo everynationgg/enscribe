@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { API_BASE_URL } from './api';
 
-export type ShareableGameId = 'chainit' | 'gridit' | 'guessit';
+export type ShareableGameId = 'chainit' | 'gridit' | 'guessit' | 'twistit';
 
 export interface PendingRoomInvite {
   game: ShareableGameId;
@@ -12,6 +12,7 @@ export const GAME_DISPLAY_NAMES: Record<ShareableGameId, string> = {
   chainit: 'ChainIt',
   gridit: 'GridIt',
   guessit: 'GuessIt',
+  twistit: 'TwistIt',
 };
 
 export function getShareOrigin(): string {
@@ -50,6 +51,8 @@ export function parseRoomInviteFromUrl(search?: string): PendingRoomInvite | nul
       game = 'gridit';
     } else if (rawGame === 'guessit') {
       game = 'guessit';
+    } else if (rawGame === 'twistit') {
+      game = 'twistit';
     }
     if (!game) return null;
 

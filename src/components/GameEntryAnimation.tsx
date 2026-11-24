@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
 interface GameEntryAnimationProps {
-  gameId: 'chain_clash' | 'gridit' | 'guessit';
+  gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit';
   onComplete: () => void;
 }
 
@@ -25,7 +25,7 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
     const prefersReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const durationMs = prefersReduced ? 450 : gameId === 'gridit' ? 2500 : gameId === 'guessit' ? 1800 : 2400;
+    const durationMs = prefersReduced ? 300 : 620;
     const timer = window.setTimeout(() => {
       doneRef.current();
     }, durationMs);
@@ -34,19 +34,40 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
 
   const isGridIt = gameId === 'gridit';
   const isGuessIt = gameId === 'guessit';
+  const isTwistIt = gameId === 'twistit';
 
   return (
     <div
-      className={`ens-intro-overlay ${isGridIt ? 'is-gridit' : isGuessIt ? 'is-gridit' : 'is-chainit'}`}
+      className={`ens-intro-overlay ${isGridIt || isGuessIt || isTwistIt ? 'is-gridit' : 'is-chainit'}`}
       role="status"
       aria-live="polite"
-      aria-label={isGridIt ? 'Entering GridIt' : isGuessIt ? 'Entering GuessIt' : 'Entering ChainIt'}
+      aria-label={
+        isGridIt
+          ? 'Entering GridIt'
+          : isGuessIt
+            ? 'Entering GuessIt'
+            : isTwistIt
+              ? 'Entering TwistIt'
+              : 'Entering ChainIt'
+      }
     >
       <div className="ens-sky-sparkles" aria-hidden="true" />
       <div className="ens-intro-ambient-ring" aria-hidden="true" />
 
       <div className="ens-intro-stage">
-        {isGuessIt ? (
+        {isTwistIt ? (
+          <>
+            <img
+              src="/art/hub-hero-mascot.png"
+              alt=""
+              style={{ width: 120, height: 120, objectFit: 'contain' }}
+            />
+            <div className="ens-intro-wordmark-wrap">
+              <div className="ens-intro-gridit-logo">TwistIt</div>
+              <div className="ens-intro-tagline">Twist six letters into words!</div>
+            </div>
+          </>
+        ) : isGuessIt ? (
           <>
             <img
               src="/art/hero-mascot.png"

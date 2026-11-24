@@ -5,6 +5,8 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import App from './App';
 import './styles/enscribe.css';
 import './styles/guessit.css';
+import './styles/hubRedesign.css';
+import './styles/twistit.css';
 
 if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
   window.addEventListener('load', () => {

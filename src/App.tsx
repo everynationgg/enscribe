@@ -27,7 +27,20 @@ import {
   SoloStage,
   Template,
   ThumbnailKey,
+  TwistItMatchView,
+  TwistItRoomView,
+  TwistItSoloStats,
 } from '../shared/types';
+import {
+  getOfflineTwistItSoloStats,
+  isOfflineTwistItMatch,
+  startOfflineTwistItSolo,
+  submitOfflineTwistItWord,
+} from './games/twistit/offlineSolo';
+import { TwistItHomeScreen } from './screens/twistit/TwistItHomeScreen';
+import { TwistItMultiplayerScreen } from './screens/twistit/TwistItMultiplayerScreen';
+import { TwistItLobbyScreen } from './screens/twistit/TwistItLobbyScreen';
+import { TwistItGameplayScreen } from './screens/twistit/TwistItGameplayScreen';
 import { api, setGuestSessionToken } from './services/api';
 import { getSocket } from './services/socket';
 import {
@@ -93,13 +106,18 @@ import { GameplayScreen } from './screens/GameplayScreen';
 
 type ActiveRoute =
   | { view: 'hub' }
-  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' | 'guessit' }
+  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' }
   | { view: 'guessit_entry' }
-  | { view: 'guessit_modes' }
+  | { view: 'guessit_modes'; pathway?: 'rooms' | 'ranked' }
+  | { view: 'guessit_leaderboard' }
   | { view: 'guessit_lobby'; roomId: string }
   | { view: 'guessit_match'; matchId: string }
   | { view: 'guessit_adventure' }
   | { view: 'guessit_adventure_reward' }
+  | { view: 'twistit_home' }
+  | { view: 'twistit_multiplayer' }
+  | { view: 'twistit_lobby'; roomCode: string }
+  | { view: 'twistit_match'; matchId: string }
   | { view: 'gridit_home' }
   | { view: 'gridit_solo_setup' }
   | { view: 'gridit_editor'; returnToLobbyRoomId?: string | null }
@@ -179,6 +197,13 @@ export const App: React.FC = () => {
   const [guessItAdventureClaim, setGuessItAdventureClaim] =
     useState<GuessItAdventureClaimResult | null>(null);
   const [guessItRankedKey, setGuessItRankedKey] = useState<string | null>(null);
+  const [twistItPublicRooms, setTwistItPublicRooms] = useState<TwistItRoomView[]>([]);
+  const [activeTwistItRoom, setActiveTwistItRoom] = useState<TwistItRoomView | null>(null);
+  const [activeTwistItMatch, setActiveTwistItMatch] = useState<TwistItMatchView | null>(null);
+  const [twistItSoloStats, setTwistItSoloStats] = useState<TwistItSoloStats>(() =>
+    getOfflineTwistItSoloStats()
+  );
+  const [twistItQuickQueued, setTwistItQuickQueued] = useState(false);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [ongoingMatches, setOngoingMatches] = useState<OngoingMatchSummary[]>([]);
@@ -422,11 +447,26 @@ export const App: React.FC = () => {
         setRoute({ view: 'hub' });
         return;
       }
-      if (current.view === 'gridit_home' || current.view === 'guessit_entry') {
+      if (current.view === 'gridit_home' || current.view === 'guessit_entry' || current.view === 'twistit_home') {
         setRoute({ view: 'hub' });
         return;
       }
-      if (current.view === 'guessit_modes' || current.view === 'guessit_adventure') {
+      if (current.view === 'twistit_multiplayer') {
+        setRoute({ view: 'twistit_home' });
+        return;
+      }
+      if (current.view === 'twistit_lobby') {
+        setActiveTwistItRoom(null);
+        setRoute({ view: 'twistit_multiplayer' });
+        return;
+      }
+      if (current.view === 'twistit_match') {
+        const roomCode = activeTwistItMatch?.roomCode ?? null;
+        setActiveTwistItMatch(null);
+        setRoute(roomCode ? { view: 'twistit_lobby', roomCode } : { view: 'twistit_home' });
+        return;
+      }
+      if (current.view === 'guessit_modes' || current.view === 'guessit_adventure' || current.view === 'guessit_leaderboard') {
         setRoute({ view: 'guessit_entry' });
         return;
       }
@@ -535,6 +575,16 @@ export const App: React.FC = () => {
         .getGuessItAdventureProgress(activeProfileId)
         .then(setGuessItAdventureProgress)
         .catch(() => undefined);
+    }
+    if (route.view === 'twistit_home') {
+      if (activeProfileId && !playerSession?.isOffline) {
+        api.getTwistItSoloStats(activeProfileId).then(setTwistItSoloStats).catch(() => undefined);
+      } else {
+        setTwistItSoloStats(getOfflineTwistItSoloStats());
+      }
+    }
+    if (activeProfileId && !playerSession?.isOffline && route.view === 'twistit_multiplayer') {
+      api.listTwistItPublicRooms().then(setTwistItPublicRooms).catch(() => undefined);
     }
   }, [activeProfileId, playerSession?.isOffline, route.view]);
 
@@ -758,6 +808,38 @@ export const App: React.FC = () => {
       setRoute({ view: 'guessit_match', matchId: newMatchId });
     };
 
+    const onTwistItRoomUpdated = (room: TwistItRoomView) => {
+      setActiveTwistItRoom((prev) => (prev && prev.code === room.code ? room : prev));
+    };
+
+    const onTwistItRoomsUpdated = () => {
+      if (routeRef.current.view === 'twistit_multiplayer') {
+        api.listTwistItPublicRooms().then(setTwistItPublicRooms).catch(() => undefined);
+      }
+    };
+
+    const onTwistItMatchStarted = ({ match }: { roomCode: string; match: TwistItMatchView }) => {
+      setActiveTwistItMatch(match);
+      setRoute({ view: 'twistit_match', matchId: match.id });
+    };
+
+    const onTwistItMatchState = (match: TwistItMatchView) => {
+      setActiveTwistItMatch((prev) => {
+        if (routeRef.current.view === 'twistit_match' && routeRef.current.matchId === match.id) {
+          return match;
+        }
+        return prev?.id === match.id ? match : prev;
+      });
+    };
+
+    const onTwistItQuickMatched = ({ room, match }: { room: TwistItRoomView; match: TwistItMatchView }) => {
+      setTwistItQuickQueued(false);
+      setActiveTwistItRoom(room);
+      setActiveTwistItMatch(match);
+      notify('1v1 Speed Race opponent found!');
+      setRoute({ view: 'twistit_match', matchId: match.id });
+    };
+
     socket.on('room:updated', onRoomUpdated);
     socket.on('room:match_started', onRoomMatchStarted);
     socket.on('match:state', onMatchState);
@@ -778,6 +860,11 @@ export const App: React.FC = () => {
     socket.on('guessit:matched', onGuessItMatched);
     socket.on('guessit:match_state', onGuessItMatchState);
     socket.on('guessit:rematch', onGuessItRematch);
+    socket.on('twistit:room_updated', onTwistItRoomUpdated);
+    socket.on('twistit:rooms_updated', onTwistItRoomsUpdated);
+    socket.on('twistit:match_started', onTwistItMatchStarted);
+    socket.on('twistit:match_state', onTwistItMatchState);
+    socket.on('twistit:quick_matched', onTwistItQuickMatched);
 
     return () => {
       socket.off('connect', identify);
@@ -801,6 +888,11 @@ export const App: React.FC = () => {
       socket.off('guessit:matched', onGuessItMatched);
       socket.off('guessit:match_state', onGuessItMatchState);
       socket.off('guessit:rematch', onGuessItRematch);
+      socket.off('twistit:room_updated', onTwistItRoomUpdated);
+      socket.off('twistit:rooms_updated', onTwistItRoomsUpdated);
+      socket.off('twistit:match_started', onTwistItMatchStarted);
+      socket.off('twistit:match_state', onTwistItMatchState);
+      socket.off('twistit:quick_matched', onTwistItQuickMatched);
     };
   }, [activeProfileId, playerSession?.isOffline, notify, refreshPlatformData]);
 
@@ -833,7 +925,28 @@ export const App: React.FC = () => {
         socket.emit('guessit:leave_match', mid);
       };
     }
-  }, [activeProfileId, playerSession?.isOffline, route.view, (route as any).roomId, (route as any).matchId]);
+    if (route.view === 'twistit_lobby') {
+      const code = route.roomCode;
+      socket.emit('room:join_channel', code);
+      return () => {
+        socket.emit('room:leave_channel', code);
+      };
+    }
+    if (route.view === 'twistit_match' && !isOfflineTwistItMatch(route.matchId)) {
+      const mid = route.matchId;
+      socket.emit('twistit:join_match', mid);
+      return () => {
+        socket.emit('twistit:leave_match', mid);
+      };
+    }
+  }, [
+    activeProfileId,
+    playerSession?.isOffline,
+    route.view,
+    (route as any).roomId,
+    (route as any).roomCode,
+    (route as any).matchId,
+  ]);
 
   const activeGridItRoomRef = useRef(activeGridItRoom);
   const activeGridItMatchRef = useRef(activeGridItMatch);
@@ -944,13 +1057,18 @@ export const App: React.FC = () => {
       (route.view !== 'gridit_lobby' &&
         route.view !== 'gridit_match' &&
         route.view !== 'guessit_lobby' &&
-        route.view !== 'guessit_match')
+        route.view !== 'guessit_match' &&
+        route.view !== 'twistit_lobby' &&
+        route.view !== 'twistit_match')
     ) {
+      return;
+    }
+    if (route.view === 'twistit_match' && isOfflineTwistItMatch(route.matchId)) {
       return;
     }
     let timer: number | null = null;
     const scheduleTick = () => {
-      const delayMs = getSocket().connected ? 15000 : 3000;
+      const delayMs = getSocket().connected ? 12000 : 2500;
       timer = window.setTimeout(() => {
         if (route.view === 'gridit_lobby') {
           api
@@ -985,6 +1103,21 @@ export const App: React.FC = () => {
           api
             .getGuessItMatch(route.matchId, activeProfileId)
             .then(setActiveGuessItMatch)
+            .catch(() => undefined);
+        } else if (route.view === 'twistit_lobby') {
+          api
+            .getTwistItRoom(route.roomCode)
+            .then((r) => {
+              setActiveTwistItRoom(r);
+              if (r.status === 'in_match' && r.activeMatchId) {
+                setRoute({ view: 'twistit_match', matchId: r.activeMatchId });
+              }
+            })
+            .catch(() => undefined);
+        } else if (route.view === 'twistit_match') {
+          api
+            .getTwistItMatch(route.matchId, activeProfileId)
+            .then(setActiveTwistItMatch)
             .catch(() => undefined);
         }
         scheduleTick();
@@ -1030,8 +1163,35 @@ export const App: React.FC = () => {
           setActiveGuessItMatch(null);
           setRoute({ view: 'guessit_entry' });
         });
+    } else if (route.view === 'twistit_lobby' && activeTwistItRoom?.code !== route.roomCode) {
+      api
+        .getTwistItRoom(route.roomCode)
+        .then((r) => {
+          setActiveTwistItRoom(r);
+          if (r.status === 'in_match' && r.activeMatchId) {
+            setRoute({ view: 'twistit_match', matchId: r.activeMatchId });
+          }
+        })
+        .catch((err) => {
+          notify(err.message || 'TwistIt room not found');
+          setActiveTwistItRoom(null);
+          setRoute({ view: 'twistit_multiplayer' });
+        });
+    } else if (
+      route.view === 'twistit_match' &&
+      !isOfflineTwistItMatch(route.matchId) &&
+      activeTwistItMatch?.id !== route.matchId
+    ) {
+      api
+        .getTwistItMatch(route.matchId, activeProfileId)
+        .then(setActiveTwistItMatch)
+        .catch((err) => {
+          notify(err.message || 'TwistIt match not found');
+          setActiveTwistItMatch(null);
+          setRoute({ view: 'twistit_home' });
+        });
     }
-  }, [route, activeProfileId, playerSession?.isOffline, notify]);
+  }, [route, activeProfileId, playerSession?.isOffline, activeTwistItRoom?.code, activeTwistItMatch?.id, notify]);
 
   // Server-confirmed Solo Adventure reward claim upon stage victory (strictly idempotent)
   useEffect(() => {
@@ -1138,6 +1298,17 @@ export const App: React.FC = () => {
             setRoute({ view: 'gridit_lobby', roomId: res.room.id });
           }
           notify(`Joined GridIt room ${res.room.code}!`);
+          return;
+        }
+        if (invite.game === 'twistit') {
+          const room = await api.joinTwistItRoom(invite.code, playerId);
+          setActiveTwistItRoom(room);
+          if (room.status === 'in_match' && room.activeMatchId) {
+            setRoute({ view: 'twistit_match', matchId: room.activeMatchId });
+          } else {
+            setRoute({ view: 'twistit_lobby', roomCode: room.code });
+          }
+          notify(`Joined TwistIt room ${room.code}!`);
           return;
         }
         const room = await api.joinGuessItRoom(invite.code, playerId);
@@ -1447,8 +1618,12 @@ export const App: React.FC = () => {
       return (
         <EnscribeHubScreen
           session={playerSession}
+          profile={currentProfile}
           isOffline={isOffline}
           onSelectGame={handleSelectHubGame}
+          onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+          onQuickPlay={() => setRoute({ view: 'twistit_home' })}
+          onOpenSocial={() => setRoute({ view: 'rooms' })}
           onSwitchGuest={handleSwitchGuest}
         />
       );
@@ -1463,6 +1638,8 @@ export const App: React.FC = () => {
               setRoute({ view: 'gridit_home' });
             } else if (route.gameId === 'guessit') {
               setRoute({ view: 'guessit_entry' });
+            } else if (route.gameId === 'twistit') {
+              setRoute({ view: 'twistit_home' });
             } else {
               setRoute({ view: 'tab', tab: 'home' });
             }
@@ -1476,9 +1653,22 @@ export const App: React.FC = () => {
         <GuessItEntryScreen
           profile={currentProfile}
           onExitToHub={() => setRoute({ view: 'hub' })}
-          onPlayMultiplayer={() => setRoute({ view: 'guessit_modes' })}
+          onPlayMultiplayer={(pathway) => setRoute({ view: 'guessit_modes', pathway })}
           onSoloAdventure={() => setRoute({ view: 'guessit_adventure' })}
+          onOpenLeaderboard={() => setRoute({ view: 'guessit_leaderboard' })}
           onOpenTemplates={() => setRoute({ view: 'tab', tab: 'templates' })}
+          onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+          onSwitchGuest={handleSwitchGuest}
+        />
+      );
+    }
+
+    if (route.view === 'guessit_leaderboard') {
+      return (
+        <LeaderboardScreen
+          currentProfile={currentProfile}
+          gameTitle="GuessIt"
+          onBack={() => setRoute({ view: 'guessit_entry' })}
         />
       );
     }
@@ -1488,6 +1678,7 @@ export const App: React.FC = () => {
         <GuessItModeSelectScreen
           publicRooms={guessItPublicRooms}
           rankedSearchingKey={guessItRankedKey}
+          initialPathway={route.pathway ?? 'rooms'}
           isOffline={isOffline || playerSession.isOffline}
           onBack={() => setRoute({ view: 'guessit_entry' })}
           onRefreshRooms={() => {
@@ -1804,6 +1995,7 @@ export const App: React.FC = () => {
       return (
         <GridItHomeScreen
           session={playerSession}
+          profile={currentProfile}
           onExitToHub={() => setRoute({ view: 'hub' })}
           onOpenSolo={() => setRoute({ view: 'gridit_solo_setup' })}
           onOpenRanked={() => setRoute({ view: 'gridit_ranked' })}
@@ -1813,7 +2005,285 @@ export const App: React.FC = () => {
             setRoute({ view: 'gridit_host_setup', defaultMode: 'board_battle' })
           }
           onOpenEditor={() => setRoute({ view: 'gridit_editor', returnToLobbyRoomId: null })}
+          onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+          onSwitchGuest={handleSwitchGuest}
         />
+      );
+    }
+
+    if (route.view === 'twistit_home') {
+      return (
+        <TwistItHomeScreen
+          session={playerSession}
+          profile={currentProfile}
+          soloStats={twistItSoloStats}
+          onExitToHub={() => setRoute({ view: 'hub' })}
+          onStartSolo={async () => {
+            if (isOffline || playerSession.isOffline) {
+              const m = startOfflineTwistItSolo(playerSession.playerId, playerSession.nickname);
+              setActiveTwistItMatch(m);
+              setRoute({ view: 'twistit_match', matchId: m.id });
+              return;
+            }
+            try {
+              const m = await api.startTwistItSolo(playerSession.playerId);
+              setActiveTwistItMatch(m);
+              setRoute({ view: 'twistit_match', matchId: m.id });
+            } catch (err: any) {
+              if (/fetch|network/i.test(String(err?.message)) || !navigator.onLine) {
+                const m = startOfflineTwistItSolo(playerSession.playerId, playerSession.nickname);
+                setActiveTwistItMatch(m);
+                setRoute({ view: 'twistit_match', matchId: m.id });
+              } else {
+                notify(err.message);
+              }
+            }
+          }}
+          onOpenMultiplayer={() => setRoute({ view: 'twistit_multiplayer' })}
+          onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+          onSwitchGuest={handleSwitchGuest}
+        />
+      );
+    }
+
+    if (route.view === 'twistit_multiplayer') {
+      return (
+        <TwistItMultiplayerScreen
+          session={playerSession}
+          profile={currentProfile}
+          publicRooms={twistItPublicRooms}
+          searchingQuick={twistItQuickQueued}
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'twistit_home' })}
+          onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+          onRefreshRooms={() => {
+            api.listTwistItPublicRooms().then(setTwistItPublicRooms).catch(() => undefined);
+          }}
+          onQuickMatch={async () => {
+            try {
+              const res = await api.joinTwistItQuickMatch(playerSession.playerId);
+              if (res.status === 'matched') {
+                setTwistItQuickQueued(false);
+                setActiveTwistItRoom(res.room);
+                setActiveTwistItMatch(res.match);
+                setRoute({ view: 'twistit_match', matchId: res.match.id });
+              } else {
+                setTwistItQuickQueued(true);
+                notify('Searching 1v1 TwistIt queue...');
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onCancelQuickMatch={async () => {
+            await api.leaveTwistItQuickMatch(playerSession.playerId).catch(() => undefined);
+            setTwistItQuickQueued(false);
+          }}
+          onCreateRoom={async (settings) => {
+            try {
+              const rm = await api.createTwistItRoom(playerSession.playerId, settings);
+              setActiveTwistItRoom(rm);
+              setRoute({ view: 'twistit_lobby', roomCode: rm.code });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onJoinRoomByCode={async (code) => {
+            try {
+              const rm = await api.joinTwistItRoom(code, playerSession.playerId);
+              setActiveTwistItRoom(rm);
+              if (rm.status === 'in_match' && rm.activeMatchId) {
+                setRoute({ view: 'twistit_match', matchId: rm.activeMatchId });
+              } else {
+                setRoute({ view: 'twistit_lobby', roomCode: rm.code });
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'twistit_lobby' && activeTwistItRoom?.code === route.roomCode) {
+      return (
+        <TwistItLobbyScreen
+          room={activeTwistItRoom}
+          session={playerSession}
+          profile={currentProfile}
+          onLeave={() => {
+            const code = activeTwistItRoom.code;
+            setActiveTwistItRoom(null);
+            setRoute({ view: 'twistit_multiplayer' });
+            api.leaveTwistItRoom(code, playerSession.playerId).catch(() => undefined);
+          }}
+          onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+          onToggleReady={async (ready) => {
+            try {
+              const updated = await api.setTwistItRoomReady(
+                activeTwistItRoom.code,
+                playerSession.playerId,
+                ready
+              );
+              setActiveTwistItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onUpdateSettings={async (patch) => {
+            try {
+              const updated = await api.updateTwistItRoomSettings(
+                activeTwistItRoom.code,
+                playerSession.playerId,
+                patch
+              );
+              setActiveTwistItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSendChat={async (message) => {
+            try {
+              const updated = await api.sendTwistItRoomChat(
+                activeTwistItRoom.code,
+                playerSession.playerId,
+                message
+              );
+              setActiveTwistItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onStartRace={async () => {
+            try {
+              const res = await api.startTwistItRoomMatch(
+                activeTwistItRoom.code,
+                playerSession.playerId
+              );
+              setActiveTwistItRoom(res.room);
+              setActiveTwistItMatch(res.match);
+              setRoute({ view: 'twistit_match', matchId: res.match.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onNotify={notify}
+        />
+      );
+    }
+
+    if (route.view === 'twistit_match' && activeTwistItMatch?.id === route.matchId) {
+      const offline = isOfflineTwistItMatch(activeTwistItMatch.id);
+      return (
+        <TwistItGameplayScreen
+          match={activeTwistItMatch}
+          viewerUserId={playerSession.playerId}
+          onExit={() => {
+            const roomCode = activeTwistItMatch.roomCode;
+            setActiveTwistItMatch(null);
+            if (roomCode) {
+              setRoute({ view: 'twistit_multiplayer' });
+            } else {
+              setRoute({ view: 'twistit_home' });
+            }
+          }}
+          onSubmitWord={async (word) => {
+            if (offline) {
+              const res = submitOfflineTwistItWord(activeTwistItMatch.id, word);
+              setActiveTwistItMatch(res.match);
+              if (res.completedPuzzle) {
+                setTwistItSoloStats(getOfflineTwistItSoloStats());
+              }
+              return res;
+            }
+            const res = await api.submitTwistItWord(
+              activeTwistItMatch.id,
+              playerSession.playerId,
+              word
+            );
+            setActiveTwistItMatch(res.match);
+            if (res.completedPuzzle) {
+              refreshPlatformData(playerSession.playerId);
+              if (res.match.mode === 'solo') {
+                api
+                  .getTwistItSoloStats(playerSession.playerId)
+                  .then(setTwistItSoloStats)
+                  .catch(() => undefined);
+              }
+            }
+            return res;
+          }}
+          onPlayAnotherSolo={async (excludePuzzleId) => {
+            if (offline || isOffline || playerSession.isOffline) {
+              const next = startOfflineTwistItSolo(
+                playerSession.playerId,
+                playerSession.nickname,
+                [excludePuzzleId]
+              );
+              setActiveTwistItMatch(next);
+              setRoute({ view: 'twistit_match', matchId: next.id });
+              return;
+            }
+            const next = await api.startTwistItSolo(playerSession.playerId, [excludePuzzleId]);
+            setActiveTwistItMatch(next);
+            setRoute({ view: 'twistit_match', matchId: next.id });
+          }}
+          onRematch1v1={
+            activeTwistItMatch.roomCode
+              ? async () => {
+                  try {
+                    const res = await api.rematchTwistItRoom(
+                      activeTwistItMatch.roomCode!,
+                      playerSession.playerId
+                    );
+                    setActiveTwistItRoom(res.room);
+                    setActiveTwistItMatch(res.match);
+                    setRoute({ view: 'twistit_match', matchId: res.match.id });
+                  } catch (err: any) {
+                    notify(err.message);
+                  }
+                }
+              : undefined
+          }
+          onBackToLobby={
+            activeTwistItMatch.roomCode
+              ? () => {
+                  const code = activeTwistItMatch.roomCode!;
+                  setActiveTwistItMatch(null);
+                  setRoute({ view: 'twistit_lobby', roomCode: code });
+                }
+              : undefined
+          }
+          onSyncMatch={
+            !offline
+              ? async () => {
+                  const fresh = await api.getTwistItMatch(
+                    activeTwistItMatch.id,
+                    playerSession.playerId
+                  );
+                  setActiveTwistItMatch(fresh);
+                }
+              : undefined
+          }
+        />
+      );
+    }
+
+    if (route.view === 'twistit_lobby' || route.view === 'twistit_match') {
+      return (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#c7d5ff',
+            fontWeight: 800,
+            fontSize: 15,
+          }}
+        >
+          Loading TwistIt {route.view === 'twistit_lobby' ? 'lobby' : 'race'}...
+        </div>
       );
     }
 
@@ -2538,6 +3008,8 @@ export const App: React.FC = () => {
             onExploreFantasy={() => setRoute({ view: 'solo' })}
             onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
             onExitToHub={() => setRoute({ view: 'hub' })}
+            onOpenTemplates={() => setRoute({ view: 'tab', tab: 'templates' })}
+            onSwitchGuest={handleSwitchGuest}
           />
         )}
 
@@ -2661,11 +3133,23 @@ export const App: React.FC = () => {
           />
         )}
 
-        <BottomNav
-          activeTab={tab}
-          onSelect={(nextTab) => setRoute({ view: 'tab', tab: nextTab })}
-          hasOngoingMatch={ongoingMatches.some((m) => m.isYourTurn)}
-        />
+        {tab !== 'home' && (
+          <BottomNav
+            activeTab={tab}
+            onSelect={(nextTab) => setRoute({ view: 'tab', tab: nextTab })}
+            onSelectHubTab={(dockTab) => {
+              if (dockTab === 'games' || dockTab === 'home') {
+                setRoute({ view: 'hub' });
+              } else if (dockTab === 'social') {
+                setRoute({ view: 'rooms' });
+              } else {
+                setRoute({ view: 'tab', tab: 'profile' });
+              }
+            }}
+            onQuickPlay={() => setRoute({ view: 'twistit_home' })}
+            hasOngoingMatch={ongoingMatches.some((m) => m.isYourTurn)}
+          />
+        )}
       </div>
     );
   };

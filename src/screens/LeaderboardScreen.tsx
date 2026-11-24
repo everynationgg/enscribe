@@ -8,11 +8,13 @@ import { GoldCrownIcon, PodiumCrownIcon } from '../components/GameIcons';
 
 interface LeaderboardScreenProps {
   currentProfile: Profile;
+  gameTitle?: string;
   onBack: () => void;
 }
 
 export const LeaderboardScreen: React.FC<LeaderboardScreenProps> = ({
   currentProfile,
+  gameTitle = 'ChainIt',
   onBack,
 }) => {
   const [players, setPlayers] = useState<Profile[]>(currentProfile.isGuest ? [] : [currentProfile]);
@@ -46,8 +48,8 @@ export const LeaderboardScreen: React.FC<LeaderboardScreenProps> = ({
       <div className="ens-sky-sparkles" aria-hidden="true" />
 
       <FantasyPageHeader
-        title="ChainIt Leaderboard"
-        subtitle="Top ChainIt players ranked by competitive RP and match wins."
+        title={`${gameTitle} Leaderboard`}
+        subtitle={`Top ${gameTitle} players ranked by competitive RP and match wins.`}
         icon={<PodiumCrownIcon size={36} />}
         backdropSrc="/art/header-fantasy.png"
         onBack={onBack}

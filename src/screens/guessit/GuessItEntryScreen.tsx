@@ -1,21 +1,17 @@
 import React from 'react';
-import {
-  ChevronRight,
-  Compass,
-  FileText,
-  Hexagon,
-  Plus,
-  Users,
-} from 'lucide-react';
+import { FileText, HelpCircle } from 'lucide-react';
 import { Profile } from '../../../shared/types';
-import { GuessItEntryHeroArt } from '../../games/guessit/GuessItMascot';
+import { GameLandingModeCard, GameLandingShell } from '../../components/GameLandingShell';
 
 interface GuessItEntryScreenProps {
   profile: Profile;
   onExitToHub: () => void;
-  onPlayMultiplayer: () => void;
+  onPlayMultiplayer: (pathway?: 'rooms' | 'ranked') => void;
   onSoloAdventure: () => void;
+  onOpenLeaderboard?: () => void;
   onOpenTemplates: () => void;
+  onOpenProfile?: () => void;
+  onSwitchGuest?: () => void;
 }
 
 export const GuessItEntryScreen: React.FC<GuessItEntryScreenProps> = ({
@@ -23,108 +19,66 @@ export const GuessItEntryScreen: React.FC<GuessItEntryScreenProps> = ({
   onExitToHub,
   onPlayMultiplayer,
   onSoloAdventure,
+  onOpenLeaderboard,
   onOpenTemplates,
+  onOpenProfile,
+  onSwitchGuest,
 }) => {
-  return (
-    <div className="ens-guessit-shell is-scrollable">
-      <div className="ens-sky-sparkles" aria-hidden="true" />
+  const cards: GameLandingModeCard[] = [
+    {
+      id: 'ranked',
+      label: 'Ranked — Compete for a higher rank!',
+      artSrc: '/art/mode-card-ranked.png',
+      glowClass: 'glow-chainit',
+      onClick: () => onPlayMultiplayer('ranked'),
+    },
+    {
+      id: 'solo',
+      label: 'Solo Adventure — Play at your own pace!',
+      artSrc: '/art/mode-card-solo.png',
+      glowClass: 'glow-gridit',
+      onClick: onSoloAdventure,
+    },
+    {
+      id: 'rooms',
+      label: 'Rooms — Join or create a private room to play with friends!',
+      artSrc: '/art/mode-card-rooms.png',
+      glowClass: 'glow-twistit',
+      onClick: () => onPlayMultiplayer('rooms'),
+    },
+    {
+      id: 'leaderboard',
+      label: 'Leaderboard — See the top GuessIt players!',
+      artSrc: '/art/mode-card-leaderboard-guessit.png',
+      glowClass: 'glow-guessit',
+      onClick: () => (onOpenLeaderboard ? onOpenLeaderboard() : onPlayMultiplayer('ranked')),
+    },
+  ];
 
-      <header className="ens-guessit-topbar">
+  return (
+    <GameLandingShell
+      gameName="GuessIt"
+      badgeIcon={<HelpCircle size={15} color="#78350f" strokeWidth={2.8} />}
+      badgeBg="linear-gradient(135deg, #fde047 0%, #f59e0b 100%)"
+      heroBannerSrc="/art/hero-guessit-banner.png"
+      heroAlt="GuessIt — Guess the hidden word!"
+      nickname={profile.username}
+      avatarId={profile.avatarId}
+      coins={profile.matchPointsBalance}
+      cards={cards}
+      onBackToHub={onExitToHub}
+      onOpenProfile={() => (onOpenProfile ? onOpenProfile() : onExitToHub())}
+      onSwitchGuest={onSwitchGuest}
+      extras={
         <button
           type="button"
-          className="ens-guessit-brand-btn"
-          onClick={onExitToHub}
-          aria-label="Back to Enscribe Hub"
-          title="Back to Enscribe Hub"
+          className="ens-landing-mini-pill"
+          onClick={onOpenTemplates}
         >
-          <Hexagon size={18} color="#38bdf8" fill="rgba(56, 189, 248, 0.3)" />
-          <span>Enscribe</span>
+          <FileText size={13} />
+          <span>Custom Word Packs</span>
         </button>
-
-        <div className="ens-guessit-coin-pill" title="Enscribe Coins">
-          <span
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: '999px',
-              background: 'linear-gradient(180deg, #fef08a 0%, #f59e0b 100%)',
-              color: '#78350f',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 12,
-              fontWeight: 900,
-            }}
-            aria-hidden="true"
-          >
-            $
-          </span>
-          <span>{profile.matchPointsBalance.toLocaleString()}</span>
-          <span
-            style={{
-              width: 18,
-              height: 18,
-              borderRadius: '999px',
-              background: '#22c55e',
-              color: '#ffffff',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            aria-hidden="true"
-          >
-            <Plus size={12} strokeWidth={3} />
-          </span>
-        </div>
-      </header>
-
-      <div className="ens-guessit-scroll">
-        <GuessItEntryHeroArt />
-
-        <div className="ens-guessit-cta-stack">
-          <button
-            type="button"
-            className="ens-guessit-big-cta is-gold"
-            onClick={onPlayMultiplayer}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="ens-guessit-cta-icon">
-                <Users size={22} color="#ffffff" />
-              </span>
-              <span>Play Multiplayer</span>
-            </span>
-            <ChevronRight size={22} strokeWidth={3} />
-          </button>
-
-          <button
-            type="button"
-            className="ens-guessit-big-cta is-adventure"
-            onClick={onSoloAdventure}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="ens-guessit-cta-icon">
-                <Compass size={22} color="#ffffff" />
-              </span>
-              <span>Solo Adventure</span>
-            </span>
-            <ChevronRight size={22} strokeWidth={3} />
-          </button>
-
-          <button
-            type="button"
-            className="ens-guessit-big-cta is-templates"
-            onClick={onOpenTemplates}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="ens-guessit-cta-icon">
-                <FileText size={21} color="#ffffff" />
-              </span>
-              <span>My Templates</span>
-            </span>
-            <ChevronRight size={22} strokeWidth={3} />
-          </button>
-        </div>
-      </div>
-    </div>
+      }
+    />
   );
 };

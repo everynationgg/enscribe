@@ -25,6 +25,11 @@ const REALTIME_EVENTS = [
   'guessit:match_state',
   'guessit:matched',
   'guessit:rematch',
+  'twistit:room_updated',
+  'twistit:rooms_updated',
+  'twistit:match_started',
+  'twistit:match_state',
+  'twistit:quick_matched',
 ];
 
 class UnifiedRealtimeClient {

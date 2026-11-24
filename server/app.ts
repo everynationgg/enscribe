@@ -44,6 +44,14 @@ import {
   GuessItUnavailableError,
   StoredGuessItMatch,
 } from './games/guessit/GuessItStateStore.js';
+import {
+  TwistItBadRequestError,
+  TwistItEngine,
+  TwistItForbiddenError,
+  TwistItNotFoundError,
+} from './games/twistit/TwistItEngine.js';
+import { TwistItInternalMatch } from './games/twistit/TwistItStateStore.js';
+import { TwistItRoomView } from '../shared/twistit/types.js';
 import { GuessItRoom } from '../shared/guessit/types.js';
 import { GridItRoom } from '../shared/gridit/multiplayerTypes.js';
 import { suggestTemplateFillerLettersWithGemini } from './games/gridit/geminiFiller.js';
@@ -90,6 +98,7 @@ export interface EnscribeBackendRuntime {
   engine: ChainClashEngine;
   gridItEngine: GridItEngine;
   guessItEngine: GuessItEngine;
+  twistItEngine: TwistItEngine;
   cloudSync: SupabaseCloudSync;
   guestStore: GuestSessionStore;
   isPlayerOnline: (playerId: string) => boolean;
@@ -164,6 +173,15 @@ export function createEnscribeApp(
   });
 
   const guessItEngine = new GuessItEngine(repo, isPlayerOnline, {
+    forceLocalMemory: options.forceLocalGuestMemory,
+    isServerless,
+    resolveProfile: async (pid) => {
+      await ensureGuestProfilesRegistered([pid]);
+      return repo.getProfile(pid) ?? null;
+    },
+  });
+
+  const twistItEngine = new TwistItEngine(repo, isPlayerOnline, {
     forceLocalMemory: options.forceLocalGuestMemory,
     isServerless,
     resolveProfile: async (pid) => {
@@ -414,6 +432,38 @@ export function createEnscribeApp(
     }
   };
 
+  const broadcastTwistItRoom = async (
+    code: string,
+    roomSnapshot?: TwistItRoomView | null
+  ): Promise<void> => {
+    try {
+      const room = roomSnapshot === undefined ? await twistItEngine.getRoom(code) : roomSnapshot;
+      if (isServerless) {
+        if (room) pendingBroadcasts.push({ event: 'twistit:room_updated', payload: room });
+        pendingBroadcasts.push({ event: 'twistit:rooms_updated', payload: {} });
+      }
+      if (room) {
+        const audience = room.players.map((p) => p.userId);
+        if (hooks.emitRoomAndPlayers) {
+          hooks.emitRoomAndPlayers(room.code, audience, 'twistit:room_updated', room);
+        } else {
+          hooks.emitRoom?.(room.code, 'twistit:room_updated', room);
+        }
+      }
+      hooks.emitGlobal?.('twistit:rooms_updated');
+    } catch {
+      queueEvent('twistit:rooms_updated', {});
+    }
+  };
+
+  const broadcastTwistItMatch = (matchRecord: TwistItInternalMatch): void => {
+    const nowMs = Date.now();
+    for (const vid of twistItEngine.getMatchAudienceIds(matchRecord)) {
+      const sanitized = twistItEngine.sanitizeMatchForViewer(matchRecord, vid, nowMs);
+      queueEvent('twistit:match_state', sanitized, vid);
+    }
+  };
+
   const processTimersAndFlush = async (): Promise<StoredMatch[]> => {
     const gridItExpired = await gridItEngine.processExpiredMatches().catch(() => []);
     for (const gm of gridItExpired) {
@@ -429,8 +479,16 @@ export function createEnscribeApp(
       }
     }
 
+    const twistItUpdated = await twistItEngine.processExpiredMatches().catch(() => []);
+    for (const twm of twistItUpdated) {
+      broadcastTwistItMatch(twm);
+      if (twm.status === 'finished' && twm.roomCode) {
+        await broadcastTwistItRoom(twm.roomCode);
+      }
+    }
+
     if (!initialized) {
-      if (gridItExpired.length > 0 || guessItExpired.length > 0) {
+      if (gridItExpired.length > 0 || guessItExpired.length > 0 || twistItUpdated.length > 0) {
         await flushSideEffects(false);
       }
       return [];
@@ -445,7 +503,7 @@ export function createEnscribeApp(
         broadcastMatchState(refreshed);
       }
       await flushSideEffects(true);
-    } else if (gridItExpired.length > 0 || guessItExpired.length > 0) {
+    } else if (gridItExpired.length > 0 || guessItExpired.length > 0 || twistItUpdated.length > 0) {
       await flushSideEffects(false);
     }
     return updatedMatches;
@@ -1834,11 +1892,17 @@ export function createEnscribeApp(
       } catch (err: any) {
         pendingBroadcasts = [];
         const status =
-          err instanceof GridItForbiddenError || err instanceof GuessItForbiddenError
+          err instanceof GridItForbiddenError ||
+          err instanceof GuessItForbiddenError ||
+          err instanceof TwistItForbiddenError
             ? 403
-            : err instanceof GridItNotFoundError || err instanceof GuessItNotFoundError
+            : err instanceof GridItNotFoundError ||
+                err instanceof GuessItNotFoundError ||
+                err instanceof TwistItNotFoundError
               ? 404
-              : err instanceof GridItBadRequestError || err instanceof GuessItBadRequestError
+              : err instanceof GridItBadRequestError ||
+                  err instanceof GuessItBadRequestError ||
+                  err instanceof TwistItBadRequestError
                 ? 400
                 : err instanceof GuessItRateLimitError
                   ? 429
@@ -2439,6 +2503,222 @@ export function createEnscribeApp(
     })
   );
 
+  // ==================== TWISTIT ROUTES (Solo + 1v1 Speed Race) ====================
+  app.get(
+    '/api/twistit/solo/stats',
+    handleGridItApi(async (req, res) => {
+      const playerId = String(req.query.playerId || '');
+      res.json(await twistItEngine.getSoloStats(playerId));
+    })
+  );
+
+  app.post(
+    '/api/twistit/solo/start',
+    handleGridItApi(async (req, res) => {
+      const { playerId, excludePuzzleIds } = req.body ?? {};
+      const match = await twistItEngine.startSoloMatch(
+        String(playerId || ''),
+        Array.isArray(excludePuzzleIds) ? excludePuzzleIds.map(String) : []
+      );
+      res.status(201).json(match);
+    })
+  );
+
+  app.get(
+    '/api/twistit/rooms/public',
+    handleGridItApi(async (_req, res) => {
+      res.json(await twistItEngine.listPublicRooms());
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/create',
+    handleGridItApi(async (req, res) => {
+      const { playerId, settings } = req.body ?? {};
+      const room = await twistItEngine.createRoom(String(playerId || ''), settings);
+      await broadcastTwistItRoom(room.code, room);
+      res.status(201).json(room);
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/join',
+    handleGridItApi(async (req, res) => {
+      const { code, playerId } = req.body ?? {};
+      const room = await twistItEngine.joinRoom(String(code || ''), String(playerId || ''));
+      await broadcastTwistItRoom(room.code, room);
+      res.json(room);
+    })
+  );
+
+  app.get(
+    '/api/twistit/rooms/:code',
+    handleGridItApi(async (req, res) => {
+      res.json(await twistItEngine.getRoom(String(req.params.code || '')));
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/:code/leave',
+    handleGridItApi(async (req, res) => {
+      const code = String(req.params.code || '');
+      const { playerId } = req.body ?? {};
+      const room = await twistItEngine.leaveRoom(code, String(playerId || ''));
+      await broadcastTwistItRoom(code, room);
+      res.json({ ok: true, room });
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/:code/ready',
+    handleGridItApi(async (req, res) => {
+      const code = String(req.params.code || '');
+      const { playerId, ready } = req.body ?? {};
+      const room = await twistItEngine.setReady(code, String(playerId || ''), Boolean(ready));
+      await broadcastTwistItRoom(code, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/:code/settings',
+    handleGridItApi(async (req, res) => {
+      const code = String(req.params.code || '');
+      const { playerId, settings } = req.body ?? {};
+      const room = await twistItEngine.updateSettings(code, String(playerId || ''), settings ?? {});
+      await broadcastTwistItRoom(code, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/:code/chat',
+    handleGridItApi(async (req, res) => {
+      const code = String(req.params.code || '');
+      const { playerId, message } = req.body ?? {};
+      const room = await twistItEngine.addRoomChat(code, String(playerId || ''), String(message || ''));
+      await broadcastTwistItRoom(code, room);
+      res.status(201).json(room);
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/:code/start',
+    handleGridItApi(async (req, res) => {
+      const code = String(req.params.code || '');
+      const { playerId } = req.body ?? {};
+      const { room, match } = await twistItEngine.startRoomMatch(code, String(playerId || ''));
+      await broadcastTwistItRoom(room.code, room);
+      broadcastTwistItMatch(match);
+      for (const pid of twistItEngine.getMatchAudienceIds(match)) {
+        queueEvent(
+          'twistit:match_started',
+          {
+            roomCode: room.code,
+            match: twistItEngine.sanitizeMatchForViewer(match, pid),
+          },
+          pid
+        );
+      }
+      res.status(201).json({
+        room,
+        match: twistItEngine.sanitizeMatchForViewer(match, String(playerId || '')),
+      });
+    })
+  );
+
+  app.post(
+    '/api/twistit/rooms/:code/rematch',
+    handleGridItApi(async (req, res) => {
+      const code = String(req.params.code || '');
+      const { playerId } = req.body ?? {};
+      const { room, match } = await twistItEngine.rematchRoom(code, String(playerId || ''));
+      await broadcastTwistItRoom(room.code, room);
+      broadcastTwistItMatch(match);
+      for (const pid of twistItEngine.getMatchAudienceIds(match)) {
+        queueEvent(
+          'twistit:match_started',
+          {
+            roomCode: room.code,
+            match: twistItEngine.sanitizeMatchForViewer(match, pid),
+          },
+          pid
+        );
+      }
+      res.status(201).json({
+        room,
+        match: twistItEngine.sanitizeMatchForViewer(match, String(playerId || '')),
+      });
+    })
+  );
+
+  app.post(
+    '/api/twistit/matchmaking/quick/join',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const pid = String(playerId || '');
+      const outcome = await twistItEngine.joinQuickMatch(pid);
+      if (outcome.status === 'matched') {
+        broadcastTwistItMatch(outcome.match);
+        for (const memberId of twistItEngine.getMatchAudienceIds(outcome.match)) {
+          queueEvent(
+            'twistit:quick_matched',
+            {
+              room: outcome.room,
+              match: twistItEngine.sanitizeMatchForViewer(outcome.match, memberId),
+            },
+            memberId
+          );
+        }
+        res.json({
+          status: 'matched',
+          room: outcome.room,
+          match: twistItEngine.sanitizeMatchForViewer(outcome.match, pid),
+        });
+        return;
+      }
+      res.json({ status: 'queued' });
+    })
+  );
+
+  app.post(
+    '/api/twistit/matchmaking/quick/leave',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      await twistItEngine.leaveQuickMatch(String(playerId || ''));
+      res.json({ ok: true });
+    })
+  );
+
+  app.get(
+    '/api/twistit/matches/:matchId',
+    handleGridItApi(async (req, res) => {
+      const playerId = String(req.query.playerId || '');
+      res.json(await twistItEngine.getMatchForViewer(String(req.params.matchId || ''), playerId));
+    })
+  );
+
+  app.post(
+    '/api/twistit/matches/:matchId/submit',
+    handleGridItApi(async (req, res) => {
+      const matchId = String(req.params.matchId || '');
+      const { playerId, word } = req.body ?? {};
+      const pid = String(playerId || '');
+      const { result, internalMatch } = await twistItEngine.submitWord(
+        matchId,
+        pid,
+        String(word || '')
+      );
+      if (internalMatch.mode === 'race_1v1' && (result.accepted || internalMatch.status === 'finished')) {
+        broadcastTwistItMatch(internalMatch);
+        if (internalMatch.status === 'finished' && internalMatch.roomCode) {
+          await broadcastTwistItRoom(internalMatch.roomCode);
+        }
+      }
+      res.json(result);
+    })
+  );
+
   app.post(
     '/api/translate',
     handleGridItApi(async (req, res) => {
@@ -2497,6 +2777,7 @@ export function createEnscribeApp(
     engine,
     gridItEngine,
     guessItEngine,
+    twistItEngine,
     cloudSync,
     guestStore,
     isPlayerOnline,
