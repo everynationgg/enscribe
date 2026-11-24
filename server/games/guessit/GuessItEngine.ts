@@ -109,7 +109,7 @@ export class GuessItEngine {
     for (const pid of playerIds) {
       const prev = this.recentAnswersByPlayer.get(pid) ?? [];
       const next = [...prev, ...normalizedParts];
-      this.recentAnswersByPlayer.set(pid, next.slice(-250));
+      this.recentAnswersByPlayer.set(pid, next.slice(-600));
     }
   }
 

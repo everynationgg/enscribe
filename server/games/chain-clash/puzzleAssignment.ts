@@ -148,9 +148,9 @@ export function pickCuratedChainsForPlayers(
       return !recentAssignedSigSet.has(sig) && !extraExcludeSigs.has(sig);
     });
 
-    // Blend curated official templates with dynamically synthesized graph chains
-    // (~65% dynamic graph chains, ~35% unseen official templates) for virtually limitless variety
-    const useDynamic = unseenTemplates.length === 0 || Math.random() < 0.65;
+    // Blend unseen curated templates sparingly with dynamically synthesized graph chains
+    // (~95% dynamic graph chains from millions of walks) so multiplayer rounds never obviously repeat
+    const useDynamic = unseenTemplates.length === 0 || Math.random() < 0.95;
     if (!useDynamic && unseenTemplates.length > 0) {
       const chosen = unseenTemplates[Math.floor(Math.random() * unseenTemplates.length)];
       const words = trimOrFit(chosen.words);

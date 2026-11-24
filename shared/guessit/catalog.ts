@@ -13,6 +13,7 @@ import {
   GuessItWordEntry,
 } from './types.js';
 import { GUESSIT_EXPANDED_SEED_SPECS } from './wordBank.js';
+import { GUESSIT_MEGA_SEED_SPECS } from './megaBank.js';
 
 export const GUESSIT_CATEGORIES: GuessItCategory[] = [
   'Movies',
@@ -182,7 +183,7 @@ function buildMergedGuessItCatalog(): GuessItWordEntry[] {
       out.push(entry);
     }
   }
-  for (const spec of GUESSIT_EXPANDED_SEED_SPECS) {
+  for (const spec of [...GUESSIT_EXPANDED_SEED_SPECS, ...GUESSIT_MEGA_SEED_SPECS]) {
     const entry = makeSeedWord(spec.id, spec.answer, spec.category, spec.difficulty, spec.clue);
     if (!seenAnswers.has(entry.answer)) {
       seenAnswers.add(entry.answer);

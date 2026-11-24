@@ -151,7 +151,7 @@ export function startOfflineTwistItSolo(
 ): TwistItMatchView {
   const stats = getOfflineTwistItSoloStats();
   const puzzle = pickTwistItPuzzle(
-    [...stats.recentPuzzleIds.slice(-30), ...excludePuzzleIds],
+    [...stats.recentPuzzleIds.slice(-300), ...excludePuzzleIds],
     Date.now() ^ Math.floor(Math.random() * 1e6)
   );
   const nowMs = Date.now();
@@ -244,7 +244,7 @@ export function submitOfflineTwistItWord(matchId: string, rawWord: string): Twis
     stats.bestByPuzzleId[session.puzzleId] =
       prevPuzzleBest === undefined ? dur : Math.min(prevPuzzleBest, dur);
     stats.recentPuzzleIds = [
-      ...stats.recentPuzzleIds.filter((id) => id !== session.puzzleId).slice(-49),
+      ...stats.recentPuzzleIds.filter((id) => id !== session.puzzleId).slice(-299),
       session.puzzleId,
     ];
     saveOfflineTwistItSoloStats(stats);

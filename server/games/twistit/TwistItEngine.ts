@@ -240,7 +240,7 @@ export class TwistItEngine {
   async startSoloMatch(playerId: string, excludePuzzleIds: string[] = []): Promise<TwistItMatchView> {
     const profile = await this.resolveProfileOrThrow(playerId);
     const stats = await this.store.getSoloStats(playerId);
-    const recentExclude = new Set<string>([...stats.recentPuzzleIds.slice(-30), ...excludePuzzleIds]);
+    const recentExclude = new Set<string>([...stats.recentPuzzleIds.slice(-300), ...excludePuzzleIds]);
     const puzzle = pickTwistItPuzzle(recentExclude, Date.now() ^ Math.floor(Math.random() * 1e6));
     const nowMs = Date.now();
     const startsAtMs = nowMs + SOLO_COUNTDOWN_MS;
@@ -466,10 +466,10 @@ export class TwistItEngine {
 
   private createRaceMatchFromRoomLocked(room: StoredTwistItRoom): TwistItInternalMatch {
     const puzzle = pickTwistItPuzzle(
-      room.recentPuzzleIds.slice(-25),
+      room.recentPuzzleIds.slice(-250),
       Date.now() ^ Math.floor(Math.random() * 1e6)
     );
-    room.recentPuzzleIds = [...room.recentPuzzleIds.slice(-30), puzzle.id];
+    room.recentPuzzleIds = [...room.recentPuzzleIds.slice(-300), puzzle.id];
     const nowMs = Date.now();
     const startsAtMs = nowMs + RACE_COUNTDOWN_MS;
     const endsAtMs = startsAtMs + room.settings.roundDurationSec * 1000;
@@ -821,7 +821,7 @@ export class TwistItEngine {
           stats.bestByPuzzleId[match.puzzleId] =
             prevPuzzleBest === undefined ? duration : Math.min(prevPuzzleBest, duration);
           stats.recentPuzzleIds = [
-            ...stats.recentPuzzleIds.filter((id) => id !== match.puzzleId).slice(-49),
+            ...stats.recentPuzzleIds.filter((id) => id !== match.puzzleId).slice(-299),
             match.puzzleId,
           ];
           await this.store.saveSoloStats(userId, stats);

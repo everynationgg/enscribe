@@ -27,8 +27,8 @@ export const DEFAULT_GRIDIT_SCORING: GridItScoringConfig = {
 };
 
 const CONSONANT_BAG =
-  'BBCCDDDDFFGGGHHJKLLLLMMMNNNNNNPPQRRRRRRSSSSSSTTTTTTVVWWXYYZ';
-const VOWEL_BAG = 'AAAAAAAAAEEEEEEEEEEEEIIIIIIIIIOOOOOOOOUUUU';
+  'BBCCDDDDFFGGGHHJKLLLLLMMMNNNNNNPPPRRRRRRRSSSSSSTTTTTTTVVWWXYYZ';
+const VOWEL_BAG = 'AAAAAAAAAAEEEEEEEEEEEEEIIIIIIIIIOOOOOOOOOUUUUU';
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -251,7 +251,7 @@ export function generatePlayableBoard(
   const language = options.language ?? 'en';
   const topology = buildShapeTopology(shapeId, sizeId);
 
-  const attempts = options.dictionary && options.prefixSet ? 6 : 1;
+  const attempts = options.dictionary && options.prefixSet ? 12 : 1;
   let bestBoard: GridItBoard | null = null;
   let bestScore = -1;
 
@@ -280,10 +280,10 @@ export function generatePlayableBoard(
     }
 
     const sampleWords = findBoardWords(board, options.dictionary, options.prefixSet, {
-      maxWords: 40,
-      maxVisits: 3500,
+      maxWords: 60,
+      maxVisits: 4500,
     });
-    if (sampleWords.length >= 18) {
+    if (sampleWords.length >= 26) {
       return board;
     }
     if (sampleWords.length > bestScore) {
