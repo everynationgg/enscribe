@@ -1855,7 +1855,7 @@ export const App: React.FC = () => {
       setActiveMatch(res.match);
       setRoute({ view: 'match', matchId: res.match.id, soloStageId: res.stageId });
     } catch (err: any) {
-      if (/fetch|network/i.test(String(err?.message)) || !navigator.onLine) {
+      if (/fetch|network|404|502|503/i.test(String(err?.message)) || !navigator.onLine) {
         const res = startOfflineSoloMatch(currentProfile, stageId);
         setActiveMatch(res.match);
         setRoute({ view: 'match', matchId: res.match.id, soloStageId: res.stageId });
@@ -1884,7 +1884,7 @@ export const App: React.FC = () => {
       setActiveMatch(res.match);
       setRoute({ view: 'match', matchId: res.match.id, soloStageId: null });
     } catch (err: any) {
-      if (/fetch|network/i.test(String(err?.message)) || !navigator.onLine) {
+      if (/fetch|network|404|502|503/i.test(String(err?.message)) || !navigator.onLine) {
         const res = startOfflinePracticeMatch(currentProfile, config, pickedTpl);
         setActiveMatch(res.match);
         setRoute({ view: 'match', matchId: res.match.id, soloStageId: null });
