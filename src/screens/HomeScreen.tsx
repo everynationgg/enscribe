@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Link2, Play } from 'lucide-react';
+import { Layers, Link2, Play, Target } from 'lucide-react';
 import {
   InAppNotification,
   OngoingMatchSummary,
@@ -19,6 +19,7 @@ interface HomeScreenProps {
   onViewAllMatches: () => void;
   onRankedMatch: () => void;
   onSoloAdventure: () => void;
+  onPractice?: () => void;
   onLeaderboard: () => void;
   onRooms: () => void;
   onExploreFantasy: () => void;
@@ -35,6 +36,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onContinueMatch,
   onRankedMatch,
   onSoloAdventure,
+  onPractice,
   onLeaderboard,
   onRooms,
   onOpenProfile,
@@ -110,6 +112,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             >
               <Play size={12} fill="currentColor" />
               <span>Resume vs {primaryMatch.opponentPrimaryName}</span>
+            </button>
+          )}
+          {onPractice && (
+            <button
+              type="button"
+              className="ens-landing-mini-pill"
+              onClick={onPractice}
+            >
+              <Target size={13} />
+              <span>Practice Mode</span>
             </button>
           )}
           {onOpenTemplates && (

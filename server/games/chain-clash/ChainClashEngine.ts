@@ -64,7 +64,7 @@ export class ChainClashEngine {
         earnedMatchPoints: 0,
         wordClues: {},
       };
-      if (params.mode === 'speed_race') {
+      if (params.mode === 'speed_race' || (params.mode === 'solo' && deadlineMs !== null)) {
         speedRaceDeadlines[assignment.recipientPlayerId] = deadlineMs;
       }
     }
@@ -181,8 +181,9 @@ export class ChainClashEngine {
 
         const totalMisses = board.wrongAttemptsCurrentWord + board.passesCurrentWord;
         const clueThreshold = this.getClueThreshold(match);
+        const hasExplicitClue = Boolean(board.wordClues?.[idx]);
         const clueWord =
-          isSelf && isActive && (revealed >= 2 || (clueThreshold > 0 && totalMisses >= clueThreshold))
+          isSelf && isActive && (hasExplicitClue || revealed >= 2 || (clueThreshold > 0 && totalMisses >= clueThreshold))
             ? board.wordClues?.[idx] ?? getSyncOneWordClue(word)
             : null;
 
@@ -423,7 +424,7 @@ export class ChainClashEngine {
                   ? now + match.rules.timePerWordSeconds * 1000
                   : null;
             }
-          } else if (match.mode === 'speed_race') {
+          } else if (match.mode === 'speed_race' || (match.mode === 'solo' && match.rules.timerEnabled)) {
             match.speedRaceDeadlines[playerId] =
               match.rules.timerEnabled && match.rules.timePerWordSeconds > 0
                 ? now + match.rules.timePerWordSeconds * 1000
@@ -656,7 +657,7 @@ export class ChainClashEngine {
           });
           if (updated) updatedMatches.push(updated);
         }
-      } else if (candidate.mode === 'speed_race') {
+      } else if (candidate.mode === 'speed_race' || (candidate.mode === 'solo' && candidate.rules.timerEnabled)) {
         let changed = false;
         const updated = this.repo.runInTransaction(() => {
           const fresh = this.repo.getMatch(candidate.id);
@@ -687,6 +688,119 @@ export class ChainClashEngine {
     }
 
     return updatedMatches;
+  }
+
+  usePracticeHint(matchId: string, playerId: string): {
+    revealedLetterAdded: boolean;
+    clueWord: string | null;
+    message: string;
+    match: MatchStateClient;
+  } {
+    return this.repo.runInTransaction(() => {
+      const match = this.repo.getMatch(matchId);
+      if (!match) throw new Error('Match not found.');
+      if (match.mode !== 'solo' || !match.rules.isPractice) {
+        throw new Error('Hints are only available in Practice Mode.');
+      }
+      const board = match.boards[playerId];
+      if (!board) throw new Error('You are not a participant in this match.');
+      if (board.completedAtMs !== null) {
+        throw new Error('Practice chain is already complete.');
+      }
+
+      const targetIndex = board.currentWordIndex;
+      const targetWord = board.words[targetIndex];
+      if (!targetWord) throw new Error('No unresolved words remaining.');
+
+      let revealedLetterAdded = false;
+      const curRev = board.revealedCounts[targetIndex] ?? 1;
+      if (curRev < targetWord.length - 1) {
+        board.revealedCounts[targetIndex] = curRev + 1;
+        revealedLetterAdded = true;
+      }
+
+      const clue = board.wordClues?.[targetIndex] ?? getSyncOneWordClue(targetWord) ?? 'LINK';
+      board.wordClues = { ...(board.wordClues ?? {}), [targetIndex]: clue };
+      match.updatedAt = Date.now();
+      this.repo.updateMatchBoard(board);
+      this.repo.saveMatch(match);
+
+      const refreshed = this.repo.getMatch(matchId)!;
+      return {
+        revealedLetterAdded,
+        clueWord: clue,
+        message: revealedLetterAdded
+          ? 'Practice Hint: next letter & clue revealed!'
+          : 'Practice Hint: 1-word clue active (final letter left for you!).',
+        match: this.sanitizeForViewer(refreshed, playerId),
+      };
+    });
+  }
+
+  skipPracticeWord(matchId: string, playerId: string): {
+    revealedWord: string;
+    matchWon: boolean;
+    message: string;
+    match: MatchStateClient;
+  } {
+    return this.repo.runInTransaction(() => {
+      const match = this.repo.getMatch(matchId);
+      if (!match) throw new Error('Match not found.');
+      if (match.mode !== 'solo' || !match.rules.isPractice) {
+        throw new Error('Skip Word is only available in Practice Mode.');
+      }
+      const board = match.boards[playerId];
+      if (!board) throw new Error('You are not a participant in this match.');
+      if (board.completedAtMs !== null) {
+        throw new Error('Practice chain is already complete.');
+      }
+
+      const targetIndex = board.currentWordIndex;
+      const targetWord = board.words[targetIndex];
+      if (!targetWord) throw new Error('No unresolved words remaining.');
+
+      const now = Date.now();
+      board.revealedCounts[targetIndex] = targetWord.length;
+      board.currentWordIndex += 1;
+      board.wrongAttemptsCurrentWord = 0;
+      board.passesCurrentWord = 0;
+      board.liveInputPreview = '';
+      match.updatedAt = now;
+
+      let matchWon = false;
+      if (board.currentWordIndex >= board.words.length) {
+        board.completedAtMs = now;
+        matchWon = true;
+        match.winnerId = playerId;
+        match.status = 'finished';
+        match.activeTurnPlayerId = null;
+        match.turnDeadlineMs = null;
+        match.speedRaceDeadlines[playerId] = null;
+        const profile = this.repo.getProfile(playerId);
+        match.finishOrder.push({
+          playerId,
+          username: profile?.username ?? playerId,
+          avatarId: profile?.avatarId ?? 'alex',
+          completedAtMs: now,
+          rank: 1,
+        });
+      } else if (match.rules.timerEnabled && match.rules.timePerWordSeconds > 0) {
+        match.speedRaceDeadlines[playerId] = now + match.rules.timePerWordSeconds * 1000;
+      }
+
+      this.repo.updateMatchBoard(board);
+      this.repo.saveMatch(match);
+
+      const refreshed = this.repo.getMatch(matchId)!;
+      return {
+        revealedWord: targetWord,
+        matchWon,
+        message: matchWon
+          ? `Revealed "${targetWord}" — Practice chain complete!`
+          : `Revealed "${targetWord}" — try the next link!`,
+        match: this.sanitizeForViewer(refreshed, playerId),
+      };
+    });
   }
 
   addChatMessage(matchId: string, playerId: string, text: string): MatchChatMessage {

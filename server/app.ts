@@ -1658,9 +1658,11 @@ export function createEnscribeApp(
 
   app.post(
     '/api/solo/start',
-    handleApi(true, (req, res) => {
+    handleApi(true, async (req, res) => {
       const { playerId, stageId, templateId, fresh } = req.body ?? {};
-      const profile = repo.getProfile(String(playerId));
+      const pid = String(playerId || '');
+      await ensureGuestProfilesRegistered([pid]);
+      const profile = repo.getProfile(pid);
       if (!profile) {
         res.status(404).json({ error: 'Profile not found' });
         return;
@@ -1673,7 +1675,7 @@ export function createEnscribeApp(
         return;
       }
 
-      const completedStages = repo.getCompletedSoloStages(String(playerId));
+      const completedStages = repo.getCompletedSoloStages(pid);
       const isReplayOrFresh =
         Boolean(fresh) || (Boolean(stage) && !templateId && completedStages.includes(stage!.id));
       const words = isReplayOrFresh
@@ -1695,7 +1697,7 @@ export function createEnscribeApp(
         },
         assignments: [
           {
-            recipientPlayerId: String(playerId),
+            recipientPlayerId: pid,
             authorPlayerId: null,
             words,
           },
@@ -1703,7 +1705,91 @@ export function createEnscribeApp(
       });
       res.status(201).json({
         stageId: stage?.id ?? null,
-        match: engine.sanitizeForViewer(match, String(playerId)),
+        match: engine.sanitizeForViewer(match, pid),
+      });
+    })
+  );
+
+  const PRACTICE_THEMES = [
+    'Everyday',
+    'Fantasy',
+    'Science Fiction',
+    'Nature',
+    'Food',
+    'Sports',
+    'Music',
+    'Mystery',
+    'Animals',
+    'Travel',
+    'Ocean',
+    'Adventure',
+  ];
+
+  app.post(
+    '/api/solo/practice/start',
+    handleApi(true, async (req, res) => {
+      const { playerId, theme, chainLength, difficulty, timePerWordSeconds, templateId } = req.body ?? {};
+      const pid = String(playerId || '');
+      await ensureGuestProfilesRegistered([pid]);
+      const profile = repo.getProfile(pid);
+      if (!profile) {
+        res.status(404).json({ error: 'Profile not found' });
+        return;
+      }
+
+      const rawTheme = String(theme || '').trim();
+      const resolvedTheme =
+        !rawTheme || rawTheme.toLowerCase() === 'mix' || rawTheme.toLowerCase() === 'random'
+          ? PRACTICE_THEMES[Math.floor(Math.random() * PRACTICE_THEMES.length)]
+          : rawTheme.slice(0, 32);
+
+      const resolvedLength = Math.max(3, Math.min(8, Math.round(Number(chainLength) || 5)));
+      const diff = difficulty === 'relaxed' || difficulty === 'challenge' ? difficulty : 'standard';
+      const autoRevealAfterAttempts = diff === 'relaxed' ? 1 : diff === 'challenge' ? 3 : 2;
+      const chainVisibility = diff === 'challenge' ? 'progressive' : 'full_chain';
+      const difficultyPreset = diff === 'challenge' ? 'competitive' : 'casual';
+
+      const rawSeconds = Math.round(Number(timePerWordSeconds) || 0);
+      const timerEnabled = rawSeconds > 0;
+      const resolvedSeconds = timerEnabled ? Math.max(10, Math.min(120, rawSeconds)) : 0;
+
+      const tpl = templateId ? repo.getTemplate(String(templateId)) : null;
+      const generated = tpl
+        ? { name: tpl.name, theme: tpl.theme, words: [...tpl.words] }
+        : generateLocalWordChainSync(resolvedTheme, resolvedLength);
+
+      const match = engine.createMatch({
+        roomId: null,
+        mode: 'solo',
+        title: `Practice • ${generated.name}`,
+        theme: generated.theme,
+        rules: {
+          ...DEFAULT_ROOM_RULES,
+          maxPlayers: 1,
+          chainLength: generated.words.length,
+          timePerWordSeconds: resolvedSeconds,
+          timerEnabled,
+          puzzleSource: tpl ? 'saved_templates' : 'curated_db',
+          chainVisibility,
+          wordLengthVisible: true,
+          autoRevealAfterAttempts,
+          autoRevealAfterPasses: 0,
+          autoRevealAfterFailedTurns: autoRevealAfterAttempts,
+          difficultyPreset,
+          theme: generated.theme,
+          isPractice: true,
+        },
+        assignments: [
+          {
+            recipientPlayerId: pid,
+            authorPlayerId: null,
+            words: generated.words,
+          },
+        ],
+      });
+
+      res.status(201).json({
+        match: engine.sanitizeForViewer(match, pid),
       });
     })
   );
@@ -1800,6 +1886,10 @@ export function createEnscribeApp(
         res.status(403).json({ error: 'Unauthorized' });
         return;
       }
+      const expired = engine.processExpiredTimers();
+      if (expired.length > 0) {
+        markDirty();
+      }
       const prevClue = match.boards[String(playerId)]?.wordClues?.[match.boards[String(playerId)].currentWordIndex];
       await ensureActiveWordClue(matchId, String(playerId));
       const updated = repo.getMatch(matchId)!;
@@ -1808,6 +1898,64 @@ export function createEnscribeApp(
         markDirty();
       }
       res.json(engine.sanitizeForViewer(updated, String(playerId)));
+    })
+  );
+
+  app.post(
+    '/api/matches/:id/hint',
+    handleApi(true, async (req, res) => {
+      try {
+        const { playerId } = req.body ?? {};
+        const matchId = String(req.params.id);
+        const pid = String(playerId || '');
+        if (!pid) {
+          res.status(400).json({ error: 'playerId required' });
+          return;
+        }
+        const hintRes = engine.usePracticeHint(matchId, pid);
+        const fullMatch = repo.getMatch(matchId);
+        if (fullMatch) {
+          const activeIdx = fullMatch.boards[pid]?.currentWordIndex;
+          const activeWord = activeIdx !== undefined ? fullMatch.boards[pid]?.words[activeIdx] : undefined;
+          if (activeWord && fullMatch.boards[pid]?.wordClues?.[activeIdx!] === 'LINK' && !isServerless) {
+            const resolvedClue = await resolveOneWordClue(activeWord);
+            const refreshed = repo.getMatch(matchId);
+            if (refreshed?.boards[pid]) {
+              refreshed.boards[pid].wordClues = { ...(refreshed.boards[pid].wordClues ?? {}), [activeIdx!]: resolvedClue };
+              repo.updateMatchBoard(refreshed.boards[pid]);
+              hintRes.clueWord = resolvedClue;
+              hintRes.match = engine.sanitizeForViewer(refreshed, pid);
+            }
+          }
+        }
+        res.json(hintRes);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    })
+  );
+
+  app.post(
+    '/api/matches/:id/skip-word',
+    handleApi(true, async (req, res) => {
+      try {
+        const { playerId } = req.body ?? {};
+        const matchId = String(req.params.id);
+        const pid = String(playerId || '');
+        if (!pid) {
+          res.status(400).json({ error: 'playerId required' });
+          return;
+        }
+        const skipRes = engine.skipPracticeWord(matchId, pid);
+        await ensureActiveWordClue(matchId, pid);
+        const fullMatch = repo.getMatch(matchId);
+        if (fullMatch) {
+          skipRes.match = engine.sanitizeForViewer(fullMatch, pid);
+        }
+        res.json(skipRes);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
     })
   );
 
@@ -1884,15 +2032,36 @@ export function createEnscribeApp(
     handleApi(true, (req, res) => {
       try {
         const { playerId } = req.body ?? {};
+        const pid = String(playerId || '');
         const oldMatch = repo.getMatch(String(req.params.id));
         if (!oldMatch) {
           res.status(404).json({ error: 'Match not found' });
           return;
         }
-        if (!oldMatch.boards[String(playerId)]) {
+        if (!oldMatch.boards[pid]) {
           res.status(403).json({ error: 'Unauthorized' });
           return;
         }
+
+        if (oldMatch.mode === 'solo') {
+          const prevWords = oldMatch.boards[pid]?.words ?? [];
+          const gen = generateLocalWordChainSync(
+            oldMatch.theme || 'Adventure',
+            oldMatch.rules.chainLength || prevWords.length || 5,
+            { excludeWords: prevWords }
+          );
+          const nextSolo = engine.createMatch({
+            roomId: null,
+            mode: 'solo',
+            title: oldMatch.rules.isPractice ? `Practice • ${gen.name}` : oldMatch.title,
+            theme: oldMatch.theme || gen.theme,
+            rules: { ...oldMatch.rules, chainLength: gen.words.length },
+            assignments: [{ recipientPlayerId: pid, authorPlayerId: null, words: gen.words }],
+          });
+          res.status(201).json(engine.sanitizeForViewer(nextSolo, pid));
+          return;
+        }
+
         const officialTemplates = repo.listTemplates().filter((t) => t.status === 'official');
         const playerIds = oldMatch.turnOrder;
         const assignments = pickCuratedChainsForPlayers(
@@ -1910,10 +2079,10 @@ export function createEnscribeApp(
           assignments,
         });
         broadcastMatchState(newMatch);
-        for (const pid of playerIds) {
-          queueEvent('match:rematch_created', { oldMatchId: oldMatch.id, newMatchId: newMatch.id }, pid);
+        for (const memberId of playerIds) {
+          queueEvent('match:rematch_created', { oldMatchId: oldMatch.id, newMatchId: newMatch.id }, memberId);
         }
-        res.status(201).json(engine.sanitizeForViewer(newMatch, String(playerId)));
+        res.status(201).json(engine.sanitizeForViewer(newMatch, pid));
       } catch (err: any) {
         res.status(400).json({ error: err.message });
       }

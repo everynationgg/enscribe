@@ -294,6 +294,69 @@ const mixedView = engine.sanitizeForViewer(repo.getMatch(mixedMatch.id)!, 'playe
 assert.equal(mixedView.boards['player_alex'].words[2].revealedLetters, 2);
 assert.equal(mixedView.boards['player_alex'].words[2].clueWord, 'SHUTTLE');
 
+console.log('7. Testing Practice Mode hints, skip-word (0 MP), timed Practice & non-practice guards...');
+const practiceMatch = engine.createMatch({
+  roomId: null,
+  mode: 'solo',
+  title: 'Practice • Academy Run',
+  theme: 'Education',
+  rules: {
+    ...DEFAULT_ROOM_RULES,
+    maxPlayers: 1,
+    chainLength: 4,
+    timePerWordSeconds: 20,
+    timerEnabled: true,
+    chainVisibility: 'progressive',
+    autoRevealAfterAttempts: 1,
+    autoRevealAfterFailedTurns: 1,
+    isPractice: true,
+  },
+  assignments: [
+    { recipientPlayerId: 'player_alex', authorPlayerId: null, words: ['HIGH', 'SCHOOL', 'BUS', 'STOP'] },
+  ],
+});
+
+assert.ok(
+  practiceMatch.speedRaceDeadlines['player_alex'] && practiceMatch.speedRaceDeadlines['player_alex']! > Date.now(),
+  'Timed Practice must initialize per-word deadline'
+);
+
+// Non-practice matches reject hint & skip-word
+assert.throws(() => engine.usePracticeHint(soloMatch.id, 'player_alex'), /Practice Mode/i);
+assert.throws(() => engine.skipPracticeWord(mixedMatch.id, 'player_alex'), /Practice Mode/i);
+
+// Hint reveals next letter + clue on active word SCHOOL
+const hintRes = engine.usePracticeHint(practiceMatch.id, 'player_alex');
+assert.equal(hintRes.revealedLetterAdded, true);
+assert.equal(hintRes.clueWord, 'ACADEMY');
+assert.equal(hintRes.match.boards['player_alex'].words[1].revealedLetters, 2);
+assert.equal(hintRes.match.boards['player_alex'].words[1].clueWord, 'ACADEMY');
+
+// Skip Word reveals SCHOOL with 0 MP and advances to BUS, resetting timer
+const skipRes1 = engine.skipPracticeWord(practiceMatch.id, 'player_alex');
+assert.equal(skipRes1.revealedWord, 'SCHOOL');
+assert.equal(skipRes1.matchWon, false);
+assert.equal(skipRes1.match.boards['player_alex'].currentWordIndex, 2);
+assert.equal(skipRes1.match.boards['player_alex'].earnedMatchPoints, 0);
+
+// Expired timer on timed Practice reveals letter/clue on BUS without ending match
+const timedPractice = repo.getMatch(practiceMatch.id)!;
+timedPractice.speedRaceDeadlines['player_alex'] = Date.now() - 200;
+repo.saveMatch(timedPractice);
+engine.processExpiredTimers();
+const afterTimer = engine.sanitizeForViewer(repo.getMatch(practiceMatch.id)!, 'player_alex');
+assert.equal(afterTimer.boards['player_alex'].words[2].revealedLetters, 2);
+assert.equal(afterTimer.boards['player_alex'].words[2].clueWord, 'SHUTTLE');
+
+// Solve BUS (+10 MP), skip STOP -> finishes Practice chain
+const solveBus = engine.submitGuess(practiceMatch.id, 'player_alex', 'BUS');
+assert.equal(solveBus.correct, true);
+assert.equal(solveBus.match.boards['player_alex'].earnedMatchPoints, 10);
+const skipFinal = engine.skipPracticeWord(practiceMatch.id, 'player_alex');
+assert.equal(skipFinal.matchWon, true);
+assert.equal(skipFinal.match.status, 'finished');
+assert.equal(skipFinal.match.boards['player_alex'].earnedMatchPoints, 10);
+
 console.log('ALL BACKEND ENGINE ACCEPTANCE TESTS PASSED!');
 db.close();
 if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);

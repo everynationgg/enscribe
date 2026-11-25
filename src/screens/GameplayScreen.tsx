@@ -41,7 +41,7 @@ const MatchTimer: React.FC<MatchTimerProps> = React.memo(({ match, currentPlayer
   }, [match.rules.timerEnabled, match.status]);
 
   const deadline =
-    match.mode === 'speed_race'
+    match.mode === 'speed_race' || match.mode === 'solo'
       ? (match.speedRaceDeadlines[currentPlayerId] ?? null)
       : match.status !== 'finished'
         ? match.turnDeadlineMs
@@ -85,6 +85,8 @@ interface GameplayScreenProps {
   onReturnToRoom: (roomId: string) => void;
   onSubmitGuess: (guess: string) => Promise<{ correct: boolean; message: string }>;
   onPassTurn: () => Promise<void>;
+  onUseHint?: () => Promise<{ message: string }>;
+  onSkipWord?: () => Promise<{ message: string }>;
   onTypingPreview: (preview: string) => void;
   onSendChat: (text: string) => Promise<void>;
   onRematch: () => Promise<void>;
@@ -104,11 +106,14 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
   onReturnToRoom,
   onSubmitGuess,
   onPassTurn,
+  onUseHint,
+  onSkipWord,
   onTypingPreview,
   onSendChat,
   onRematch,
   onTimerExpired,
 }) => {
+  const isPractice = Boolean(match.rules.isPractice);
   const myBoard = match.boards[currentProfile.id];
   const opponentBoards = Object.values(match.boards).filter(
     (b) => b.playerId !== currentProfile.id
@@ -188,16 +193,19 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
   const turnLabel = useMemo(() => {
     if (match.status === 'finished' && match.winnerId) {
       const winner = match.boards[match.winnerId];
-      if (match.winnerId === currentProfile.id) return 'You Won! 🏆';
+      if (match.winnerId === currentProfile.id) {
+        return isPractice ? 'Practice Complete! 🏆' : 'You Won! 🏆';
+      }
       return `${winner?.username ?? 'Winner'} Won • Keep Solving!`;
     }
+    if (isPractice) return 'Practice Mode';
     if (match.mode === 'solo') return 'Solo Adventure';
     if (match.mode === 'speed_race') return 'Speed Race — Go!';
     if (match.status === 'opening') return 'Opening Race — First Wins Turn!';
     if (match.activeTurnPlayerId === currentProfile.id) return 'Your Turn';
     const activePlayer = match.activeTurnPlayerId ? match.boards[match.activeTurnPlayerId] : null;
     return `${activePlayer?.username ?? 'Opponent'}'s Turn`;
-  }, [match, currentProfile.id]);
+  }, [match, currentProfile.id, isPractice]);
 
   const isMyTurnHighlight =
     match.mode === 'solo' ||
@@ -631,15 +639,52 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
               {latestMessage.text}
             </div>
           )}
-          <button
-            type="button"
-            className="ens-icon-btn"
-            style={{ width: 28, height: 28 }}
-            onClick={() => setShowChatInput((v) => !v)}
-            aria-label="Quick chat"
-          >
-            <MessageCircle size={14} />
-          </button>
+          {isPractice && canAct && onSkipWord && (
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={async () => {
+                if (submitting) return;
+                setSubmitting(true);
+                setTypedSuffix('');
+                try {
+                  const res = await onSkipWord();
+                  setFeedbackMsg(res.message);
+                } catch (err: any) {
+                  setFeedbackMsg(err?.message || 'Could not skip word');
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+              style={{
+                borderRadius: 999,
+                padding: '4px 10px',
+                fontSize: 11.5,
+                fontWeight: 800,
+                border: '1px solid rgba(165, 180, 252, 0.55)',
+                background: 'rgba(30, 41, 108, 0.9)',
+                color: '#e0e7ff',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Eye size={13} />
+              <span>Skip Word</span>
+            </button>
+          )}
+          {match.mode !== 'solo' && (
+            <button
+              type="button"
+              className="ens-icon-btn"
+              style={{ width: 28, height: 28 }}
+              onClick={() => setShowChatInput((v) => !v)}
+              aria-label="Quick chat"
+            >
+              <MessageCircle size={14} />
+            </button>
+          )}
         </div>
 
         {showChatInput && (
@@ -699,7 +744,7 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
               onClick={onRematch}
             >
               <RotateCcw size={16} />
-              <span>Rematch</span>
+              <span>{isPractice ? 'Next Chain' : 'Rematch'}</span>
             </button>
           </div>
         ) : (
@@ -772,22 +817,45 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
               ))}
             </div>
 
-            {/* Pass & Submit */}
+            {/* Pass / Practice Hint & Submit */}
             <div className="ens-match-actions">
-              <button
-                type="button"
-                className="ens-pass-btn"
-                disabled={
-                  submitting ||
-                  !canAct ||
-                  match.mode === 'solo' ||
-                  match.mode === 'speed_race' ||
-                  match.status !== 'active_turns'
-                }
-                onClick={handlePass}
-              >
-                Pass
-              </button>
+              {isPractice && onUseHint ? (
+                <button
+                  type="button"
+                  className="ens-pass-btn"
+                  disabled={submitting || !canAct}
+                  onClick={async () => {
+                    if (submitting || !canAct) return;
+                    setSubmitting(true);
+                    try {
+                      const res = await onUseHint();
+                      setFeedbackMsg(res.message);
+                    } catch (err: any) {
+                      setFeedbackMsg(err?.message || 'Could not reveal hint');
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  }}
+                >
+                  <Lightbulb size={15} style={{ marginRight: 4, verticalAlign: '-2px' }} />
+                  Hint
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ens-pass-btn"
+                  disabled={
+                    submitting ||
+                    !canAct ||
+                    match.mode === 'solo' ||
+                    match.mode === 'speed_race' ||
+                    match.status !== 'active_turns'
+                  }
+                  onClick={handlePass}
+                >
+                  Pass
+                </button>
+              )}
               <button
                 type="button"
                 className="ens-submit-btn"
@@ -809,9 +877,11 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
             <div style={{ textAlign: 'center', marginBottom: 14 }}>
               <Trophy size={40} color="#ffd54a" style={{ marginBottom: 4 }} />
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: '#ffffff' }}>
-                {match.winnerId === currentProfile.id
-                  ? 'Victory! You Completed First!'
-                  : `${match.boards[match.winnerId]?.username} Wins!`}
+                {isPractice
+                  ? 'Practice Chain Complete!'
+                  : match.winnerId === currentProfile.id
+                    ? 'Victory! You Completed First!'
+                    : `${match.boards[match.winnerId]?.username} Wins!`}
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#d4dcff', fontWeight: 700 }}>
                 ChainIt • {match.title}
@@ -844,7 +914,7 @@ export const GameplayScreen: React.FC<GameplayScreenProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <button type="button" className="ens-btn-purple" onClick={onRematch}>
                 <RotateCcw size={15} />
-                <span>Rematch</span>
+                <span>{isPractice ? 'Next Chain' : 'Rematch'}</span>
               </button>
               {match.roomId && (
                 <button

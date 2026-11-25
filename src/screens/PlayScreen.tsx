@@ -5,6 +5,7 @@ import {
   Gamepad2,
   Hash,
   Plus,
+  Target,
   Users,
 } from 'lucide-react';
 import {
@@ -30,6 +31,7 @@ interface PlayScreenProps {
   onOpenMatch: (matchId: string) => void;
   onJoinRoomByCode: (code: string) => Promise<void>;
   onOpenSolo: () => void;
+  onOpenPractice?: () => void;
   onOpenRooms: () => void;
   onOpenCreateRoom: () => void;
   onOpenLeaderboard: () => void;
@@ -45,6 +47,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({
   onOpenMatch,
   onJoinRoomByCode,
   onOpenSolo,
+  onOpenPractice,
   onOpenRooms,
   onOpenCreateRoom,
   onOpenLeaderboard,
@@ -183,6 +186,46 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({
               <div className="ens-play-tile-sub">Host &amp; invite</div>
             </button>
           </div>
+
+          {onOpenPractice && (
+            <div
+              className="ens-room-list-card"
+              onClick={onOpenPractice}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenPractice();
+                }
+              }}
+              style={{
+                cursor: 'pointer',
+                borderColor: 'rgba(134, 239, 172, 0.55)',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.24) 0%, rgba(30, 58, 138, 0.78) 100%)',
+              }}
+            >
+              <div className="ens-room-info">
+                <div className="ens-room-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Target size={16} color="#86efac" />
+                  <span>Practice Mode</span>
+                </div>
+                <div className="ens-room-meta">
+                  <span>Custom themes, chain lengths, hints &amp; timers</span>
+                </div>
+              </div>
+              <GradientButton
+                variant="lavender"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenPractice();
+                }}
+              >
+                Practice
+              </GradientButton>
+            </div>
+          )}
 
           {/* Ongoing Matches */}
           <section className="ens-play-ongoing">

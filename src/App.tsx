@@ -35,6 +35,7 @@ import {
   ChangeItLeaderboardResponse,
   ChangeItMatchStateClient,
   ChangeItRoom,
+  ChainItPracticeConfig,
 } from '../shared/types';
 import {
   ALL_CHANGEIT_ADVENTURE_STAGES,
@@ -87,12 +88,20 @@ import {
   sessionToGuestProfile,
 } from './services/session';
 import {
+  ChainItPracticeStats,
   getOfflineOfficialTemplates,
   getOfflineSoloMatch,
   getOfflineSoloStages,
   isOfflineSoloMatchId,
+  loadChainItPracticeStats,
+  recordChainItPracticeChainComplete,
+  rematchOfflineSoloOrPractice,
+  skipOfflinePracticeWord,
+  startOfflinePracticeMatch,
   startOfflineSoloMatch,
   submitOfflineSoloGuess,
+  tickOfflinePracticeMatch,
+  useOfflinePracticeHint,
 } from './games/chainit/offlineSolo';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { GameEntryAnimation } from './components/GameEntryAnimation';
@@ -168,7 +177,7 @@ type ActiveRoute =
       customTemplate?: GridItCustomTemplate | null;
     }
   | { view: 'tab'; tab: NavTab }
-  | { view: 'solo' }
+  | { view: 'solo'; tab?: 'adventure' | 'practice' }
   | { view: 'rooms' }
   | { view: 'create_room'; returnTo?: 'home' | 'rooms' | 'play' }
   | { view: 'leaderboard' }
@@ -257,6 +266,14 @@ export const App: React.FC = () => {
   const [matchHistory, setMatchHistory] = useState<MatchHistorySummary[]>([]);
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [activeMatch, setActiveMatch] = useState<MatchStateClient | null>(null);
+  const [chainItPracticeStats, setChainItPracticeStats] = useState<ChainItPracticeStats>({
+    chainsCompleted: 0,
+    wordsSolved: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+  });
+  const practiceSkippedMatchIdsRef = useRef<Set<string>>(new Set());
+  const practiceSolvedWordsRef = useRef<Record<string, number>>({});
   const [rankedQueued, setRankedQueued] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -305,6 +322,7 @@ export const App: React.FC = () => {
   const populateOfflineState = useCallback((session: PlayerSession) => {
     setCurrentProfile(sessionToGuestProfile(session));
     setSoloStages(getOfflineSoloStages());
+    setChainItPracticeStats(loadChainItPracticeStats(session.playerId));
     setTemplates([
       ...loadGuestLocalTemplates(session.playerId),
       ...getOfflineOfficialTemplates(),
@@ -328,6 +346,7 @@ export const App: React.FC = () => {
         const data = await api.getBootstrap(pid);
         setCurrentProfile(data.profile);
         setMatchHistory(data.history);
+        setChainItPracticeStats(loadChainItPracticeStats(pid));
 
         if (data.profile.isGuest || pid.startsWith('guest_')) {
           const localGuestTpls = loadGuestLocalTemplates(pid);
@@ -1825,6 +1844,35 @@ export const App: React.FC = () => {
         setActiveMatch(res.match);
         setRoute({ view: 'match', matchId: res.match.id, soloStageId: res.stageId });
         notify('Started offline Solo stage');
+      } else {
+        notify(err.message);
+      }
+    }
+  };
+
+  const handleStartPractice = async (config: ChainItPracticeConfig) => {
+    if (!currentProfile) return;
+    const pickedTpl = config.templateId
+      ? templates.find((t) => t.id === config.templateId)
+      : undefined;
+
+    if (isOffline || playerSession?.isOffline || (pickedTpl && currentProfile.isGuest && pickedTpl.status !== 'official')) {
+      const res = startOfflinePracticeMatch(currentProfile, config, pickedTpl);
+      setActiveMatch(res.match);
+      setRoute({ view: 'match', matchId: res.match.id, soloStageId: null });
+      return;
+    }
+
+    try {
+      const res = await api.startPracticeMatch(currentProfile.id, config);
+      setActiveMatch(res.match);
+      setRoute({ view: 'match', matchId: res.match.id, soloStageId: null });
+    } catch (err: any) {
+      if (/fetch|network/i.test(String(err?.message)) || !navigator.onLine) {
+        const res = startOfflinePracticeMatch(currentProfile, config, pickedTpl);
+        setActiveMatch(res.match);
+        setRoute({ view: 'match', matchId: res.match.id, soloStageId: null });
+        notify('Started offline Practice chain');
       } else {
         notify(err.message);
       }
@@ -3510,6 +3558,19 @@ export const App: React.FC = () => {
 
     if (route.view === 'match' && activeMatch && activeMatch.id === route.matchId) {
       const offlineMatch = isOfflineSoloMatchId(activeMatch.id);
+      const isPractice = Boolean(activeMatch.rules.isPractice);
+      const recordPracticeFinish = (matchId: string) => {
+        if (!isPractice) return;
+        const skippedAny = practiceSkippedMatchIdsRef.current.has(matchId);
+        const solvedWords = practiceSolvedWordsRef.current[matchId] ?? 0;
+        const updatedStats = recordChainItPracticeChainComplete(
+          currentProfile.id,
+          solvedWords,
+          skippedAny
+        );
+        setChainItPracticeStats(updatedStats);
+      };
+
       return (
         <GameplayScreen
           match={activeMatch}
@@ -3521,15 +3582,22 @@ export const App: React.FC = () => {
             } else {
               setSoloStages(getOfflineSoloStages());
             }
-            setRoute({ view: 'tab', tab: 'home' });
+            setRoute(
+              isPractice ? { view: 'solo', tab: 'practice' } : { view: 'tab', tab: 'home' }
+            );
           }}
           onReturnToRoom={(roomId) => setRoute({ view: 'lobby', roomId })}
           onSubmitGuess={async (guess) => {
             if (offlineMatch) {
               const res = submitOfflineSoloGuess(activeMatch.id, guess);
+              if (res.correct) {
+                practiceSolvedWordsRef.current[activeMatch.id] =
+                  (practiceSolvedWordsRef.current[activeMatch.id] ?? 0) + 1;
+              }
               setActiveMatch(res.match);
               if (res.matchWon) {
-                setSoloStages(getOfflineSoloStages());
+                if (isPractice) recordPracticeFinish(activeMatch.id);
+                else setSoloStages(getOfflineSoloStages());
               }
               return { correct: res.correct, message: res.message };
             }
@@ -3539,12 +3607,43 @@ export const App: React.FC = () => {
               guess,
               route.soloStageId
             );
+            if (res.correct) {
+              practiceSolvedWordsRef.current[activeMatch.id] =
+                (practiceSolvedWordsRef.current[activeMatch.id] ?? 0) + 1;
+            }
             setActiveMatch(res.match);
             if (res.matchWon || res.match.status === 'finished') {
+              if (isPractice && res.matchWon) recordPracticeFinish(activeMatch.id);
               refreshPlatformData(currentProfile.id);
             }
             return { correct: res.correct, message: res.message };
           }}
+          onUseHint={
+            isPractice
+              ? async () => {
+                  const res = offlineMatch
+                    ? useOfflinePracticeHint(activeMatch.id)
+                    : await api.useChainItPracticeHint(activeMatch.id, currentProfile.id);
+                  setActiveMatch(res.match);
+                  return { message: res.message };
+                }
+              : undefined
+          }
+          onSkipWord={
+            isPractice
+              ? async () => {
+                  practiceSkippedMatchIdsRef.current.add(activeMatch.id);
+                  const res = offlineMatch
+                    ? skipOfflinePracticeWord(activeMatch.id)
+                    : await api.skipChainItPracticeWord(activeMatch.id, currentProfile.id);
+                  setActiveMatch(res.match);
+                  if (res.matchWon) {
+                    recordPracticeFinish(activeMatch.id);
+                  }
+                  return { message: res.message };
+                }
+              : undefined
+          }
           onPassTurn={async () => {
             if (offlineMatch) return;
             const updated = await api.passTurn(activeMatch.id, currentProfile.id);
@@ -3593,8 +3692,9 @@ export const App: React.FC = () => {
           }}
           onRematch={async () => {
             if (offlineMatch) {
-              const next = startOfflineSoloMatch(
+              const next = rematchOfflineSoloOrPractice(
                 currentProfile,
+                activeMatch.id,
                 route.soloStageId ?? undefined
               );
               setActiveMatch(next.match);
@@ -3606,7 +3706,11 @@ export const App: React.FC = () => {
             setRoute({ view: 'match', matchId: next.id });
           }}
           onTimerExpired={() => {
-            if (offlineMatch) return;
+            if (offlineMatch) {
+              const updated = tickOfflinePracticeMatch(activeMatch.id);
+              if (updated) setActiveMatch(updated);
+              return;
+            }
             api.tickMatch(activeMatch.id, currentProfile.id).then(setActiveMatch).catch(() => undefined);
           }}
         />
@@ -3636,8 +3740,12 @@ export const App: React.FC = () => {
         <SoloScreen
           profile={currentProfile}
           soloStages={soloStages}
+          initialTab={route.tab ?? 'adventure'}
+          templates={templates}
+          practiceStats={chainItPracticeStats}
           onBack={() => setRoute({ view: 'tab', tab: 'home' })}
           onStartSoloStage={handleStartSoloStage}
+          onStartPractice={handleStartPractice}
         />
       );
     }
@@ -3698,7 +3806,8 @@ export const App: React.FC = () => {
             onContinueMatch={handleOpenMatch}
             onViewAllMatches={() => setRoute({ view: 'tab', tab: 'play' })}
             onRankedMatch={handleRankedMatch}
-            onSoloAdventure={() => setRoute({ view: 'solo' })}
+            onSoloAdventure={() => setRoute({ view: 'solo', tab: 'adventure' })}
+            onPractice={() => setRoute({ view: 'solo', tab: 'practice' })}
             onLeaderboard={() => setRoute({ view: 'leaderboard' })}
             onRooms={() => setRoute({ view: 'rooms' })}
             onExploreFantasy={() => setRoute({ view: 'solo' })}
@@ -3718,7 +3827,8 @@ export const App: React.FC = () => {
             rankedQueued={rankedQueued}
             onOpenMatch={handleOpenMatch}
             onJoinRoomByCode={handleJoinRoomByCode}
-            onOpenSolo={() => setRoute({ view: 'solo' })}
+            onOpenSolo={() => setRoute({ view: 'solo', tab: 'adventure' })}
+            onOpenPractice={() => setRoute({ view: 'solo', tab: 'practice' })}
             onOpenRooms={() => setRoute({ view: 'rooms' })}
             onOpenCreateRoom={() => setRoute({ view: 'create_room', returnTo: 'play' })}
             onOpenLeaderboard={() => setRoute({ view: 'leaderboard' })}

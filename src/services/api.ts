@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import {
+  ChainItPracticeConfig,
   EquippedCosmetics,
   GameModuleDescriptor,
   GridItChatMessage,
@@ -265,6 +266,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ playerId, ...params }),
     }),
+  startPracticeMatch: (playerId: string, config: ChainItPracticeConfig) =>
+    request<{ match: MatchStateClient }>('/api/solo/practice/start', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, ...config }),
+    }),
 
   listOngoingMatches: (playerId: string) =>
     request<OngoingMatchSummary[]>(`/api/matches/ongoing/${playerId}`),
@@ -279,6 +285,26 @@ export const api = {
     request<GuessResult>(`/api/matches/${matchId}/guess`, {
       method: 'POST',
       body: JSON.stringify({ playerId, guess, soloStageId }),
+    }),
+  useChainItPracticeHint: (matchId: string, playerId: string) =>
+    request<{
+      revealedLetterAdded: boolean;
+      clueWord: string | null;
+      message: string;
+      match: MatchStateClient;
+    }>(`/api/matches/${matchId}/hint`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  skipChainItPracticeWord: (matchId: string, playerId: string) =>
+    request<{
+      revealedWord: string;
+      matchWon: boolean;
+      message: string;
+      match: MatchStateClient;
+    }>(`/api/matches/${matchId}/skip-word`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
     }),
   passTurn: (matchId: string, playerId: string) =>
     request<MatchStateClient>(`/api/matches/${matchId}/pass`, {

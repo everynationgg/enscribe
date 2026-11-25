@@ -1,4 +1,5 @@
 import {
+  ChainItPracticeConfig,
   GuessResult,
   MatchStateClient,
   Profile,
@@ -138,6 +139,78 @@ const OFFLINE_SOLO_RULES: RoomRules = {
   difficultyPreset: 'casual',
 };
 
+const PRACTICE_THEMES = [
+  'Everyday',
+  'Fantasy',
+  'Science Fiction',
+  'Nature',
+  'Food',
+  'Sports',
+  'Music',
+  'Mystery',
+  'Animals',
+  'Travel',
+  'Ocean',
+  'Adventure',
+];
+
+export interface ChainItPracticeStats {
+  chainsCompleted: number;
+  wordsSolved: number;
+  currentStreak: number;
+  bestStreak: number;
+}
+
+const DEFAULT_PRACTICE_STATS: ChainItPracticeStats = {
+  chainsCompleted: 0,
+  wordsSolved: 0,
+  currentStreak: 0,
+  bestStreak: 0,
+};
+
+export function loadChainItPracticeStats(playerId: string): ChainItPracticeStats {
+  if (typeof window === 'undefined' || !playerId) return { ...DEFAULT_PRACTICE_STATS };
+  try {
+    const raw = window.localStorage.getItem(`enscribe_chainit_practice_stats_v1_${playerId}`);
+    if (!raw) return { ...DEFAULT_PRACTICE_STATS };
+    const parsed = JSON.parse(raw) as Partial<ChainItPracticeStats>;
+    return {
+      chainsCompleted: Number(parsed.chainsCompleted) || 0,
+      wordsSolved: Number(parsed.wordsSolved) || 0,
+      currentStreak: Number(parsed.currentStreak) || 0,
+      bestStreak: Number(parsed.bestStreak) || 0,
+    };
+  } catch {
+    return { ...DEFAULT_PRACTICE_STATS };
+  }
+}
+
+export function recordChainItPracticeChainComplete(
+  playerId: string,
+  wordsSolvedDelta: number,
+  skippedAny: boolean
+): ChainItPracticeStats {
+  const prev = loadChainItPracticeStats(playerId);
+  const nextStreak = skippedAny ? 0 : prev.currentStreak + 1;
+  const next: ChainItPracticeStats = {
+    chainsCompleted: prev.chainsCompleted + 1,
+    wordsSolved: prev.wordsSolved + Math.max(0, wordsSolvedDelta),
+    currentStreak: nextStreak,
+    bestStreak: Math.max(prev.bestStreak, nextStreak),
+  };
+  if (typeof window !== 'undefined' && playerId) {
+    try {
+      window.localStorage.setItem(
+        `enscribe_chainit_practice_stats_v1_${playerId}`,
+        JSON.stringify(next)
+      );
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+  return next;
+}
+
 interface OfflineMatchRecord {
   matchId: string;
   stageId: string | null;
@@ -154,6 +227,10 @@ interface OfflineMatchRecord {
   completedAtMs: number | null;
   createdAt: number;
   updatedAt: number;
+  rules: RoomRules;
+  practiceConfig?: ChainItPracticeConfig;
+  explicitClues: Record<number, string>;
+  wordDeadlineMs: number | null;
 }
 
 const offlineMatches = new Map<string, OfflineMatchRecord>();
@@ -183,21 +260,31 @@ export function getOfflineOfficialTemplates(): Template[] {
 
 function buildOfflineClientState(rec: OfflineMatchRecord): MatchStateClient {
   const isFinished = rec.completedAtMs !== null;
+  const threshold =
+    rec.rules.autoRevealAfterAttempts > 0 ? rec.rules.autoRevealAfterAttempts : 2;
   const slots: SanitizedWordSlot[] = rec.words.map((word, idx) => {
     const isCompleted = idx < rec.currentWordIndex || isFinished;
     const isActive = !isFinished && idx === rec.currentWordIndex;
     const revealed = Math.min(word.length, Math.max(1, rec.revealedCounts[idx] ?? 1));
     let displayText = word;
+    let isUpcomingMasked = false;
     if (!isCompleted) {
-      const chars: string[] = [];
-      for (let i = 0; i < word.length; i++) {
-        chars.push(i < revealed ? word[i] : '_');
+      if (!isActive && rec.rules.chainVisibility === 'progressive') {
+        isUpcomingMasked = true;
+        displayText = Array.from({ length: word.length }, () => '_').join(' ');
+      } else {
+        const chars: string[] = [];
+        for (let i = 0; i < word.length; i++) {
+          chars.push(i < revealed ? word[i] : '_');
+        }
+        displayText = chars.join(' ');
       }
-      displayText = chars.join(' ');
     }
+    const explicitClue = rec.explicitClues[idx];
     const clueWord =
-      isActive && (revealed >= 2 || rec.wrongAttemptsCurrentWord >= 2)
-        ? CHAIN_SYNONYMS[word] ?? OFFLINE_SYNONYMS[word] ?? null
+      isActive &&
+      (Boolean(explicitClue) || revealed >= 2 || rec.wrongAttemptsCurrentWord >= threshold)
+        ? explicitClue ?? CHAIN_SYNONYMS[word] ?? OFFLINE_SYNONYMS[word] ?? 'LINK'
         : null;
 
     return {
@@ -205,7 +292,7 @@ function buildOfflineClientState(rec: OfflineMatchRecord): MatchStateClient {
       length: word.length,
       isCompleted,
       isActive,
-      isUpcomingMasked: false,
+      isUpcomingMasked,
       displayText,
       revealedLetters: isCompleted ? word.length : revealed,
       clueWord,
@@ -225,7 +312,10 @@ function buildOfflineClientState(rec: OfflineMatchRecord): MatchStateClient {
     turnDeadlineMs: null,
     turnStartedAtMs: null,
     turnAwaitingOnline: false,
-    speedRaceDeadlines: {},
+    speedRaceDeadlines:
+      rec.rules.timerEnabled && rec.wordDeadlineMs !== null
+        ? { [rec.playerId]: rec.wordDeadlineMs }
+        : {},
     winnerId: isFinished ? rec.playerId : null,
     finishOrder: isFinished
       ? [
@@ -238,7 +328,7 @@ function buildOfflineClientState(rec: OfflineMatchRecord): MatchStateClient {
           },
         ]
       : [],
-    rules: { ...OFFLINE_SOLO_RULES, chainLength: rec.words.length },
+    rules: { ...rec.rules, chainLength: rec.words.length },
     boards: {
       [rec.playerId]: {
         playerId: rec.playerId,
@@ -246,7 +336,7 @@ function buildOfflineClientState(rec: OfflineMatchRecord): MatchStateClient {
         avatarId: rec.avatarId,
         isWinner: isFinished,
         isOnline: false,
-        statusText: isFinished ? 'Winner!' : 'Solo Offline',
+        statusText: isFinished ? 'Winner!' : rec.rules.isPractice ? 'Practice Mode' : 'Solo Offline',
         currentWordIndex: rec.currentWordIndex,
         totalWords: rec.words.length,
         words: slots,
@@ -316,12 +406,191 @@ export function startOfflineSoloMatch(
     completedAtMs: null,
     createdAt: now,
     updatedAt: now,
+    rules: { ...OFFLINE_SOLO_RULES, chainLength: words.length },
+    explicitClues: {},
+    wordDeadlineMs: null,
   };
   offlineMatches.set(matchId, rec);
   return {
     stageId: rec.stageId,
     match: buildOfflineClientState(rec),
   };
+}
+
+export function startOfflinePracticeMatch(
+  profile: Profile,
+  config: ChainItPracticeConfig,
+  customTemplate?: Template,
+  excludeWords?: string[]
+): { match: MatchStateClient } {
+  const rawTheme = String(config.theme || '').trim();
+  const resolvedTheme =
+    !rawTheme || rawTheme.toLowerCase() === 'mix' || rawTheme.toLowerCase() === 'random'
+      ? PRACTICE_THEMES[Math.floor(Math.random() * PRACTICE_THEMES.length)]
+      : rawTheme;
+  const length = Math.max(3, Math.min(8, Math.round(config.chainLength || 5)));
+  const generated = customTemplate?.words?.length
+    ? {
+        name: customTemplate.name,
+        theme: customTemplate.theme,
+        words: customTemplate.words.map((w) => w.toUpperCase()),
+      }
+    : generateUniqueGraphChain({
+        theme: resolvedTheme,
+        length,
+        excludeWords,
+        recentHistory: offlineChainHistory,
+      });
+
+  const autoReveal =
+    config.difficulty === 'relaxed' ? 1 : config.difficulty === 'challenge' ? 3 : 2;
+  const timerEnabled = config.timePerWordSeconds > 0;
+  const timeSec = timerEnabled ? Math.max(10, Math.min(120, Math.round(config.timePerWordSeconds))) : 0;
+  const now = Date.now();
+  const matchId = `match_offline_${Math.random().toString(36).slice(2, 10)}`;
+
+  const rules: RoomRules = {
+    ...OFFLINE_SOLO_RULES,
+    chainLength: generated.words.length,
+    timePerWordSeconds: timeSec,
+    timerEnabled,
+    puzzleSource: customTemplate ? 'saved_templates' : 'curated_db',
+    chainVisibility: config.difficulty === 'challenge' ? 'progressive' : 'full_chain',
+    autoRevealAfterAttempts: autoReveal,
+    autoRevealAfterFailedTurns: autoReveal,
+    difficultyPreset: config.difficulty === 'challenge' ? 'competitive' : 'casual',
+    theme: generated.theme,
+    isPractice: true,
+  };
+
+  const rec: OfflineMatchRecord = {
+    matchId,
+    stageId: null,
+    playerId: profile.id,
+    username: profile.username,
+    avatarId: profile.avatarId,
+    title: `Practice • ${generated.name}`,
+    theme: generated.theme,
+    words: generated.words,
+    currentWordIndex: 1,
+    revealedCounts: generated.words.map((w, idx) => (idx === 0 ? w.length : 1)),
+    wrongAttemptsCurrentWord: 0,
+    earnedMatchPoints: 0,
+    completedAtMs: null,
+    createdAt: now,
+    updatedAt: now,
+    rules,
+    practiceConfig: { ...config, templateId: undefined },
+    explicitClues: {},
+    wordDeadlineMs: timerEnabled ? now + timeSec * 1000 : null,
+  };
+  offlineMatches.set(matchId, rec);
+  return { match: buildOfflineClientState(rec) };
+}
+
+export function rematchOfflineSoloOrPractice(
+  profile: Profile,
+  prevMatchId: string,
+  fallbackStageId?: string
+): { stageId: string | null; match: MatchStateClient } {
+  const prev = offlineMatches.get(prevMatchId);
+  if (prev?.rules.isPractice && prev.practiceConfig) {
+    return {
+      stageId: null,
+      ...startOfflinePracticeMatch(profile, prev.practiceConfig, undefined, prev.words),
+    };
+  }
+  return startOfflineSoloMatch(profile, prev?.stageId ?? fallbackStageId);
+}
+
+export function useOfflinePracticeHint(matchId: string): {
+  revealedLetterAdded: boolean;
+  clueWord: string | null;
+  message: string;
+  match: MatchStateClient;
+} {
+  const rec = offlineMatches.get(matchId);
+  if (!rec) throw new Error('Offline practice match not found.');
+  if (!rec.rules.isPractice) throw new Error('Hints are only available in Practice Mode.');
+  if (rec.completedAtMs !== null) throw new Error('Practice chain already complete.');
+
+  const idx = rec.currentWordIndex;
+  const word = rec.words[idx];
+  let revealedLetterAdded = false;
+  const curRev = rec.revealedCounts[idx] ?? 1;
+  if (curRev < word.length - 1) {
+    rec.revealedCounts[idx] = curRev + 1;
+    revealedLetterAdded = true;
+  }
+  const clue = rec.explicitClues[idx] ?? CHAIN_SYNONYMS[word] ?? OFFLINE_SYNONYMS[word] ?? 'LINK';
+  rec.explicitClues[idx] = clue;
+  rec.updatedAt = Date.now();
+  return {
+    revealedLetterAdded,
+    clueWord: clue,
+    message: revealedLetterAdded
+      ? 'Practice Hint: next letter & clue revealed!'
+      : 'Practice Hint: 1-word clue active (final letter left for you!).',
+    match: buildOfflineClientState(rec),
+  };
+}
+
+export function skipOfflinePracticeWord(matchId: string): {
+  revealedWord: string;
+  matchWon: boolean;
+  message: string;
+  match: MatchStateClient;
+} {
+  const rec = offlineMatches.get(matchId);
+  if (!rec) throw new Error('Offline practice match not found.');
+  if (!rec.rules.isPractice) throw new Error('Skip Word is only available in Practice Mode.');
+  if (rec.completedAtMs !== null) throw new Error('Practice chain already complete.');
+
+  const idx = rec.currentWordIndex;
+  const target = rec.words[idx];
+  const now = Date.now();
+  rec.revealedCounts[idx] = target.length;
+  rec.currentWordIndex += 1;
+  rec.wrongAttemptsCurrentWord = 0;
+  rec.updatedAt = now;
+  const matchWon = rec.currentWordIndex >= rec.words.length;
+  if (matchWon) {
+    rec.completedAtMs = now;
+    rec.wordDeadlineMs = null;
+  } else if (rec.rules.timerEnabled && rec.rules.timePerWordSeconds > 0) {
+    rec.wordDeadlineMs = now + rec.rules.timePerWordSeconds * 1000;
+  }
+  return {
+    revealedWord: target,
+    matchWon,
+    message: matchWon
+      ? `Revealed "${target}" — Practice chain complete!`
+      : `Revealed "${target}" — try the next link!`,
+    match: buildOfflineClientState(rec),
+  };
+}
+
+export function tickOfflinePracticeMatch(matchId: string): MatchStateClient | null {
+  const rec = offlineMatches.get(matchId);
+  if (!rec || rec.completedAtMs !== null || !rec.rules.timerEnabled || !rec.wordDeadlineMs) {
+    return rec ? buildOfflineClientState(rec) : null;
+  }
+  const now = Date.now();
+  if (now >= rec.wordDeadlineMs) {
+    const idx = rec.currentWordIndex;
+    const target = rec.words[idx];
+    rec.wrongAttemptsCurrentWord += 1;
+    const threshold = Math.max(1, rec.rules.autoRevealAfterAttempts || 2);
+    if (rec.wrongAttemptsCurrentWord % threshold === 0 && target) {
+      const curRev = rec.revealedCounts[idx] ?? 1;
+      if (curRev < target.length - 1) {
+        rec.revealedCounts[idx] = curRev + 1;
+      }
+    }
+    rec.wordDeadlineMs = now + rec.rules.timePerWordSeconds * 1000;
+    rec.updatedAt = now;
+  }
+  return buildOfflineClientState(rec);
 }
 
 export function submitOfflineSoloGuess(matchId: string, guess: string): GuessResult {
@@ -343,9 +612,12 @@ export function submitOfflineSoloGuess(matchId: string, guess: string): GuessRes
     const matchWon = rec.currentWordIndex >= rec.words.length;
     if (matchWon) {
       rec.completedAtMs = now;
+      rec.wordDeadlineMs = null;
       if (rec.stageId) {
         markGuestSoloStageCompleted(rec.stageId);
       }
+    } else if (rec.rules.timerEnabled && rec.rules.timePerWordSeconds > 0) {
+      rec.wordDeadlineMs = now + rec.rules.timePerWordSeconds * 1000;
     }
     return {
       correct: true,
@@ -360,7 +632,8 @@ export function submitOfflineSoloGuess(matchId: string, guess: string): GuessRes
   rec.wrongAttemptsCurrentWord += 1;
   rec.updatedAt = now;
   let revealedLetterAdded = false;
-  if (rec.wrongAttemptsCurrentWord % 2 === 0) {
+  const threshold = Math.max(1, rec.rules.autoRevealAfterAttempts || 2);
+  if (rec.wrongAttemptsCurrentWord % threshold === 0) {
     const curRev = rec.revealedCounts[rec.currentWordIndex] ?? 1;
     if (curRev < target.length - 1) {
       rec.revealedCounts[rec.currentWordIndex] = curRev + 1;

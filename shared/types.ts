@@ -118,6 +118,15 @@ export type ChainClashMode = 'classic' | 'speed_race' | 'solo' | 'ranked';
 export type ChainVisibility = 'full_chain' | 'progressive';
 export type OpponentVisibility = 'full_live' | 'words_only' | 'minimal';
 export type PuzzleSource = 'saved_templates' | 'custom_create' | 'curated_db';
+export type ChainItPracticeDifficulty = 'relaxed' | 'standard' | 'challenge';
+
+export interface ChainItPracticeConfig {
+  theme: string;
+  chainLength: number;
+  difficulty: ChainItPracticeDifficulty;
+  timePerWordSeconds: number;
+  templateId?: string | null;
+}
 
 export interface RoomRules {
   gameType: GameModuleId;
@@ -135,6 +144,7 @@ export interface RoomRules {
   opponentVisibility: OpponentVisibility;
   difficultyPreset: 'casual' | 'competitive' | 'custom';
   theme?: string;
+  isPractice?: boolean;
 }
 
 export type PuzzlePrepStatus = 'none' | 'creating' | 'ready';
