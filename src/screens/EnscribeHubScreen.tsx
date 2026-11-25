@@ -20,6 +20,7 @@ const HUB_CARD_ART: Record<string, { src: string; glow: string }> = {
   gridit: { src: '/art/hub-card-gridit.png', glow: 'glow-gridit' },
   guessit: { src: '/art/hub-card-guessit.png', glow: 'glow-guessit' },
   twistit: { src: '/art/hub-card-twistit.png', glow: 'glow-twistit' },
+  changeit: { src: '/art/hub-card-changeit.png', glow: 'glow-changeit' },
 };
 
 export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
@@ -119,7 +120,7 @@ export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({
         hubActive="games"
         onSelect={() => undefined}
         onSelectHubTab={handleDockTab}
-        onQuickPlay={() => (onQuickPlay ? onQuickPlay() : onSelectGame('twistit'))}
+        onQuickPlay={() => (onQuickPlay ? onQuickPlay() : onSelectGame('changeit'))}
       />
     </div>
   );

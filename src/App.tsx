@@ -30,7 +30,31 @@ import {
   TwistItMatchView,
   TwistItRoomView,
   TwistItSoloStats,
+  ChangeItAdventureClaimResult,
+  ChangeItAdventureProgressClient,
+  ChangeItLeaderboardResponse,
+  ChangeItMatchStateClient,
+  ChangeItRoom,
 } from '../shared/types';
+import {
+  ALL_CHANGEIT_ADVENTURE_STAGES,
+} from '../shared/changeit/adventureCatalog';
+import {
+  claimOfflineChangeItReward,
+  getOfflineChangeItAdventureProgress,
+  isOfflineChangeItMatchId,
+  retryOfflineChangeItMatch,
+  startOfflineChangeItStage,
+  submitOfflineChangeItTransform,
+  useOfflineChangeItHint,
+} from './games/changeit/offlineAdventure';
+import { ChangeItHomeScreen } from './screens/changeit/ChangeItHomeScreen';
+import { ChangeItRankedScreen } from './screens/changeit/ChangeItRankedScreen';
+import { ChangeItAdventureScreen } from './screens/changeit/ChangeItAdventureScreen';
+import { ChangeItRoomsScreen } from './screens/changeit/ChangeItRoomsScreen';
+import { ChangeItLobbyScreen } from './screens/changeit/ChangeItLobbyScreen';
+import { ChangeItLeaderboardScreen } from './screens/changeit/ChangeItLeaderboardScreen';
+import { ChangeItGameplayScreen } from './screens/changeit/ChangeItGameplayScreen';
 import {
   getOfflineTwistItSoloStats,
   isOfflineTwistItMatch,
@@ -106,7 +130,14 @@ import { GameplayScreen } from './screens/GameplayScreen';
 
 type ActiveRoute =
   | { view: 'hub' }
-  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' }
+  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit' }
+  | { view: 'changeit_home' }
+  | { view: 'changeit_ranked' }
+  | { view: 'changeit_adventure' }
+  | { view: 'changeit_rooms' }
+  | { view: 'changeit_lobby'; roomId: string }
+  | { view: 'changeit_match'; matchId: string }
+  | { view: 'changeit_leaderboard' }
   | { view: 'guessit_entry' }
   | { view: 'guessit_modes'; pathway?: 'rooms' | 'ranked' }
   | { view: 'guessit_leaderboard' }
@@ -204,6 +235,19 @@ export const App: React.FC = () => {
     getOfflineTwistItSoloStats()
   );
   const [twistItQuickQueued, setTwistItQuickQueued] = useState(false);
+
+  const [changeItPublicRooms, setChangeItPublicRooms] = useState<ChangeItRoom[]>([]);
+  const [activeChangeItRoom, setActiveChangeItRoom] = useState<ChangeItRoom | null>(null);
+  const [activeChangeItMatch, setActiveChangeItMatch] = useState<ChangeItMatchStateClient | null>(null);
+  const [changeItAdventureProgress, setChangeItAdventureProgress] =
+    useState<ChangeItAdventureProgressClient | null>(null);
+  const [changeItAdventureClaim, setChangeItAdventureClaim] =
+    useState<ChangeItAdventureClaimResult | null>(null);
+  const [changeItRankedFormat, setChangeItRankedFormat] = useState<
+    'classic_sprint' | 'classic_precision' | null
+  >(null);
+  const [changeItLeaderboardData, setChangeItLeaderboardData] =
+    useState<ChangeItLeaderboardResponse | null>(null);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [ongoingMatches, setOngoingMatches] = useState<OngoingMatchSummary[]>([]);
@@ -430,6 +474,8 @@ export const App: React.FC = () => {
   const pendingChainMatchByIdRef = useRef<Map<string, MatchStateClient>>(new Map());
   const pendingGridItMatchByIdRef = useRef<Map<string, GridItMatchStateClient>>(new Map());
   const pendingGuessItMatchByIdRef = useRef<Map<string, GuessItMatchStateClient>>(new Map());
+  const pendingChangeItMatchByIdRef = useRef<Map<string, ChangeItMatchStateClient>>(new Map());
+  const claimedChangeItMatchIdsRef = useRef<Set<string>>(new Set());
   const claimedAdventureMatchIdsRef = useRef<Set<string>>(new Set());
   routeRef.current = route;
   showNotifModalRef.current = showNotifModal;
@@ -447,8 +493,33 @@ export const App: React.FC = () => {
         setRoute({ view: 'hub' });
         return;
       }
-      if (current.view === 'gridit_home' || current.view === 'guessit_entry' || current.view === 'twistit_home') {
+      if (
+        current.view === 'gridit_home' ||
+        current.view === 'guessit_entry' ||
+        current.view === 'twistit_home' ||
+        current.view === 'changeit_home'
+      ) {
         setRoute({ view: 'hub' });
+        return;
+      }
+      if (
+        current.view === 'changeit_ranked' ||
+        current.view === 'changeit_adventure' ||
+        current.view === 'changeit_rooms' ||
+        current.view === 'changeit_leaderboard'
+      ) {
+        setRoute({ view: 'changeit_home' });
+        return;
+      }
+      if (current.view === 'changeit_lobby') {
+        setActiveChangeItRoom(null);
+        setRoute({ view: 'changeit_rooms' });
+        return;
+      }
+      if (current.view === 'changeit_match') {
+        const wasAdv = activeChangeItMatch?.mode === 'solo_adventure';
+        setActiveChangeItMatch(null);
+        setRoute({ view: wasAdv ? 'changeit_adventure' : 'changeit_home' });
         return;
       }
       if (current.view === 'twistit_multiplayer') {
@@ -586,7 +657,27 @@ export const App: React.FC = () => {
     if (activeProfileId && !playerSession?.isOffline && route.view === 'twistit_multiplayer') {
       api.listTwistItPublicRooms().then(setTwistItPublicRooms).catch(() => undefined);
     }
-  }, [activeProfileId, playerSession?.isOffline, route.view]);
+    if (route.view === 'changeit_home' || route.view === 'changeit_adventure') {
+      if (activeProfileId && !playerSession?.isOffline && !isOffline) {
+        api
+          .getChangeItAdventureProgress(activeProfileId)
+          .then(setChangeItAdventureProgress)
+          .catch(() => {
+            if (activeProfileId) {
+              setChangeItAdventureProgress(getOfflineChangeItAdventureProgress(activeProfileId));
+            }
+          });
+      } else if (activeProfileId) {
+        setChangeItAdventureProgress(getOfflineChangeItAdventureProgress(activeProfileId));
+      }
+    }
+    if (activeProfileId && !playerSession?.isOffline && route.view === 'changeit_rooms') {
+      api.listChangeItPublicRooms().then(setChangeItPublicRooms).catch(() => undefined);
+    }
+    if (activeProfileId && !playerSession?.isOffline && route.view === 'changeit_ranked') {
+      api.getChangeItLeaderboard(activeProfileId).then(setChangeItLeaderboardData).catch(() => undefined);
+    }
+  }, [activeProfileId, playerSession?.isOffline, isOffline, route.view]);
 
   // Realtime connection via Fly.io Socket.IO WebSocket (listeners bound once per active player)
   useEffect(() => {
@@ -840,6 +931,55 @@ export const App: React.FC = () => {
       setRoute({ view: 'twistit_match', matchId: match.id });
     };
 
+    const onChangeItRoomUpdated = (room: ChangeItRoom) => {
+      setActiveChangeItRoom((prev) => (prev && prev.id === room.id ? room : prev));
+    };
+
+    const onChangeItRoomsUpdated = () => {
+      if (routeRef.current.view === 'changeit_rooms') {
+        api.listChangeItPublicRooms().then(setChangeItPublicRooms).catch(() => undefined);
+      }
+    };
+
+    const onChangeItMatchStarted = ({ roomId, matchId }: { roomId: string; matchId: string }) => {
+      const pending = pendingChangeItMatchByIdRef.current.get(matchId);
+      if (pending) {
+        pendingChangeItMatchByIdRef.current.delete(matchId);
+        setActiveChangeItMatch(pending);
+      }
+      setRoute((prev) => {
+        if (prev.view === 'changeit_lobby' && prev.roomId === roomId) {
+          return { view: 'changeit_match', matchId };
+        }
+        return prev;
+      });
+    };
+
+    const onChangeItMatched = ({ matchId }: { matchId: string }) => {
+      const pending = pendingChangeItMatchByIdRef.current.get(matchId);
+      if (pending) {
+        pendingChangeItMatchByIdRef.current.delete(matchId);
+        setActiveChangeItMatch(pending);
+      }
+      setChangeItRankedFormat(null);
+      notify('Ranked ChangeIt opponent found!');
+      setRoute({ view: 'changeit_match', matchId });
+    };
+
+    const onChangeItMatchState = (match: ChangeItMatchStateClient) => {
+      const curr = routeRef.current;
+      if (curr.view === 'changeit_match' && curr.matchId === match.id) {
+        setActiveChangeItMatch(match);
+      } else {
+        pendingChangeItMatchByIdRef.current.set(match.id, match);
+      }
+    };
+
+    const onChangeItRematch = ({ newMatchId }: { newMatchId: string }) => {
+      notify('ChangeIt rematch started!');
+      setRoute({ view: 'changeit_match', matchId: newMatchId });
+    };
+
     socket.on('room:updated', onRoomUpdated);
     socket.on('room:match_started', onRoomMatchStarted);
     socket.on('match:state', onMatchState);
@@ -865,6 +1005,12 @@ export const App: React.FC = () => {
     socket.on('twistit:match_started', onTwistItMatchStarted);
     socket.on('twistit:match_state', onTwistItMatchState);
     socket.on('twistit:quick_matched', onTwistItQuickMatched);
+    socket.on('changeit:room_updated', onChangeItRoomUpdated);
+    socket.on('changeit:rooms_updated', onChangeItRoomsUpdated);
+    socket.on('changeit:match_started', onChangeItMatchStarted);
+    socket.on('changeit:matched', onChangeItMatched);
+    socket.on('changeit:match_state', onChangeItMatchState);
+    socket.on('changeit:rematch', onChangeItRematch);
 
     return () => {
       socket.off('connect', identify);
@@ -893,6 +1039,12 @@ export const App: React.FC = () => {
       socket.off('twistit:match_started', onTwistItMatchStarted);
       socket.off('twistit:match_state', onTwistItMatchState);
       socket.off('twistit:quick_matched', onTwistItQuickMatched);
+      socket.off('changeit:room_updated', onChangeItRoomUpdated);
+      socket.off('changeit:rooms_updated', onChangeItRoomsUpdated);
+      socket.off('changeit:match_started', onChangeItMatchStarted);
+      socket.off('changeit:matched', onChangeItMatched);
+      socket.off('changeit:match_state', onChangeItMatchState);
+      socket.off('changeit:rematch', onChangeItRematch);
     };
   }, [activeProfileId, playerSession?.isOffline, notify, refreshPlatformData]);
 
@@ -900,11 +1052,23 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!activeProfileId || playerSession?.isOffline) return;
     const socket = getSocket();
-    if (route.view === 'lobby' || route.view === 'gridit_lobby' || route.view === 'guessit_lobby') {
+    if (
+      route.view === 'lobby' ||
+      route.view === 'gridit_lobby' ||
+      route.view === 'guessit_lobby' ||
+      route.view === 'changeit_lobby'
+    ) {
       const rid = route.roomId;
       socket.emit('room:join_channel', rid);
       return () => {
         socket.emit('room:leave_channel', rid);
+      };
+    }
+    if (route.view === 'changeit_match' && !isOfflineChangeItMatchId(route.matchId)) {
+      const mid = route.matchId;
+      socket.emit('changeit:join_match', mid);
+      return () => {
+        socket.emit('changeit:leave_match', mid);
       };
     }
     if (route.view === 'match' && !isOfflineSoloMatchId(route.matchId)) {
@@ -1059,11 +1223,16 @@ export const App: React.FC = () => {
         route.view !== 'guessit_lobby' &&
         route.view !== 'guessit_match' &&
         route.view !== 'twistit_lobby' &&
-        route.view !== 'twistit_match')
+        route.view !== 'twistit_match' &&
+        route.view !== 'changeit_lobby' &&
+        route.view !== 'changeit_match')
     ) {
       return;
     }
     if (route.view === 'twistit_match' && isOfflineTwistItMatch(route.matchId)) {
+      return;
+    }
+    if (route.view === 'changeit_match' && isOfflineChangeItMatchId(route.matchId)) {
       return;
     }
     let timer: number | null = null;
@@ -1118,6 +1287,21 @@ export const App: React.FC = () => {
           api
             .getTwistItMatch(route.matchId, activeProfileId)
             .then(setActiveTwistItMatch)
+            .catch(() => undefined);
+        } else if (route.view === 'changeit_lobby') {
+          api
+            .getChangeItRoom(route.roomId)
+            .then((r) => {
+              setActiveChangeItRoom(r);
+              if (r.status === 'in_progress' && r.activeMatchId) {
+                setRoute({ view: 'changeit_match', matchId: r.activeMatchId });
+              }
+            })
+            .catch(() => undefined);
+        } else if (route.view === 'changeit_match') {
+          api
+            .getChangeItMatch(route.matchId, activeProfileId)
+            .then(setActiveChangeItMatch)
             .catch(() => undefined);
         }
         scheduleTick();
@@ -1190,8 +1374,87 @@ export const App: React.FC = () => {
           setActiveTwistItMatch(null);
           setRoute({ view: 'twistit_home' });
         });
+    } else if (route.view === 'changeit_lobby' && activeChangeItRoom?.id !== route.roomId) {
+      api
+        .getChangeItRoom(route.roomId)
+        .then((r) => {
+          setActiveChangeItRoom(r);
+          if (r.status === 'in_progress' && r.activeMatchId) {
+            setRoute({ view: 'changeit_match', matchId: r.activeMatchId });
+          }
+        })
+        .catch((err) => {
+          notify(err.message || 'ChangeIt room not found');
+          setActiveChangeItRoom(null);
+          setRoute({ view: 'changeit_rooms' });
+        });
+    } else if (
+      route.view === 'changeit_match' &&
+      !isOfflineChangeItMatchId(route.matchId) &&
+      activeChangeItMatch?.id !== route.matchId
+    ) {
+      const pending = pendingChangeItMatchByIdRef.current.get(route.matchId);
+      if (pending) {
+        pendingChangeItMatchByIdRef.current.delete(route.matchId);
+        setActiveChangeItMatch(pending);
+      } else {
+        api
+          .getChangeItMatch(route.matchId, activeProfileId)
+          .then(setActiveChangeItMatch)
+          .catch((err) => {
+            notify(err.message || 'ChangeIt match not found');
+            setActiveChangeItMatch(null);
+            setRoute({ view: 'changeit_home' });
+          });
+      }
     }
-  }, [route, activeProfileId, playerSession?.isOffline, activeTwistItRoom?.code, activeTwistItMatch?.id, notify]);
+  }, [
+    route,
+    activeProfileId,
+    playerSession?.isOffline,
+    activeTwistItRoom?.code,
+    activeTwistItMatch?.id,
+    activeChangeItRoom?.id,
+    activeChangeItMatch?.id,
+    notify,
+  ]);
+
+  // Automatic idempotent ChangeIt Solo Adventure reward claim
+  useEffect(() => {
+    if (
+      route.view !== 'changeit_match' ||
+      !activeChangeItMatch ||
+      activeChangeItMatch.mode !== 'solo_adventure' ||
+      activeChangeItMatch.status !== 'finished' ||
+      !activeChangeItMatch.self.completed ||
+      !activeProfileId
+    ) {
+      return;
+    }
+    if (claimedChangeItMatchIdsRef.current.has(activeChangeItMatch.id)) return;
+    claimedChangeItMatchIdsRef.current.add(activeChangeItMatch.id);
+
+    if (isOfflineChangeItMatchId(activeChangeItMatch.id)) {
+      const res = claimOfflineChangeItReward(activeProfileId, activeChangeItMatch.id);
+      setChangeItAdventureClaim(res);
+      setChangeItAdventureProgress(res.progress);
+      return;
+    }
+
+    api
+      .claimChangeItAdventureReward(activeProfileId, activeChangeItMatch.id)
+      .then((res) => {
+        setChangeItAdventureClaim(res);
+        setChangeItAdventureProgress(res.progress);
+        setCurrentProfile((prev) =>
+          prev ? { ...prev, matchPointsBalance: res.newCoinsBalance } : prev
+        );
+      })
+      .catch((err) => {
+        claimedChangeItMatchIdsRef.current.delete(activeChangeItMatch.id);
+        notify(err?.message || 'Could not claim ChangeIt reward');
+      });
+  }, [route.view, activeChangeItMatch, activeProfileId, notify]);
 
   // Server-confirmed Solo Adventure reward claim upon stage victory (strictly idempotent)
   useEffect(() => {
@@ -1309,6 +1572,17 @@ export const App: React.FC = () => {
             setRoute({ view: 'twistit_lobby', roomCode: room.code });
           }
           notify(`Joined TwistIt room ${room.code}!`);
+          return;
+        }
+        if (invite.game === 'changeit') {
+          const room = await api.joinChangeItRoom(invite.code, playerId);
+          setActiveChangeItRoom(room);
+          if (room.status === 'in_progress' && room.activeMatchId) {
+            setRoute({ view: 'changeit_match', matchId: room.activeMatchId });
+          } else {
+            setRoute({ view: 'changeit_lobby', roomId: room.id });
+          }
+          notify(`Joined ChangeIt room ${room.code}!`);
           return;
         }
         const room = await api.joinGuessItRoom(invite.code, playerId);
@@ -1622,7 +1896,7 @@ export const App: React.FC = () => {
           isOffline={isOffline}
           onSelectGame={handleSelectHubGame}
           onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
-          onQuickPlay={() => setRoute({ view: 'twistit_home' })}
+          onQuickPlay={() => setRoute({ view: 'changeit_home' })}
           onOpenSocial={() => setRoute({ view: 'rooms' })}
           onSwitchGuest={handleSwitchGuest}
         />
@@ -1640,11 +1914,433 @@ export const App: React.FC = () => {
               setRoute({ view: 'guessit_entry' });
             } else if (route.gameId === 'twistit') {
               setRoute({ view: 'twistit_home' });
+            } else if (route.gameId === 'changeit') {
+              setRoute({ view: 'changeit_home' });
             } else {
               setRoute({ view: 'tab', tab: 'home' });
             }
           }}
         />
+      );
+    }
+
+    if (route.view === 'changeit_home') {
+      return (
+        <ChangeItHomeScreen
+          session={playerSession}
+          profile={currentProfile}
+          adventureProgress={changeItAdventureProgress}
+          onExitToHub={() => setRoute({ view: 'hub' })}
+          onOpenRanked={() => setRoute({ view: 'changeit_ranked' })}
+          onOpenAdventure={() => setRoute({ view: 'changeit_adventure' })}
+          onOpenRooms={() => setRoute({ view: 'changeit_rooms' })}
+          onOpenLeaderboard={() => setRoute({ view: 'changeit_leaderboard' })}
+          onOpenTemplates={() => setRoute({ view: 'tab', tab: 'templates' })}
+          onOpenProfile={() => setRoute({ view: 'tab', tab: 'profile' })}
+          onSwitchGuest={handleSwitchGuest}
+        />
+      );
+    }
+
+    if (route.view === 'changeit_ranked') {
+      return (
+        <ChangeItRankedScreen
+          session={playerSession}
+          playerStats={changeItLeaderboardData?.playerStats ?? null}
+          queuedFormat={changeItRankedFormat}
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'changeit_home' })}
+          onJoinQueue={async (format) => {
+            try {
+              const res = await api.joinChangeItRankedQueue(playerSession.playerId, format);
+              if (res.status === 'matched' && res.match) {
+                setChangeItRankedFormat(null);
+                setActiveChangeItMatch(res.match);
+                setRoute({ view: 'changeit_match', matchId: res.match.id });
+              } else {
+                setChangeItRankedFormat(format);
+                notify(`Searching Ranked ${format === 'classic_sprint' ? 'Sprint' : 'Precision'}...`);
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onLeaveQueue={async () => {
+            await api.leaveChangeItRankedQueue(playerSession.playerId).catch(() => undefined);
+            setChangeItRankedFormat(null);
+            notify('Left ChangeIt Ranked queue');
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'changeit_adventure') {
+      const progress =
+        changeItAdventureProgress ?? getOfflineChangeItAdventureProgress(playerSession.playerId);
+      return (
+        <ChangeItAdventureScreen
+          progress={progress}
+          onBack={() => setRoute({ view: 'changeit_home' })}
+          onStartStage={async (stageId) => {
+            setChangeItAdventureClaim(null);
+            if (isOffline || playerSession.isOffline) {
+              const m = await startOfflineChangeItStage(stageId);
+              setActiveChangeItMatch(m);
+              setRoute({ view: 'changeit_match', matchId: m.id });
+              return;
+            }
+            try {
+              const m = await api.startChangeItAdventureStage(playerSession.playerId, stageId);
+              setActiveChangeItMatch(m);
+              setRoute({ view: 'changeit_match', matchId: m.id });
+            } catch (err: any) {
+              if (/fetch|network|404|502|503/i.test(String(err?.message)) || !navigator.onLine) {
+                const m = await startOfflineChangeItStage(stageId);
+                setActiveChangeItMatch(m);
+                setRoute({ view: 'changeit_match', matchId: m.id });
+              } else {
+                notify(err.message);
+              }
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'changeit_rooms') {
+      return (
+        <ChangeItRoomsScreen
+          publicRooms={changeItPublicRooms}
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'changeit_home' })}
+          onRefresh={() => {
+            api.listChangeItPublicRooms().then(setChangeItPublicRooms).catch(() => undefined);
+          }}
+          onCreateRoom={async ({ name, settings }) => {
+            try {
+              const rm = await api.createChangeItRoom({
+                hostId: playerSession.playerId,
+                name,
+                settings,
+              });
+              setActiveChangeItRoom(rm);
+              setRoute({ view: 'changeit_lobby', roomId: rm.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onJoinRoom={async (codeOrId) => {
+            try {
+              const rm = await api.joinChangeItRoom(codeOrId, playerSession.playerId);
+              setActiveChangeItRoom(rm);
+              if (rm.status === 'in_progress' && rm.activeMatchId) {
+                setRoute({ view: 'changeit_match', matchId: rm.activeMatchId });
+              } else {
+                setRoute({ view: 'changeit_lobby', roomId: rm.id });
+              }
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'changeit_leaderboard') {
+      return (
+        <ChangeItLeaderboardScreen
+          session={playerSession}
+          isOffline={isOffline || playerSession.isOffline}
+          onBack={() => setRoute({ view: 'changeit_home' })}
+        />
+      );
+    }
+
+    if (route.view === 'changeit_lobby' && activeChangeItRoom?.id === route.roomId) {
+      return (
+        <ChangeItLobbyScreen
+          room={activeChangeItRoom}
+          session={playerSession}
+          templates={templates}
+          onLeave={() => {
+            const rid = activeChangeItRoom.id;
+            setActiveChangeItRoom(null);
+            setRoute({ view: 'changeit_rooms' });
+            api.leaveChangeItRoom(rid, playerSession.playerId).catch(() => undefined);
+          }}
+          onUpdateSettings={async (partial) => {
+            try {
+              const updated = await api.updateChangeItRoomSettings(
+                activeChangeItRoom.id,
+                playerSession.playerId,
+                partial
+              );
+              setActiveChangeItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onToggleReady={async (isReady) => {
+            try {
+              const updated = await api.setChangeItRoomReady(
+                activeChangeItRoom.id,
+                playerSession.playerId,
+                isReady
+              );
+              setActiveChangeItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSwitchTeam={async (teamId) => {
+            try {
+              const updated = await api.switchChangeItTeam(
+                activeChangeItRoom.id,
+                playerSession.playerId,
+                teamId
+              );
+              setActiveChangeItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSetCustomPuzzle={async (payload) => {
+            try {
+              const updated = await api.setChangeItCustomPuzzle(
+                activeChangeItRoom.id,
+                playerSession.playerId,
+                payload
+              );
+              setActiveChangeItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSaveCustomPuzzleTemplate={async (startWord, targetWord) => {
+            try {
+              const tplData = {
+                ownerId: playerSession.playerId,
+                name: `${startWord} → ${targetWord}`,
+                theme: 'ChangeIt',
+                thumbnailKey: 'custom' as const,
+                words: [startWord, targetWord],
+                status: 'saved' as const,
+              };
+              const saved = currentProfile.isGuest
+                ? saveGuestLocalTemplate(playerSession.playerId, tplData)
+                : await api.saveTemplate(tplData);
+              setTemplates((prev) => [saved, ...prev.filter((t) => t.id !== saved.id)]);
+              notify(`Saved "${saved.name}" to Templates!`);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onSendChat={async (text) => {
+            try {
+              const updated = await api.sendChangeItRoomChat(
+                activeChangeItRoom.id,
+                playerSession.playerId,
+                text
+              );
+              setActiveChangeItRoom(updated);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onStartMatch={async () => {
+            try {
+              const res = await api.startChangeItRoomMatch(
+                activeChangeItRoom.id,
+                playerSession.playerId
+              );
+              setActiveChangeItRoom(res.room);
+              setActiveChangeItMatch(res.match);
+              setRoute({ view: 'changeit_match', matchId: res.match.id });
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onNotify={notify}
+        />
+      );
+    }
+
+    if (route.view === 'changeit_match' && activeChangeItMatch?.id === route.matchId) {
+      const offline = isOfflineChangeItMatchId(activeChangeItMatch.id);
+      const nextStageObj = (() => {
+        if (activeChangeItMatch.mode !== 'solo_adventure' || !activeChangeItMatch.stageId) {
+          return null;
+        }
+        const idx = ALL_CHANGEIT_ADVENTURE_STAGES.findIndex(
+          (s) => s.id === activeChangeItMatch.stageId
+        );
+        return idx >= 0 && idx + 1 < ALL_CHANGEIT_ADVENTURE_STAGES.length
+          ? ALL_CHANGEIT_ADVENTURE_STAGES[idx + 1]
+          : null;
+      })();
+
+      return (
+        <ChangeItGameplayScreen
+          match={activeChangeItMatch}
+          viewerId={offline ? 'offline_player' : playerSession.playerId}
+          adventureClaim={changeItAdventureClaim}
+          onExit={() => {
+            const wasAdv = activeChangeItMatch.mode === 'solo_adventure';
+            const rid = activeChangeItMatch.roomId;
+            setActiveChangeItMatch(null);
+            setChangeItAdventureClaim(null);
+            setRoute(
+              wasAdv
+                ? { view: 'changeit_adventure' }
+                : rid
+                  ? { view: 'changeit_lobby', roomId: rid }
+                  : { view: 'changeit_home' }
+            );
+          }}
+          onSubmitTransform={async (word, clientRequestId) => {
+            if (offline) {
+              const res = await submitOfflineChangeItTransform(activeChangeItMatch.id, word);
+              setActiveChangeItMatch(res.match);
+              return res;
+            }
+            const res = await api.submitChangeItTransform(
+              activeChangeItMatch.id,
+              playerSession.playerId,
+              word,
+              clientRequestId
+            );
+            setActiveChangeItMatch(res.match);
+            return res;
+          }}
+          onUseHint={async () => {
+            try {
+              const next = offline
+                ? await useOfflineChangeItHint(activeChangeItMatch.id)
+                : await api.useChangeItHint(activeChangeItMatch.id, playerSession.playerId);
+              setActiveChangeItMatch(next);
+            } catch (err: any) {
+              notify(err.message);
+            }
+          }}
+          onActivateModifier={
+            !offline
+              ? async (modifierType, targetPlayerId, clientRequestId) => {
+                  try {
+                    const res = await api.activateChangeItModifier(
+                      activeChangeItMatch.id,
+                      playerSession.playerId,
+                      modifierType,
+                      targetPlayerId,
+                      clientRequestId
+                    );
+                    setActiveChangeItMatch(res.match);
+                    notify(res.message);
+                  } catch (err: any) {
+                    notify(err.message);
+                  }
+                }
+              : undefined
+          }
+          onForfeit={
+            !offline && activeChangeItMatch.mode !== 'solo_adventure'
+              ? async () => {
+                  try {
+                    const next = await api.forfeitChangeItMatch(
+                      activeChangeItMatch.id,
+                      playerSession.playerId
+                    );
+                    setActiveChangeItMatch(next);
+                  } catch (err: any) {
+                    notify(err.message);
+                  }
+                }
+              : undefined
+          }
+          onRetryAdventure={
+            activeChangeItMatch.mode === 'solo_adventure'
+              ? async () => {
+                  setChangeItAdventureClaim(null);
+                  claimedChangeItMatchIdsRef.current.delete(activeChangeItMatch.id);
+                  const next = offline
+                    ? retryOfflineChangeItMatch(activeChangeItMatch.id)
+                    : await api.retryChangeItAdventureMatch(
+                        playerSession.playerId,
+                        activeChangeItMatch.id
+                      );
+                  setActiveChangeItMatch(next);
+                }
+              : undefined
+          }
+          onNextAdventureStage={
+            nextStageObj && activeChangeItMatch.self.completed
+              ? async () => {
+                  setChangeItAdventureClaim(null);
+                  const nextMatch = offline
+                    ? await startOfflineChangeItStage(nextStageObj.id)
+                    : await api.startChangeItAdventureStage(
+                        playerSession.playerId,
+                        nextStageObj.id
+                      );
+                  setActiveChangeItMatch(nextMatch);
+                  setRoute({ view: 'changeit_match', matchId: nextMatch.id });
+                }
+              : undefined
+          }
+          onRematch={
+            !offline && activeChangeItMatch.mode !== 'solo_adventure' && !activeChangeItMatch.isRanked
+              ? async () => {
+                  try {
+                    const next = await api.rematchChangeItMatch(
+                      activeChangeItMatch.id,
+                      playerSession.playerId
+                    );
+                    setActiveChangeItMatch(next);
+                    setRoute({ view: 'changeit_match', matchId: next.id });
+                  } catch (err: any) {
+                    notify(err.message);
+                  }
+                }
+              : undefined
+          }
+          onBackToLobby={
+            activeChangeItMatch.roomId
+              ? () => {
+                  const rid = activeChangeItMatch.roomId!;
+                  setActiveChangeItMatch(null);
+                  setRoute({ view: 'changeit_lobby', roomId: rid });
+                }
+              : undefined
+          }
+          onSyncMatch={
+            !offline
+              ? async () => {
+                  const fresh = await api.getChangeItMatch(
+                    activeChangeItMatch.id,
+                    playerSession.playerId
+                  );
+                  setActiveChangeItMatch(fresh);
+                }
+              : undefined
+          }
+        />
+      );
+    }
+
+    if (route.view === 'changeit_lobby' || route.view === 'changeit_match') {
+      return (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#a5f3fc',
+            fontWeight: 800,
+            fontSize: 15,
+          }}
+        >
+          Loading ChangeIt {route.view === 'changeit_lobby' ? 'lobby' : 'match'}...
+        </div>
       );
     }
 
@@ -3146,7 +3842,7 @@ export const App: React.FC = () => {
                 setRoute({ view: 'tab', tab: 'profile' });
               }
             }}
-            onQuickPlay={() => setRoute({ view: 'twistit_home' })}
+            onQuickPlay={() => setRoute({ view: 'changeit_home' })}
             hasOngoingMatch={ongoingMatches.some((m) => m.isYourTurn)}
           />
         )}

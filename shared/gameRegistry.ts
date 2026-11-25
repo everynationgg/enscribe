@@ -45,6 +45,17 @@ export const REGISTERED_GAMES: GameModuleDescriptor[] = [
     minPlayers: 1,
     maxPlayers: 2,
   },
+  {
+    id: 'changeit',
+    slug: 'changeit',
+    name: 'ChangeIt',
+    tagline: 'Transform words letter by letter across solo quests & live duels.',
+    status: 'playable',
+    badgeText: 'NEW',
+    supportedModes: ['classic', 'speed_race', 'solo', 'ranked'],
+    minPlayers: 1,
+    maxPlayers: 8,
+  },
 ];
 
 export const HUB_GAME_TILES: HubGameTile[] = [
@@ -79,13 +90,13 @@ export const HUB_GAME_TILES: HubGameTile[] = [
     gameId: 'guessit',
   },
   {
-    id: 'tile_twistit',
-    slug: 'twistit',
-    name: 'TwistIt',
-    tagline: 'Twist letters into words in solo or 1v1 speed races!',
+    id: 'tile_changeit',
+    slug: 'changeit',
+    name: 'ChangeIt',
+    tagline: 'Every letter changes everything — climb the word ladder!',
     status: 'playable',
     badgeText: 'NEW',
-    themeVariant: 'twistit',
-    gameId: 'twistit',
+    themeVariant: 'changeit',
+    gameId: 'changeit',
   },
 ];

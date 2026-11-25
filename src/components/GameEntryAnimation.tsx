@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
 interface GameEntryAnimationProps {
-  gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit';
+  gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit';
   onComplete: () => void;
 }
 
@@ -35,10 +35,11 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
   const isGridIt = gameId === 'gridit';
   const isGuessIt = gameId === 'guessit';
   const isTwistIt = gameId === 'twistit';
+  const isChangeIt = gameId === 'changeit';
 
   return (
     <div
-      className={`ens-intro-overlay ${isGridIt || isGuessIt || isTwistIt ? 'is-gridit' : 'is-chainit'}`}
+      className={`ens-intro-overlay ${isGridIt || isGuessIt || isTwistIt || isChangeIt ? 'is-gridit' : 'is-chainit'}`}
       role="status"
       aria-live="polite"
       aria-label={
@@ -48,14 +49,34 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
             ? 'Entering GuessIt'
             : isTwistIt
               ? 'Entering TwistIt'
-              : 'Entering ChainIt'
+              : isChangeIt
+                ? 'Entering ChangeIt'
+                : 'Entering ChainIt'
       }
     >
       <div className="ens-sky-sparkles" aria-hidden="true" />
       <div className="ens-intro-ambient-ring" aria-hidden="true" />
 
       <div className="ens-intro-stage">
-        {isTwistIt ? (
+        {isChangeIt ? (
+          <>
+            <div className="ci-intro-ladder" aria-hidden="true">
+              {['C', 'O', 'L', 'D'].map((ch, idx) => (
+                <div
+                  key={idx}
+                  className={`ci-intro-tile ${idx === 2 ? 'is-morphed' : ''}`}
+                  style={{ animationDelay: `${idx * 0.08}s` }}
+                >
+                  {idx === 2 ? 'R' : ch}
+                </div>
+              ))}
+            </div>
+            <div className="ens-intro-wordmark-wrap">
+              <div className="ens-intro-gridit-logo">ChangeIt</div>
+              <div className="ens-intro-tagline">Every letter changes everything.</div>
+            </div>
+          </>
+        ) : isTwistIt ? (
           <>
             <img
               src="/art/hub-hero-mascot.png"

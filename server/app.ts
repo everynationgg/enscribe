@@ -51,6 +51,18 @@ import {
   TwistItNotFoundError,
 } from './games/twistit/TwistItEngine.js';
 import { TwistItInternalMatch } from './games/twistit/TwistItStateStore.js';
+import {
+  ChangeItBadRequestError,
+  ChangeItEngine,
+  ChangeItForbiddenError,
+  ChangeItNotFoundError,
+} from './games/changeit/ChangeItEngine.js';
+import {
+  ChangeItUnavailableError,
+  StoredChangeItMatch,
+} from './games/changeit/ChangeItStateStore.js';
+import { getChangeItServerData } from './games/changeit/serverVocab.js';
+import { ChangeItRoom } from '../shared/changeit/types.js';
 import { TwistItRoomView } from '../shared/twistit/types.js';
 import { GuessItRoom } from '../shared/guessit/types.js';
 import { GridItRoom } from '../shared/gridit/multiplayerTypes.js';
@@ -99,6 +111,7 @@ export interface EnscribeBackendRuntime {
   gridItEngine: GridItEngine;
   guessItEngine: GuessItEngine;
   twistItEngine: TwistItEngine;
+  changeItEngine: ChangeItEngine;
   cloudSync: SupabaseCloudSync;
   guestStore: GuestSessionStore;
   isPlayerOnline: (playerId: string) => boolean;
@@ -182,6 +195,15 @@ export function createEnscribeApp(
   });
 
   const twistItEngine = new TwistItEngine(repo, isPlayerOnline, {
+    forceLocalMemory: options.forceLocalGuestMemory,
+    isServerless,
+    resolveProfile: async (pid) => {
+      await ensureGuestProfilesRegistered([pid]);
+      return repo.getProfile(pid) ?? null;
+    },
+  });
+
+  const changeItEngine = new ChangeItEngine(repo, isPlayerOnline, {
     forceLocalMemory: options.forceLocalGuestMemory,
     isServerless,
     resolveProfile: async (pid) => {
@@ -464,6 +486,36 @@ export function createEnscribeApp(
     }
   };
 
+  const broadcastChangeItRoom = async (
+    roomId: string,
+    roomSnapshot?: ChangeItRoom
+  ): Promise<void> => {
+    try {
+      const room = roomSnapshot ?? (await changeItEngine.getRoom(roomId));
+      if (isServerless) {
+        pendingBroadcasts.push({ event: 'changeit:room_updated', payload: room });
+        pendingBroadcasts.push({ event: 'changeit:rooms_updated', payload: {} });
+      }
+      const audience = room.players.map((p) => p.playerId);
+      if (hooks.emitRoomAndPlayers) {
+        hooks.emitRoomAndPlayers(roomId, audience, 'changeit:room_updated', room);
+      } else {
+        hooks.emitRoom?.(roomId, 'changeit:room_updated', room);
+      }
+      hooks.emitGlobal?.('changeit:rooms_updated');
+    } catch {
+      queueEvent('changeit:rooms_updated', {});
+    }
+  };
+
+  const broadcastChangeItMatch = (matchRecord: StoredChangeItMatch): void => {
+    const nowMs = Date.now();
+    for (const vid of changeItEngine.getMatchAudienceIds(matchRecord)) {
+      const sanitized = changeItEngine.sanitizeMatchForViewerRecord(matchRecord, vid, nowMs);
+      queueEvent('changeit:match_state', sanitized, vid);
+    }
+  };
+
   const processTimersAndFlush = async (): Promise<StoredMatch[]> => {
     const gridItExpired = await gridItEngine.processExpiredMatches().catch(() => []);
     for (const gm of gridItExpired) {
@@ -487,8 +539,21 @@ export function createEnscribeApp(
       }
     }
 
+    const changeItUpdated = await changeItEngine.processExpiredTimers().catch(() => []);
+    for (const cim of changeItUpdated) {
+      broadcastChangeItMatch(cim);
+      if (cim.status === 'finished' && cim.roomId) {
+        await broadcastChangeItRoom(cim.roomId);
+      }
+    }
+
     if (!initialized) {
-      if (gridItExpired.length > 0 || guessItExpired.length > 0 || twistItUpdated.length > 0) {
+      if (
+        gridItExpired.length > 0 ||
+        guessItExpired.length > 0 ||
+        twistItUpdated.length > 0 ||
+        changeItUpdated.length > 0
+      ) {
         await flushSideEffects(false);
       }
       return [];
@@ -503,7 +568,12 @@ export function createEnscribeApp(
         broadcastMatchState(refreshed);
       }
       await flushSideEffects(true);
-    } else if (gridItExpired.length > 0 || guessItExpired.length > 0 || twistItUpdated.length > 0) {
+    } else if (
+      gridItExpired.length > 0 ||
+      guessItExpired.length > 0 ||
+      twistItUpdated.length > 0 ||
+      changeItUpdated.length > 0
+    ) {
       await flushSideEffects(false);
     }
     return updatedMatches;
@@ -1079,12 +1149,24 @@ export function createEnscribeApp(
 
       let normalizedWords: string[];
       if (cleanStatus === 'saved') {
-        const check = validateChainWords(rawWords);
-        if (!check.valid) {
-          res.status(400).json({ error: check.error });
-          return;
+        if (cleanTheme === 'ChangeIt' && rawWords.length === 2) {
+          const ciCheck = changeItEngine.validateCustomPuzzle(
+            String(rawWords[0] || ''),
+            String(rawWords[1] || '')
+          );
+          if (!ciCheck.valid) {
+            res.status(400).json({ error: ciCheck.error });
+            return;
+          }
+          normalizedWords = [ciCheck.startWord, ciCheck.targetWord];
+        } else {
+          const check = validateChainWords(rawWords);
+          if (!check.valid) {
+            res.status(400).json({ error: check.error });
+            return;
+          }
+          normalizedWords = check.normalized;
         }
-        normalizedWords = check.normalized;
       } else {
         normalizedWords = rawWords.map((w) => String(w || '').trim().toUpperCase()).filter(Boolean);
       }
@@ -1894,19 +1976,24 @@ export function createEnscribeApp(
         const status =
           err instanceof GridItForbiddenError ||
           err instanceof GuessItForbiddenError ||
-          err instanceof TwistItForbiddenError
+          err instanceof TwistItForbiddenError ||
+          err instanceof ChangeItForbiddenError
             ? 403
             : err instanceof GridItNotFoundError ||
                 err instanceof GuessItNotFoundError ||
-                err instanceof TwistItNotFoundError
+                err instanceof TwistItNotFoundError ||
+                err instanceof ChangeItNotFoundError
               ? 404
               : err instanceof GridItBadRequestError ||
                   err instanceof GuessItBadRequestError ||
-                  err instanceof TwistItBadRequestError
+                  err instanceof TwistItBadRequestError ||
+                  err instanceof ChangeItBadRequestError
                 ? 400
                 : err instanceof GuessItRateLimitError
                   ? 429
-                  : err instanceof GridItUnavailableError || err instanceof GuessItUnavailableError
+                  : err instanceof GridItUnavailableError ||
+                      err instanceof GuessItUnavailableError ||
+                      err instanceof ChangeItUnavailableError
                     ? 503
                     : 500;
         if (!res.headersSent) {
@@ -2766,9 +2853,345 @@ export function createEnscribeApp(
     })
   );
 
+  // ==================== CHANGEIT ROUTES (Solo Adventure, 7 Multiplayer Modes, Ranked & Rooms) ====================
+
+  app.post(
+    '/api/changeit/puzzles/validate',
+    handleGridItApi(async (req, res) => {
+      const { startWord, targetWord } = req.body ?? {};
+      res.json(changeItEngine.validateCustomPuzzle(String(startWord || ''), String(targetWord || '')));
+    })
+  );
+
+  app.get(
+    '/api/changeit/rooms/public',
+    handleGridItApi(async (_req, res) => {
+      res.json(await changeItEngine.listPublicRooms());
+    })
+  );
+
+  app.get(
+    '/api/changeit/rooms/:idOrCode',
+    handleGridItApi(async (req, res) => {
+      res.json(await changeItEngine.getRoom(String(req.params.idOrCode || '')));
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms',
+    handleGridItApi(async (req, res) => {
+      const { hostId, name, settings } = req.body ?? {};
+      const room = await changeItEngine.createRoom({
+        hostId: String(hostId || ''),
+        name,
+        settings,
+      });
+      queueEvent('changeit:rooms_updated', {});
+      res.status(201).json(room);
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms/join',
+    handleGridItApi(async (req, res) => {
+      const { codeOrId, playerId } = req.body ?? {};
+      const room = await changeItEngine.joinRoom(String(codeOrId || ''), String(playerId || ''));
+      await broadcastChangeItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms/:id/leave',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const roomId = String(req.params.id || '');
+      const outcome = await changeItEngine.leaveRoom(roomId, String(playerId || ''));
+      if (!outcome.deleted) {
+        await broadcastChangeItRoom(roomId, outcome.room);
+      } else {
+        queueEvent('changeit:rooms_updated', {});
+      }
+      res.json({ ok: true });
+    })
+  );
+
+  app.patch(
+    '/api/changeit/rooms/:id/settings',
+    handleGridItApi(async (req, res) => {
+      const { playerId, settings } = req.body ?? {};
+      const room = await changeItEngine.updateRoomSettings(
+        String(req.params.id || ''),
+        String(playerId || ''),
+        settings ?? {}
+      );
+      await broadcastChangeItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms/:id/ready',
+    handleGridItApi(async (req, res) => {
+      const { playerId, isReady } = req.body ?? {};
+      const room = await changeItEngine.setPlayerReady(
+        String(req.params.id || ''),
+        String(playerId || ''),
+        Boolean(isReady)
+      );
+      await broadcastChangeItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms/:id/team',
+    handleGridItApi(async (req, res) => {
+      const { playerId, teamId } = req.body ?? {};
+      const room = await changeItEngine.switchTeam(
+        String(req.params.id || ''),
+        String(playerId || ''),
+        teamId === 'red' ? 'red' : 'blue'
+      );
+      await broadcastChangeItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms/:id/custom-puzzle',
+    handleGridItApi(async (req, res) => {
+      const { playerId, startWord, targetWord, clear } = req.body ?? {};
+      const room = await changeItEngine.setCustomPuzzle(
+        String(req.params.id || ''),
+        String(playerId || ''),
+        { startWord, targetWord, clear: Boolean(clear) }
+      );
+      await broadcastChangeItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms/:id/chat',
+    handleGridItApi(async (req, res) => {
+      const { playerId, text } = req.body ?? {};
+      const room = await changeItEngine.addRoomChat(
+        String(req.params.id || ''),
+        String(playerId || ''),
+        String(text || '')
+      );
+      await broadcastChangeItRoom(room.id, room);
+      res.json(room);
+    })
+  );
+
+  app.post(
+    '/api/changeit/rooms/:id/start',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const roomId = String(req.params.id || '');
+      const { room, match } = await changeItEngine.startRoomMatch(roomId, String(playerId || ''));
+      await broadcastChangeItRoom(room.id, room);
+      for (const vid of changeItEngine.getMatchAudienceIds(match)) {
+        queueEvent('changeit:match_started', { roomId: room.id, matchId: match.id }, vid);
+      }
+      broadcastChangeItMatch(match);
+      res.status(201).json({
+        room,
+        match: changeItEngine.sanitizeMatchForViewerRecord(match, String(playerId || '')),
+      });
+    })
+  );
+
+  app.post(
+    '/api/changeit/matchmaking/ranked',
+    handleGridItApi(async (req, res) => {
+      const { playerId, format } = req.body ?? {};
+      const outcome = await changeItEngine.joinRankedQueue(
+        String(playerId || ''),
+        format === 'classic_precision' ? 'classic_precision' : 'classic_sprint'
+      );
+      if (outcome.status === 'matched' && outcome.match) {
+        broadcastChangeItMatch(outcome.match);
+        for (const pid of outcome.match.participantOrder) {
+          queueEvent(
+            'changeit:matched',
+            { matchId: outcome.match.id, mode: outcome.match.mode },
+            pid
+          );
+        }
+        res.json({
+          status: 'matched',
+          match: changeItEngine.sanitizeMatchForViewerRecord(outcome.match, String(playerId || '')),
+        });
+        return;
+      }
+      res.json({ status: 'queued' });
+    })
+  );
+
+  app.delete(
+    '/api/changeit/matchmaking/ranked/:playerId',
+    handleGridItApi(async (req, res) => {
+      await changeItEngine.leaveRankedQueue(String(req.params.playerId || ''));
+      res.json({ ok: true });
+    })
+  );
+
+  app.get(
+    '/api/changeit/matches/:id',
+    handleGridItApi(async (req, res) => {
+      const playerId = String(req.query.playerId || '');
+      res.json(await changeItEngine.getMatchForViewer(String(req.params.id || ''), playerId));
+    })
+  );
+
+  app.post(
+    '/api/changeit/matches/:id/transform',
+    handleGridItApi(async (req, res) => {
+      const { playerId, word, clientRequestId } = req.body ?? {};
+      const matchId = String(req.params.id || '');
+      const { result, matchRecord } = await changeItEngine.submitTransformation(
+        matchId,
+        String(playerId || ''),
+        String(word || ''),
+        clientRequestId ? String(clientRequestId) : undefined
+      );
+      if (matchRecord.mode !== 'solo_adventure' && (result.accepted || matchRecord.status === 'finished')) {
+        broadcastChangeItMatch(matchRecord);
+        if (matchRecord.status === 'finished' && matchRecord.roomId) {
+          await broadcastChangeItRoom(matchRecord.roomId);
+        }
+      }
+      res.json(result);
+    })
+  );
+
+  app.post(
+    '/api/changeit/matches/:id/hint',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const pid = String(playerId || '');
+      const matchRecord = await changeItEngine.useHint(String(req.params.id || ''), pid);
+      res.json(changeItEngine.sanitizeMatchForViewerRecord(matchRecord, pid));
+    })
+  );
+
+  app.post(
+    '/api/changeit/matches/:id/modifier',
+    handleGridItApi(async (req, res) => {
+      const { playerId, modifierType, targetPlayerId, clientRequestId } = req.body ?? {};
+      const matchId = String(req.params.id || '');
+      const { result, matchRecord } = await changeItEngine.activateModifier(
+        matchId,
+        String(playerId || ''),
+        modifierType,
+        targetPlayerId ? String(targetPlayerId) : undefined,
+        clientRequestId ? String(clientRequestId) : undefined
+      );
+      broadcastChangeItMatch(matchRecord);
+      res.json(result);
+    })
+  );
+
+  app.post(
+    '/api/changeit/matches/:id/forfeit',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const pid = String(playerId || '');
+      const matchRecord = await changeItEngine.forfeitMatch(String(req.params.id || ''), pid);
+      if (matchRecord.mode !== 'solo_adventure') {
+        broadcastChangeItMatch(matchRecord);
+        if (matchRecord.status === 'finished' && matchRecord.roomId) {
+          await broadcastChangeItRoom(matchRecord.roomId);
+        }
+      }
+      res.json(changeItEngine.sanitizeMatchForViewerRecord(matchRecord, pid));
+    })
+  );
+
+  app.post(
+    '/api/changeit/matches/:id/chat',
+    handleGridItApi(async (req, res) => {
+      const { playerId, text } = req.body ?? {};
+      const pid = String(playerId || '');
+      const matchRecord = await changeItEngine.addMatchChat(
+        String(req.params.id || ''),
+        pid,
+        String(text || '')
+      );
+      broadcastChangeItMatch(matchRecord);
+      res.status(201).json(changeItEngine.sanitizeMatchForViewerRecord(matchRecord, pid));
+    })
+  );
+
+  app.post(
+    '/api/changeit/matches/:id/rematch',
+    handleGridItApi(async (req, res) => {
+      const { playerId } = req.body ?? {};
+      const pid = String(playerId || '');
+      const next = await changeItEngine.rematch(String(req.params.id || ''), pid);
+      if (next.mode !== 'solo_adventure') {
+        broadcastChangeItMatch(next);
+        for (const vid of changeItEngine.getMatchAudienceIds(next)) {
+          queueEvent('changeit:rematch', { oldMatchId: String(req.params.id || ''), newMatchId: next.id }, vid);
+        }
+        if (next.roomId) await broadcastChangeItRoom(next.roomId);
+      }
+      res.status(201).json(changeItEngine.sanitizeMatchForViewerRecord(next, pid));
+    })
+  );
+
+  app.get(
+    '/api/changeit/adventure/progress/:playerId',
+    handleGridItApi(async (req, res) => {
+      res.json(await changeItEngine.getAdventureProgress(String(req.params.playerId || '')));
+    })
+  );
+
+  app.post(
+    '/api/changeit/adventure/start',
+    handleGridItApi(async (req, res) => {
+      const { playerId, stageId } = req.body ?? {};
+      const pid = String(playerId || '');
+      const match = await changeItEngine.startAdventureStage(pid, String(stageId || ''));
+      res.status(201).json(changeItEngine.sanitizeMatchForViewerRecord(match, pid));
+    })
+  );
+
+  app.post(
+    '/api/changeit/adventure/retry',
+    handleGridItApi(async (req, res) => {
+      const { playerId, matchId } = req.body ?? {};
+      const pid = String(playerId || '');
+      const match = await changeItEngine.retryAdventureMatch(String(matchId || ''), pid);
+      res.json(changeItEngine.sanitizeMatchForViewerRecord(match, pid));
+    })
+  );
+
+  app.post(
+    '/api/changeit/adventure/claim',
+    handleGridItApi(async (req, res) => {
+      const { playerId, matchId } = req.body ?? {};
+      res.json(
+        await changeItEngine.claimAdventureReward(String(playerId || ''), String(matchId || ''))
+      );
+    })
+  );
+
+  app.get(
+    '/api/changeit/leaderboard',
+    handleGridItApi(async (req, res) => {
+      const playerId = req.query.playerId ? String(req.query.playerId) : undefined;
+      res.json(await changeItEngine.getLeaderboard(playerId));
+    })
+  );
+
   const prewarm = async (): Promise<void> => {
     await ensureHydrated(false);
     getServerDictionary('en');
+    getChangeItServerData();
   };
 
   return {
@@ -2778,6 +3201,7 @@ export function createEnscribeApp(
     gridItEngine,
     guessItEngine,
     twistItEngine,
+    changeItEngine,
     cloudSync,
     guestStore,
     isPlayerOnline,

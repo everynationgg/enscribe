@@ -6,7 +6,7 @@ export interface GameLandingModeCard {
   id: string;
   label: string;
   artSrc: string;
-  glowClass: 'glow-chainit' | 'glow-gridit' | 'glow-guessit' | 'glow-twistit';
+  glowClass: 'glow-chainit' | 'glow-gridit' | 'glow-guessit' | 'glow-twistit' | 'glow-changeit';
   overlaySubtitle?: string;
   onClick: () => void;
 }

@@ -335,6 +335,10 @@
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45), 0 8px 24px rgba(139, 92, 246, 0.5), 0 0 18px rgba(56, 189, 248, 0.4);
 }
 
+.ens-fullbleed-card.glow-changeit {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.48), 0 8px 24px rgba(34, 211, 238, 0.52), 0 0 20px rgba(168, 85, 247, 0.46);
+}
+
 .ens-fullbleed-card__art {
   position: absolute;
   inset: 0;

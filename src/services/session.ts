@@ -198,7 +198,14 @@ export function saveGuestLocalTemplate(
     .filter(Boolean);
 
   if (tplData.status === 'saved') {
-    if (normalizedWords.length < 3 || normalizedWords.length > 10) {
+    const isChangeItPuzzle =
+      String(tplData.theme || '').trim().toLowerCase() === 'changeit' &&
+      normalizedWords.length === 2 &&
+      normalizedWords[0].length >= 3 &&
+      normalizedWords[0].length <= 6 &&
+      normalizedWords[0].length === normalizedWords[1].length;
+
+    if (!isChangeItPuzzle && (normalizedWords.length < 3 || normalizedWords.length > 10)) {
       throw new Error('A ChainIt puzzle must contain between 3 and 10 single words.');
     }
     for (const w of normalizedWords) {

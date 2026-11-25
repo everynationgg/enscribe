@@ -41,6 +41,19 @@ import {
   TwistItSoloStats,
   TwistItSubmitResult,
 } from '../../shared/twistit/types';
+import {
+  ChangeItAdventureClaimResult,
+  ChangeItAdventureProgressClient,
+  ChangeItCustomPuzzleValidation,
+  ChangeItLeaderboardResponse,
+  ChangeItMatchStateClient,
+  ChangeItModifierResponse,
+  ChangeItModifierType,
+  ChangeItRoom,
+  ChangeItRoomSettings,
+  ChangeItTeamId,
+  ChangeItTransformResponse,
+} from '../../shared/changeit/types';
 
 const DEFAULT_PROD_API_BASE_URL = 'https://enscribe-game.fly.dev';
 const envApiBase = (
@@ -626,4 +639,175 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ playerId, word }),
     }),
+
+  // ==================== CHANGEIT ====================
+  validateChangeItPuzzle: (startWord: string, targetWord: string) =>
+    request<ChangeItCustomPuzzleValidation>('/api/changeit/puzzles/validate', {
+      method: 'POST',
+      body: JSON.stringify({ startWord, targetWord }),
+    }),
+  listChangeItPublicRooms: () => request<ChangeItRoom[]>('/api/changeit/rooms/public'),
+  getChangeItRoom: (idOrCode: string) =>
+    request<ChangeItRoom>(`/api/changeit/rooms/${encodeURIComponent(idOrCode)}`),
+  createChangeItRoom: (data: {
+    hostId: string;
+    name?: string;
+    settings?: Partial<ChangeItRoomSettings>;
+  }) =>
+    request<ChangeItRoom>('/api/changeit/rooms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  joinChangeItRoom: (codeOrId: string, playerId: string) =>
+    request<ChangeItRoom>('/api/changeit/rooms/join', {
+      method: 'POST',
+      body: JSON.stringify({ codeOrId, playerId }),
+    }),
+  leaveChangeItRoom: (roomId: string, playerId: string) =>
+    request<{ ok: boolean }>(`/api/changeit/rooms/${encodeURIComponent(roomId)}/leave`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
+  updateChangeItRoomSettings: (
+    roomId: string,
+    playerId: string,
+    settings: Partial<ChangeItRoomSettings>
+  ) =>
+    request<ChangeItRoom>(`/api/changeit/rooms/${encodeURIComponent(roomId)}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify({ playerId, settings }),
+    }),
+  setChangeItRoomReady: (roomId: string, playerId: string, isReady: boolean) =>
+    request<ChangeItRoom>(`/api/changeit/rooms/${encodeURIComponent(roomId)}/ready`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, isReady }),
+    }),
+  switchChangeItTeam: (roomId: string, playerId: string, teamId: ChangeItTeamId) =>
+    request<ChangeItRoom>(`/api/changeit/rooms/${encodeURIComponent(roomId)}/team`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, teamId }),
+    }),
+  setChangeItCustomPuzzle: (
+    roomId: string,
+    playerId: string,
+    payload: { startWord?: string; targetWord?: string; clear?: boolean }
+  ) =>
+    request<ChangeItRoom>(`/api/changeit/rooms/${encodeURIComponent(roomId)}/custom-puzzle`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, ...payload }),
+    }),
+  sendChangeItRoomChat: (roomId: string, playerId: string, text: string) =>
+    request<ChangeItRoom>(`/api/changeit/rooms/${encodeURIComponent(roomId)}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId, text }),
+    }),
+  startChangeItRoomMatch: (roomId: string, playerId: string) =>
+    request<{ room: ChangeItRoom; match: ChangeItMatchStateClient }>(
+      `/api/changeit/rooms/${encodeURIComponent(roomId)}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  joinChangeItRankedQueue: (
+    playerId: string,
+    format: 'classic_sprint' | 'classic_precision' = 'classic_sprint'
+  ) =>
+    request<{ status: 'queued' | 'matched'; match?: ChangeItMatchStateClient }>(
+      '/api/changeit/matchmaking/ranked',
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId, format }),
+      }
+    ),
+  leaveChangeItRankedQueue: (playerId: string) =>
+    request<{ ok: boolean }>(`/api/changeit/matchmaking/ranked/${encodeURIComponent(playerId)}`, {
+      method: 'DELETE',
+    }),
+  getChangeItMatch: (matchId: string, playerId: string) =>
+    request<ChangeItMatchStateClient>(
+      `/api/changeit/matches/${encodeURIComponent(matchId)}?playerId=${encodeURIComponent(playerId)}`
+    ),
+  submitChangeItTransform: (
+    matchId: string,
+    playerId: string,
+    word: string,
+    clientRequestId?: string
+  ) =>
+    request<ChangeItTransformResponse>(
+      `/api/changeit/matches/${encodeURIComponent(matchId)}/transform`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId, word, clientRequestId }),
+      }
+    ),
+  useChangeItHint: (matchId: string, playerId: string) =>
+    request<ChangeItMatchStateClient>(
+      `/api/changeit/matches/${encodeURIComponent(matchId)}/hint`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  activateChangeItModifier: (
+    matchId: string,
+    playerId: string,
+    modifierType: ChangeItModifierType,
+    targetPlayerId?: string,
+    clientRequestId?: string
+  ) =>
+    request<ChangeItModifierResponse>(
+      `/api/changeit/matches/${encodeURIComponent(matchId)}/modifier`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId, modifierType, targetPlayerId, clientRequestId }),
+      }
+    ),
+  forfeitChangeItMatch: (matchId: string, playerId: string) =>
+    request<ChangeItMatchStateClient>(
+      `/api/changeit/matches/${encodeURIComponent(matchId)}/forfeit`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  sendChangeItMatchChat: (matchId: string, playerId: string, text: string) =>
+    request<ChangeItMatchStateClient>(
+      `/api/changeit/matches/${encodeURIComponent(matchId)}/chat`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId, text }),
+      }
+    ),
+  rematchChangeItMatch: (matchId: string, playerId: string) =>
+    request<ChangeItMatchStateClient>(
+      `/api/changeit/matches/${encodeURIComponent(matchId)}/rematch`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ playerId }),
+      }
+    ),
+  getChangeItAdventureProgress: (playerId: string) =>
+    request<ChangeItAdventureProgressClient>(
+      `/api/changeit/adventure/progress/${encodeURIComponent(playerId)}`
+    ),
+  startChangeItAdventureStage: (playerId: string, stageId: string) =>
+    request<ChangeItMatchStateClient>('/api/changeit/adventure/start', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, stageId }),
+    }),
+  retryChangeItAdventureMatch: (playerId: string, matchId: string) =>
+    request<ChangeItMatchStateClient>('/api/changeit/adventure/retry', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, matchId }),
+    }),
+  claimChangeItAdventureReward: (playerId: string, matchId: string) =>
+    request<ChangeItAdventureClaimResult>('/api/changeit/adventure/claim', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, matchId }),
+    }),
+  getChangeItLeaderboard: (playerId?: string) =>
+    request<ChangeItLeaderboardResponse>(
+      `/api/changeit/leaderboard${playerId ? `?playerId=${encodeURIComponent(playerId)}` : ''}`
+    ),
 };
