@@ -999,6 +999,105 @@ export class ChangeItEngine {
     return match;
   }
 
+  async startClassicSoloMatch(params: {
+    playerId: string;
+    difficulty: ChangeItDifficulty;
+    wordLength?: ChangeItWordLength | 'auto';
+    timeLimitSeconds?: number;
+    hintsAllowed?: boolean;
+    customStartWord?: string;
+    customTargetWord?: string;
+  }): Promise<StoredChangeItMatch> {
+    const profile = await this.requireProfile(params.playerId);
+    const data = getChangeItServerData();
+    const history = await this.store.getPlayerHistory(profile.id);
+    const completedKeys = new Set<string>(history.completedPuzzles);
+    const recentWords = new Set<string>(history.recentWords);
+
+    let startWord: string;
+    let targetWord: string;
+    let minMoves: number;
+    let wordLength: ChangeItWordLength;
+
+    if (params.customStartWord && params.customTargetWord) {
+      const check = this.validateCustomPuzzle(params.customStartWord, params.customTargetWord);
+      if (!check.valid || check.minMoves === null) {
+        throw new ChangeItBadRequestError(check.error || 'Invalid custom puzzle.');
+      }
+      startWord = check.startWord;
+      targetWord = check.targetWord;
+      minMoves = check.minMoves;
+      wordLength = check.wordLength as ChangeItWordLength;
+    } else {
+      const generated = generateVerifiedPuzzle(data, {
+        difficulty: params.difficulty,
+        wordLength: params.wordLength ?? 'auto',
+        completedPuzzleKeys: completedKeys,
+        recentWords,
+      });
+      startWord = generated.startWord;
+      targetWord = generated.targetWord;
+      minMoves = generated.minMoves;
+      wordLength = generated.wordLength;
+    }
+
+    const now = Date.now();
+    const rawSec = Math.round(Number(params.timeLimitSeconds) || 0);
+    const durationMs = rawSec > 0 ? Math.max(45, Math.min(600, rawSec)) * 1000 : 30 * 60 * 1000;
+    const diffLabel = DIFFICULTY_CONFIGS[params.difficulty]?.label ?? 'Classic';
+
+    const match: StoredChangeItMatch = {
+      id: `ci_solo_${now}_${crypto.randomBytes(3).toString('hex')}`,
+      roomId: null,
+      mode: 'solo_classic',
+      difficulty: params.difficulty,
+      wordLength,
+      isRanked: false,
+      modifiersEnabled: false,
+      hintsAllowed: params.hintsAllowed !== false,
+      status: 'playing',
+      startedAtMs: now,
+      endsAtMs: now + durationMs,
+      relayTurnSeconds: 20,
+      stageId: null,
+      chapterId: null,
+      stageTitle: params.customStartWord ? `Custom Solo` : `Classic Solo • ${diffLabel}`,
+      participantOrder: [profile.id],
+      participants: {
+        [profile.id]: {
+          playerId: profile.id,
+          username: profile.username,
+          avatarId: profile.avatarId,
+          isGuest: Boolean(profile.isGuest ?? profile.id.startsWith('guest_')),
+          teamId: null,
+        },
+      },
+      boards: {
+        [profile.id]: this.createBoardState({
+          playerId: profile.id,
+          startWord,
+          targetWord,
+          minMoves,
+          restrictions: createEmptyRestriction(),
+          nowMs: now,
+          playerDeadlineMs: null,
+        }),
+      },
+      relayTeams: null,
+      winnerIds: [],
+      winningTeamId: null,
+      finishReason: null,
+      messages: [],
+      processedRequestIds: {},
+      finalizedResult: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.store.insertMatch(match);
+    return match;
+  }
+
   async retryAdventureMatch(matchId: string, playerId: string): Promise<StoredChangeItMatch> {
     return this.store.withMatchLock(matchId, async () => {
       const outcome = await this.store.mutateMatch<StoredChangeItMatch>(matchId, (m) => {
@@ -1509,7 +1608,7 @@ export class ChangeItEngine {
           return;
         }
 
-        // Sprint / Tug of War / Restricted / Sabotage / Solo Adventure -> immediate win!
+        // Sprint / Tug of War / Restricted / Sabotage / Solo -> immediate win!
         m.updatedAt = now;
         responseData = {
           accepted: true,
@@ -1518,7 +1617,12 @@ export class ChangeItEngine {
           changedIndices: check.changedIndices,
           usedDoubleShift: check.usedDoubleShift,
           shouldFinalize: true,
-          finishReason: m.mode === 'solo_adventure' ? 'adventure_completed' : 'completed_first',
+          finishReason:
+            m.mode === 'solo_adventure'
+              ? 'adventure_completed'
+              : m.mode === 'solo_classic'
+                ? 'solo_completed'
+                : 'completed_first',
           winnerIds: [playerId],
           winningTeamId: null,
         };
@@ -1932,7 +2036,7 @@ export class ChangeItEngine {
         board.activeModifiers = [];
         m.updatedAt = now;
 
-        if (m.mode === 'solo_adventure') {
+        if (m.mode === 'solo_adventure' || m.mode === 'solo_classic') {
           resolution = {
             shouldFinalize: true,
             winnerIds: [],
@@ -2042,6 +2146,16 @@ export class ChangeItEngine {
     if (!oldMatch.boards[playerId]) throw new ChangeItForbiddenError('Not a participant.');
     if (oldMatch.mode === 'solo_adventure') {
       return this.retryAdventureMatch(matchId, playerId);
+    }
+    if (oldMatch.mode === 'solo_classic') {
+      const durationSec = Math.round((oldMatch.endsAtMs - oldMatch.startedAtMs) / 1000);
+      return this.startClassicSoloMatch({
+        playerId,
+        difficulty: oldMatch.difficulty,
+        wordLength: oldMatch.wordLength,
+        timeLimitSeconds: durationSec >= 1700 ? 0 : durationSec,
+        hintsAllowed: oldMatch.hintsAllowed,
+      });
     }
 
     const players = oldMatch.participantOrder.map((pid) => {
@@ -2420,7 +2534,16 @@ export class ChangeItEngine {
     const latest = finalOut?.match ?? match;
 
     // Atomic idempotent stats + match history persistence (guarded by changeit_match_results PK)
-    if (latest.mode !== 'solo_adventure') {
+    if (latest.mode === 'solo_classic') {
+      const b = latest.boards[latest.participantOrder[0]];
+      if (b) {
+        await this.store.recordPuzzleHistory(
+          latest.participantOrder[0],
+          canonicalPuzzleKey(b.startWord, b.targetWord),
+          [b.startWord, b.targetWord, ...b.history.map((h) => h.word)]
+        );
+      }
+    } else if (latest.mode !== 'solo_adventure') {
       const participantPayloads = latest.participantOrder.map((pid) => {
         const meta = latest.participants[pid];
         const b = latest.boards[pid];

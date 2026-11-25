@@ -1,5 +1,5 @@
 import React from 'react';
-import { Award, RotateCw, Timer } from 'lucide-react';
+import { Award, Layers, RotateCw, Timer } from 'lucide-react';
 import { PlayerSession, Profile } from '../../../shared/types';
 import { TwistItSoloStats } from '../../../shared/twistit/types';
 import { GameLandingModeCard, GameLandingShell } from '../../components/GameLandingShell';
@@ -11,6 +11,7 @@ interface TwistItHomeScreenProps {
   onExitToHub: () => void;
   onStartSolo: () => void;
   onOpenMultiplayer: () => void;
+  onOpenTemplates?: () => void;
   onOpenProfile: () => void;
   onSwitchGuest?: () => void;
 }
@@ -29,6 +30,7 @@ export const TwistItHomeScreen: React.FC<TwistItHomeScreenProps> = ({
   onExitToHub,
   onStartSolo,
   onOpenMultiplayer,
+  onOpenTemplates,
   onOpenProfile,
   onSwitchGuest,
 }) => {
@@ -67,19 +69,31 @@ export const TwistItHomeScreen: React.FC<TwistItHomeScreenProps> = ({
       onOpenProfile={onOpenProfile}
       onSwitchGuest={onSwitchGuest}
       extras={
-        soloStats.completedPuzzlesCount > 0 ? (
-          <div className="ens-landing-mini-pill is-gold" style={{ cursor: 'default' }}>
-            <Award size={13} />
-            <span>{soloStats.completedPuzzlesCount} Solved</span>
-            {soloStats.bestDurationMs !== null && (
-              <>
-                <span style={{ opacity: 0.5 }}>•</span>
-                <Timer size={12} />
-                <span>Best {formatDuration(soloStats.bestDurationMs)}</span>
-              </>
-            )}
-          </div>
-        ) : undefined
+        <>
+          {soloStats.completedPuzzlesCount > 0 && (
+            <div className="ens-landing-mini-pill is-gold" style={{ cursor: 'default' }}>
+              <Award size={13} />
+              <span>{soloStats.completedPuzzlesCount} Solved</span>
+              {soloStats.bestDurationMs !== null && (
+                <>
+                  <span style={{ opacity: 0.5 }}>•</span>
+                  <Timer size={12} />
+                  <span>Best {formatDuration(soloStats.bestDurationMs)}</span>
+                </>
+              )}
+            </div>
+          )}
+          {onOpenTemplates && (
+            <button
+              type="button"
+              className="ens-landing-mini-pill"
+              onClick={onOpenTemplates}
+            >
+              <Layers size={13} />
+              <span>Custom Puzzles</span>
+            </button>
+          )}
+        </>
       }
     />
   );

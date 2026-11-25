@@ -237,28 +237,74 @@ export class TwistItEngine {
     return this.store.getSoloStats(userId);
   }
 
-  async startSoloMatch(playerId: string, excludePuzzleIds: string[] = []): Promise<TwistItMatchView> {
+  async startSoloMatch(
+    playerId: string,
+    excludePuzzleIds: string[] = [],
+    options?: {
+      difficulty?: 'easy' | 'normal' | 'hard';
+      timeLimitSeconds?: number;
+      customBaseWord?: string;
+      customAnswers?: string[];
+    }
+  ): Promise<TwistItMatchView> {
     const profile = await this.resolveProfileOrThrow(playerId);
     const stats = await this.store.getSoloStats(playerId);
     const recentExclude = new Set<string>([...stats.recentPuzzleIds.slice(-300), ...excludePuzzleIds]);
-    const puzzle = pickTwistItPuzzle(recentExclude, Date.now() ^ Math.floor(Math.random() * 1e6));
+
+    let puzzleId = '';
+    let baseWord = '';
+    let letters: string[] = [];
+    let answers: string[] = [];
+
+    const rawBase = String(options?.customBaseWord || '')
+      .replace(/[^a-zA-Z]/g, '')
+      .toUpperCase();
+    const rawAnswers = Array.isArray(options?.customAnswers)
+      ? Array.from(
+          new Set(
+            options!.customAnswers
+              .map((w) => String(w || '').replace(/[^a-zA-Z]/g, '').toUpperCase())
+              .filter((w) => w.length >= 3 && w.length <= 6)
+          )
+        )
+      : [];
+
+    if (rawBase.length === 6 && rawAnswers.length >= 3) {
+      puzzleId = `custom_${rawBase}`;
+      baseWord = rawBase;
+      letters = rawBase.split('');
+      answers = rawAnswers.sort((a, b) => a.length - b.length || a.localeCompare(b));
+    } else {
+      const puzzle = pickTwistItPuzzle(
+        recentExclude,
+        Date.now() ^ Math.floor(Math.random() * 1e6),
+        options?.difficulty
+      );
+      puzzleId = puzzle.id;
+      baseWord = puzzle.baseWord;
+      letters = puzzle.letters;
+      answers = [...puzzle.answers];
+    }
+
     const nowMs = Date.now();
     const startsAtMs = nowMs + SOLO_COUNTDOWN_MS;
-    const scrambledLetters = scrambleSixLetters(puzzle.letters, nowMs, puzzle.baseWord);
+    const timeSec = Math.round(Number(options?.timeLimitSeconds) || 0);
+    const endsAtMs = timeSec > 0 ? startsAtMs + Math.max(60, Math.min(360, timeSec)) * 1000 : null;
+    const scrambledLetters = scrambleSixLetters(letters, nowMs, baseWord);
 
     const match: TwistItInternalMatch = {
       id: `twm_${crypto.randomUUID().slice(0, 12)}`,
       roomCode: null,
       mode: 'solo',
       status: 'countdown',
-      puzzleId: puzzle.id,
-      baseWord: puzzle.baseWord,
+      puzzleId,
+      baseWord,
       scrambledLetters,
-      answers: [...puzzle.answers],
-      lengthCounts: buildLengthCounts(puzzle.answers),
+      answers,
+      lengthCounts: buildLengthCounts(answers),
       createdAtMs: nowMs,
       startsAtMs,
-      endsAtMs: null,
+      endsAtMs,
       finishedAtMs: null,
       players: {
         [profile.id]: {
@@ -283,7 +329,7 @@ export class TwistItEngine {
 
     await this.store.saveMatch(match);
     return this.sanitizeMatchForViewer(match, profile.id, nowMs, {
-      personalBestDurationMs: stats.bestByPuzzleId[puzzle.id] ?? stats.bestDurationMs ?? null,
+      personalBestDurationMs: stats.bestByPuzzleId[puzzleId] ?? stats.bestDurationMs ?? null,
     });
   }
 

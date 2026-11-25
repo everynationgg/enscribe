@@ -1,4 +1,5 @@
 export type TwistItWordLength = 3 | 4 | 5 | 6;
+export type TwistItSoloDifficulty = 'easy' | 'normal' | 'hard';
 
 export interface TwistItPuzzleDefinition {
   id: string;

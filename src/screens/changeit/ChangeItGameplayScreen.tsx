@@ -332,10 +332,13 @@ export const ChangeItGameplayScreen: React.FC<ChangeItGameplayScreenProps> = ({
     }
   }, [effectiveNow, match.endsAtMs, match.status, onSyncMatch]);
 
+  const isUntimedSolo =
+    match.mode === 'solo_adventure' ||
+    (match.mode === 'solo_classic' && match.endsAtMs - match.startedAtMs >= 20 * 60 * 1000);
   const remainingClockMs =
     match.mode === 'survival' && self.playerDeadlineMs !== null
       ? Math.max(0, self.playerDeadlineMs - effectiveNow)
-      : match.mode === 'solo_adventure'
+      : isUntimedSolo
         ? effectiveNow - match.startedAtMs
         : Math.max(0, match.endsAtMs - effectiveNow);
 
@@ -374,10 +377,10 @@ export const ChangeItGameplayScreen: React.FC<ChangeItGameplayScreenProps> = ({
                 : match.mode.replace(/_/g, ' ').toUpperCase()}
               {match.isRanked ? ' • RANKED' : ''}
             </span>
-            <span className={`ci-pill ${remainingClockMs < 15000 && match.mode !== 'solo_adventure' ? 'is-amber' : ''}`}>
+            <span className={`ci-pill ${remainingClockMs < 15000 && !isUntimedSolo ? 'is-amber' : ''}`}>
               <Clock size={12} />
               <span>
-                {match.mode === 'solo_adventure'
+                {isUntimedSolo
                   ? formatClock(self.elapsedMs || remainingClockMs)
                   : formatClock(remainingClockMs)}
               </span>
@@ -870,7 +873,7 @@ export const ChangeItGameplayScreen: React.FC<ChangeItGameplayScreenProps> = ({
                   {onRematch && (
                     <button type="button" className="ci-cta-green" onClick={onRematch}>
                       <RotateCcw size={15} />
-                      <span>Rematch</span>
+                      <span>{match.mode === 'solo_classic' ? 'Next Puzzle' : 'Rematch'}</span>
                     </button>
                   )}
                   <button

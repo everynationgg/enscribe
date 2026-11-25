@@ -4,12 +4,14 @@ import {
   computeAdventureStars,
   getChangeItAdventureStage,
 } from '../../../shared/changeit/adventureCatalog';
-import { createEmptyRestriction } from '../../../shared/changeit/generator';
+import { DIFFICULTY_CONFIGS } from '../../../shared/changeit/difficulty';
+import { createEmptyRestriction, generateVerifiedPuzzle } from '../../../shared/changeit/generator';
 import {
   ChangeItAdventureChapterClient,
   ChangeItAdventureClaimResult,
   ChangeItAdventureProgressClient,
   ChangeItAdventureStageClient,
+  ChangeItDifficulty,
   ChangeItMatchStateClient,
   ChangeItTransformResponse,
   ChangeItWordLength,
@@ -32,11 +34,14 @@ const OFFLINE_ADV_KEY = 'enscribe_changeit_offline_adventure_v1';
 
 interface OfflineActiveMatch {
   id: string;
-  stageId: string;
-  chapterId: string;
+  mode: 'solo_adventure' | 'solo_classic';
+  stageId: string | null;
+  chapterId: string | null;
   stageTitle: string;
   difficulty: ChangeItMatchStateClient['difficulty'];
   wordLength: ChangeItWordLength;
+  hintsAllowed: boolean;
+  durationMs: number;
   startWord: string;
   currentWord: string;
   targetWord: string;
@@ -142,15 +147,15 @@ function toClientMatch(m: OfflineActiveMatch): ChangeItMatchStateClient {
   return {
     id: m.id,
     roomId: null,
-    mode: 'solo_adventure',
+    mode: m.mode,
     difficulty: m.difficulty,
     wordLength: m.wordLength,
     isRanked: false,
     modifiersEnabled: false,
-    hintsAllowed: true,
+    hintsAllowed: m.hintsAllowed,
     status: m.completed ? 'finished' : 'playing',
     startedAtMs: m.startedAtMs,
-    endsAtMs: m.startedAtMs + 30 * 60 * 1000,
+    endsAtMs: m.startedAtMs + m.durationMs,
     serverNowMs: now,
     stageId: m.stageId,
     chapterId: m.chapterId,
@@ -202,11 +207,14 @@ export async function startOfflineChangeItStage(
   const id = `ci_offline_${now}_${Math.random().toString(36).slice(2, 7)}`;
   const rec: OfflineActiveMatch = {
     id,
+    mode: 'solo_adventure',
     stageId: stage.id,
     chapterId: stage.chapterId,
     stageTitle: `${stage.label}: ${stage.title}`,
     difficulty: stage.difficulty,
     wordLength: stage.wordLength,
+    hintsAllowed: true,
+    durationMs: 30 * 60 * 1000,
     startWord: stage.startWord,
     currentWord: stage.startWord,
     targetWord: stage.targetWord,
@@ -222,6 +230,85 @@ export async function startOfflineChangeItStage(
   };
   offlineMatches.set(id, rec);
   return toClientMatch(rec);
+}
+
+export async function startOfflineChangeItClassicSolo(params: {
+  difficulty: ChangeItDifficulty;
+  wordLength?: ChangeItWordLength | 'auto';
+  timeLimitSeconds?: number;
+  hintsAllowed?: boolean;
+  customStartWord?: string;
+  customTargetWord?: string;
+}): Promise<ChangeItMatchStateClient> {
+  const data = await loadChangeItClientData();
+  let startWord: string;
+  let targetWord: string;
+  let minMoves: number;
+  let wordLength: ChangeItWordLength;
+
+  if (params.customStartWord && params.customTargetWord) {
+    startWord = params.customStartWord.trim().toUpperCase();
+    targetWord = params.customTargetWord.trim().toUpperCase();
+    wordLength = startWord.length as ChangeItWordLength;
+    const bfs = bfsShortestPath(data.validationGraphs[wordLength], startWord, targetWord);
+    if (!bfs.solvable || bfs.minMoves < 1) {
+      throw new Error(`No valid ladder exists between ${startWord} and ${targetWord}.`);
+    }
+    minMoves = bfs.minMoves;
+  } else {
+    const gen = generateVerifiedPuzzle(data, {
+      difficulty: params.difficulty,
+      wordLength: params.wordLength ?? 'auto',
+    });
+    startWord = gen.startWord;
+    targetWord = gen.targetWord;
+    minMoves = gen.minMoves;
+    wordLength = gen.wordLength;
+  }
+
+  const now = Date.now();
+  const id = `ci_offline_${now}_${Math.random().toString(36).slice(2, 7)}`;
+  const rawSec = Math.round(Number(params.timeLimitSeconds) || 0);
+  const durationMs = rawSec > 0 ? Math.max(45, Math.min(600, rawSec)) * 1000 : 30 * 60 * 1000;
+  const diffLabel = DIFFICULTY_CONFIGS[params.difficulty]?.label ?? 'Classic';
+
+  const rec: OfflineActiveMatch = {
+    id,
+    mode: 'solo_classic',
+    stageId: null,
+    chapterId: null,
+    stageTitle: params.customStartWord ? 'Custom Solo' : `Classic Solo • ${diffLabel}`,
+    difficulty: params.difficulty,
+    wordLength,
+    hintsAllowed: params.hintsAllowed !== false,
+    durationMs,
+    startWord,
+    currentWord: startWord,
+    targetWord,
+    minMoves,
+    startedAtMs: now,
+    completedAtMs: null,
+    completed: false,
+    hintsUsed: 0,
+    activeHintWord: null,
+    invalidAttempts: 0,
+    history: [],
+    usedWords: [startWord],
+  };
+  offlineMatches.set(id, rec);
+  return toClientMatch(rec);
+}
+
+export async function nextOfflineChangeItClassicSolo(
+  prevMatchId: string
+): Promise<ChangeItMatchStateClient> {
+  const prev = offlineMatches.get(prevMatchId);
+  return startOfflineChangeItClassicSolo({
+    difficulty: prev?.difficulty ?? 'easy',
+    wordLength: prev?.wordLength ?? 'auto',
+    timeLimitSeconds: prev && prev.durationMs < 20 * 60 * 1000 ? Math.round(prev.durationMs / 1000) : 0,
+    hintsAllowed: prev?.hintsAllowed ?? true,
+  });
 }
 
 export async function submitOfflineChangeItTransform(
@@ -316,7 +403,7 @@ export function claimOfflineChangeItReward(
   matchId: string
 ): ChangeItAdventureClaimResult {
   const m = offlineMatches.get(matchId);
-  if (!m || !m.completed) throw new Error('Complete the level first.');
+  if (!m || !m.completed || !m.stageId) throw new Error('Complete the Adventure level first.');
   const stage = getChangeItAdventureStage(m.stageId);
   const movesUsed = m.history.length;
   const elapsedMs = Math.max(1, (m.completedAtMs ?? Date.now()) - m.startedAtMs);

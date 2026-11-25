@@ -46,6 +46,7 @@ import {
   ChangeItAdventureClaimResult,
   ChangeItAdventureProgressClient,
   ChangeItCustomPuzzleValidation,
+  ChangeItDifficulty,
   ChangeItLeaderboardResponse,
   ChangeItMatchStateClient,
   ChangeItModifierResponse,
@@ -54,6 +55,7 @@ import {
   ChangeItRoomSettings,
   ChangeItTeamId,
   ChangeItTransformResponse,
+  ChangeItWordLength,
 } from '../../shared/changeit/types';
 
 const DEFAULT_PROD_API_BASE_URL = 'https://enscribe-game.fly.dev';
@@ -573,6 +575,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ playerId, stageId }),
     }),
+  startGuessItClassicSolo: (
+    playerId: string,
+    params: {
+      difficulty: GuessItDifficulty;
+      category: GuessItCategory | 'mix';
+      format: 'classic' | 'crossword';
+      timeLimitSeconds?: number;
+      customAnswer?: string;
+      customClue?: string;
+    }
+  ) =>
+    request<GuessItMatchStateClient>('/api/guessit/solo/classic', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, ...params }),
+    }),
   claimGuessItAdventureReward: (playerId: string, matchId: string) =>
     request<GuessItAdventureClaimResult>('/api/guessit/adventure/claim', {
       method: 'POST',
@@ -582,10 +599,19 @@ export const api = {
     request<TwistItSoloStats>(
       `/api/twistit/solo/stats?playerId=${encodeURIComponent(playerId)}`
     ),
-  startTwistItSolo: (playerId: string, excludePuzzleIds: string[] = []) =>
+  startTwistItSolo: (
+    playerId: string,
+    excludePuzzleIds: string[] = [],
+    options?: {
+      difficulty?: 'easy' | 'normal' | 'hard';
+      timeLimitSeconds?: number;
+      customBaseWord?: string;
+      customAnswers?: string[];
+    }
+  ) =>
     request<TwistItMatchView>('/api/twistit/solo/start', {
       method: 'POST',
-      body: JSON.stringify({ playerId, excludePuzzleIds }),
+      body: JSON.stringify({ playerId, excludePuzzleIds, ...(options ?? {}) }),
     }),
   listTwistItPublicRooms: () => request<TwistItRoomView[]>('/api/twistit/rooms/public'),
   createTwistItRoom: (hostId: string, settings?: Partial<TwistItRoomSettings>) =>
@@ -821,6 +847,21 @@ export const api = {
     request<ChangeItMatchStateClient>('/api/changeit/adventure/start', {
       method: 'POST',
       body: JSON.stringify({ playerId, stageId }),
+    }),
+  startChangeItClassicSolo: (
+    playerId: string,
+    params: {
+      difficulty: ChangeItDifficulty;
+      wordLength?: ChangeItWordLength | 'auto';
+      timeLimitSeconds?: number;
+      hintsAllowed?: boolean;
+      customStartWord?: string;
+      customTargetWord?: string;
+    }
+  ) =>
+    request<ChangeItMatchStateClient>('/api/changeit/solo/classic', {
+      method: 'POST',
+      body: JSON.stringify({ playerId, ...params }),
     }),
   retryChangeItAdventureMatch: (playerId: string, matchId: string) =>
     request<ChangeItMatchStateClient>('/api/changeit/adventure/retry', {

@@ -34,6 +34,48 @@ interface GridItSoloSetupScreenProps {
 }
 
 const SIZE_ORDER: GridItBoardSize[] = ['small', 'medium', 'large'];
+type GridItSoloDifficulty = 'easy' | 'normal' | 'hard' | 'expert';
+const GRIDIT_DIFFICULTIES: Array<{
+  id: GridItSoloDifficulty;
+  label: string;
+  desc: string;
+  sizeId: GridItBoardSize;
+  durationSeconds: number;
+  mods: GridItModConfig;
+}> = [
+  {
+    id: 'easy',
+    label: 'Easy',
+    desc: 'Small • 3:00 • Wildcard',
+    sizeId: 'small',
+    durationSeconds: 180,
+    mods: { ...DEFAULT_GRIDIT_MODS, rainbowWildcard: true },
+  },
+  {
+    id: 'normal',
+    label: 'Normal',
+    desc: 'Medium • 2:00',
+    sizeId: 'medium',
+    durationSeconds: 120,
+    mods: { ...DEFAULT_GRIDIT_MODS },
+  },
+  {
+    id: 'hard',
+    label: 'Hard',
+    desc: 'Large • 1:30 • Combo',
+    sizeId: 'large',
+    durationSeconds: 90,
+    mods: { ...DEFAULT_GRIDIT_MODS, comboFever: true },
+  },
+  {
+    id: 'expert',
+    label: 'Expert',
+    desc: 'Large • 1:30 • All-Out',
+    sizeId: 'large',
+    durationSeconds: 90,
+    mods: { ...DEFAULT_GRIDIT_MODS, comboFever: true, lightningRound: true, growingGrid: true },
+  },
+];
 const TIMER_OPTIONS = [
   { seconds: 90, label: '1:30' },
   { seconds: 120, label: '2:00' },
@@ -51,10 +93,18 @@ export const GridItSoloSetupScreen: React.FC<GridItSoloSetupScreenProps> = ({
   onStartMatch,
 }) => {
   const [shapeId, setShapeId] = useState<GridItShapeId>(initialShape);
+  const [difficulty, setDifficulty] = useState<GridItSoloDifficulty>('normal');
   const [sizeId, setSizeId] = useState<GridItBoardSize>(initialSize);
   const [durationSeconds, setDurationSeconds] = useState<number>(initialDurationSeconds);
   const [mods, setMods] = useState<GridItModConfig>(initialMods);
   const [language, setLanguage] = useState<string>(initialLanguage);
+
+  const applyDifficultyPreset = (preset: (typeof GRIDIT_DIFFICULTIES)[number]) => {
+    setDifficulty(preset.id);
+    setSizeId(preset.sizeId);
+    setDurationSeconds(preset.durationSeconds);
+    setMods({ ...preset.mods });
+  };
 
   const selectedShape = getShapeTemplate(shapeId);
   const selectedLang = GRIDIT_LANGUAGES.find((l) => l.code === language) ?? GRIDIT_LANGUAGES[0];
@@ -87,12 +137,39 @@ export const GridItSoloSetupScreen: React.FC<GridItSoloSetupScreenProps> = ({
               <ArrowLeft size={15} strokeWidth={2.8} />
             </button>
             <div className="ens-gridit-setup-title-wrap">
-              <div className="ens-gridit-setup-title">GridIt — Solo Setup</div>
+              <div className="ens-gridit-setup-title">GridIt — Classic Solo</div>
               <div className="ens-gridit-setup-sub">
-                Choose your shape template, size &amp; timer
+                Choose your difficulty, shape, size &amp; timer
               </div>
             </div>
           </header>
+
+          {/* Difficulty Preset Selector */}
+          <section className="ens-gridit-setup-card">
+            <div className="ens-gridit-setup-label">
+              <Sliders size={14} color="#fde047" />
+              <span>Difficulty</span>
+            </div>
+            <div className="ens-gridit-timer-pills">
+              {GRIDIT_DIFFICULTIES.map((preset) => {
+                const active = difficulty === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`ens-gridit-timer-pill ${active ? 'is-selected' : ''}`}
+                    onClick={() => applyDifficultyPreset(preset)}
+                    title={preset.desc}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="ens-gridit-shape-desc">
+              {GRIDIT_DIFFICULTIES.find((d) => d.id === difficulty)?.desc}
+            </div>
+          </section>
 
           {/* Shape Template Selector */}
           <section className="ens-gridit-setup-card">

@@ -18,6 +18,7 @@ interface OfflineSoloSession {
   answers: string[];
   scrambledLetters: string[];
   startsAtMs: number;
+  endsAtMs: number | null;
   foundByIndex: Record<number, number>;
   attemptsCount: number;
   validSubmissionsCount: number;
@@ -114,7 +115,7 @@ function buildView(
     lengthCounts,
     createdAtMs: session.startsAtMs - 2400,
     startsAtMs: session.startsAtMs,
-    endsAtMs: null,
+    endsAtMs: session.endsAtMs,
     finishedAtMs: isFinished ? session.startsAtMs + (session.completedDurationMs || 0) : null,
     serverNowMs: nowMs,
     players: [
@@ -147,20 +148,60 @@ function buildView(
 export function startOfflineTwistItSolo(
   playerId: string,
   displayName: string,
-  excludePuzzleIds: string[] = []
+  excludePuzzleIds: string[] = [],
+  options?: {
+    difficulty?: 'easy' | 'normal' | 'hard';
+    timeLimitSeconds?: number;
+    customBaseWord?: string;
+    customAnswers?: string[];
+  }
 ): TwistItMatchView {
   const stats = getOfflineTwistItSoloStats();
-  const puzzle = pickTwistItPuzzle(
-    [...stats.recentPuzzleIds.slice(-300), ...excludePuzzleIds],
-    Date.now() ^ Math.floor(Math.random() * 1e6)
-  );
+  const rawBase = String(options?.customBaseWord || '')
+    .replace(/[^a-zA-Z]/g, '')
+    .toUpperCase();
+  const rawAnswers = Array.isArray(options?.customAnswers)
+    ? Array.from(
+        new Set(
+          options!.customAnswers
+            .map((w) => String(w || '').replace(/[^a-zA-Z]/g, '').toUpperCase())
+            .filter((w) => w.length >= 3 && w.length <= 6)
+        )
+      )
+    : [];
+
+  let puzzleId = '';
+  let baseWord = '';
+  let letters: string[] = [];
+  let answers: string[] = [];
+  if (rawBase.length === 6 && rawAnswers.length >= 3) {
+    puzzleId = `custom_${rawBase}`;
+    baseWord = rawBase;
+    letters = rawBase.split('');
+    answers = rawAnswers.sort((a, b) => a.length - b.length || a.localeCompare(b));
+  } else {
+    const puzzle = pickTwistItPuzzle(
+      [...stats.recentPuzzleIds.slice(-300), ...excludePuzzleIds],
+      Date.now() ^ Math.floor(Math.random() * 1e6),
+      options?.difficulty
+    );
+    puzzleId = puzzle.id;
+    baseWord = puzzle.baseWord;
+    letters = puzzle.letters;
+    answers = [...puzzle.answers];
+  }
+
   const nowMs = Date.now();
+  const startsAtMs = nowMs + 2400;
+  const timeSec = Math.round(Number(options?.timeLimitSeconds) || 0);
+  const endsAtMs = timeSec > 0 ? startsAtMs + Math.max(60, Math.min(360, timeSec)) * 1000 : null;
   const session: OfflineSoloSession = {
     matchId: `tw_offline_${nowMs}_${Math.random().toString(36).slice(2, 7)}`,
-    puzzleId: puzzle.id,
-    answers: [...puzzle.answers],
-    scrambledLetters: scrambleSixLetters(puzzle.letters, nowMs, puzzle.baseWord),
-    startsAtMs: nowMs + 2400,
+    puzzleId,
+    answers,
+    scrambledLetters: scrambleSixLetters(letters, nowMs, baseWord),
+    startsAtMs,
+    endsAtMs,
     foundByIndex: {},
     attemptsCount: 0,
     validSubmissionsCount: 0,

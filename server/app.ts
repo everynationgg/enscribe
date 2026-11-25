@@ -2735,6 +2735,25 @@ export function createEnscribeApp(
   );
 
   app.post(
+    '/api/guessit/solo/classic',
+    handleGridItApi(async (req, res) => {
+      const { playerId, difficulty, category, format, timeLimitSeconds, customAnswer, customClue } =
+        req.body ?? {};
+      const pid = String(playerId || '');
+      const match = await guessItEngine.startClassicSoloMatch({
+        playerId: pid,
+        difficulty: difficulty === 'easy' || difficulty === 'hard' ? difficulty : 'medium',
+        category: category || 'mix',
+        format: format === 'crossword' ? 'crossword' : 'classic',
+        timeLimitSeconds: Number(timeLimitSeconds) || 0,
+        customAnswer: customAnswer ? String(customAnswer) : undefined,
+        customClue: customClue ? String(customClue) : undefined,
+      });
+      res.status(201).json(guessItEngine.sanitizeMatchForViewerRecord(match, pid));
+    })
+  );
+
+  app.post(
     '/api/guessit/adventure/claim',
     handleGridItApi(async (req, res) => {
       const { playerId, matchId } = req.body ?? {};
@@ -2771,10 +2790,20 @@ export function createEnscribeApp(
   app.post(
     '/api/twistit/solo/start',
     handleGridItApi(async (req, res) => {
-      const { playerId, excludePuzzleIds } = req.body ?? {};
+      const { playerId, excludePuzzleIds, difficulty, timeLimitSeconds, customBaseWord, customAnswers } =
+        req.body ?? {};
       const match = await twistItEngine.startSoloMatch(
         String(playerId || ''),
-        Array.isArray(excludePuzzleIds) ? excludePuzzleIds.map(String) : []
+        Array.isArray(excludePuzzleIds) ? excludePuzzleIds.map(String) : [],
+        {
+          difficulty:
+            difficulty === 'easy' || difficulty === 'normal' || difficulty === 'hard'
+              ? difficulty
+              : undefined,
+          timeLimitSeconds: Number(timeLimitSeconds) || 0,
+          customBaseWord: customBaseWord ? String(customBaseWord) : undefined,
+          customAnswers: Array.isArray(customAnswers) ? customAnswers.map(String) : undefined,
+        }
       );
       res.status(201).json(match);
     })
@@ -3325,6 +3354,35 @@ export function createEnscribeApp(
       const { playerId, stageId } = req.body ?? {};
       const pid = String(playerId || '');
       const match = await changeItEngine.startAdventureStage(pid, String(stageId || ''));
+      res.status(201).json(changeItEngine.sanitizeMatchForViewerRecord(match, pid));
+    })
+  );
+
+  app.post(
+    '/api/changeit/solo/classic',
+    handleGridItApi(async (req, res) => {
+      const {
+        playerId,
+        difficulty,
+        wordLength,
+        timeLimitSeconds,
+        hintsAllowed,
+        customStartWord,
+        customTargetWord,
+      } = req.body ?? {};
+      const pid = String(playerId || '');
+      const match = await changeItEngine.startClassicSoloMatch({
+        playerId: pid,
+        difficulty: difficulty || 'easy',
+        wordLength:
+          wordLength === 3 || wordLength === 4 || wordLength === 5 || wordLength === 6
+            ? wordLength
+            : 'auto',
+        timeLimitSeconds: Number(timeLimitSeconds) || 0,
+        hintsAllowed: hintsAllowed !== false,
+        customStartWord: customStartWord ? String(customStartWord) : undefined,
+        customTargetWord: customTargetWord ? String(customTargetWord) : undefined,
+      });
       res.status(201).json(changeItEngine.sanitizeMatchForViewerRecord(match, pid));
     })
   );

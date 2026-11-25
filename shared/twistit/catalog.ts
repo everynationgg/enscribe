@@ -34181,12 +34181,26 @@ export function validateTwistItWordAgainstAnswers(
 
 export function pickTwistItPuzzle(
   excludeIds: ReadonlySet<string> | string[] = [],
-  seed = Date.now()
+  seed = Date.now(),
+  difficulty?: 'easy' | 'normal' | 'hard'
 ): TwistItPuzzleDefinition {
   const excludeSet = excludeIds instanceof Set ? excludeIds : new Set(excludeIds);
   const candidates = TWISTIT_PUZZLE_CATALOG.filter((p) => !excludeSet.has(p.id));
-  const pool = candidates.length > 0 ? candidates : TWISTIT_PUZZLE_CATALOG;
+  const basePool = candidates.length > 0 ? candidates : TWISTIT_PUZZLE_CATALOG;
+
+  let filtered = basePool;
+  if (difficulty === 'easy') {
+    const easyPool = basePool.filter((p) => p.difficulty === 'classic' || p.answers.length <= 12);
+    if (easyPool.length > 0) filtered = easyPool;
+  } else if (difficulty === 'normal') {
+    const normalPool = basePool.filter((p) => p.answers.length >= 12 && p.answers.length <= 14);
+    if (normalPool.length > 0) filtered = normalPool;
+  } else if (difficulty === 'hard') {
+    const hardPool = basePool.filter((p) => p.difficulty === 'skilled' && p.answers.length >= 14);
+    if (hardPool.length > 0) filtered = hardPool;
+  }
+
   const rng = mulberry32(seed);
-  const index = Math.floor(rng() * pool.length);
-  return pool[index] || TWISTIT_PUZZLE_CATALOG[0];
+  const index = Math.floor(rng() * filtered.length);
+  return filtered[index] || TWISTIT_PUZZLE_CATALOG[0];
 }

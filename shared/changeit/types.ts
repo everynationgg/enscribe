@@ -17,7 +17,7 @@ export type ChangeItMultiplayerMode =
   | 'relay'
   | 'sabotage';
 
-export type ChangeItMatchMode = 'solo_adventure' | ChangeItMultiplayerMode;
+export type ChangeItMatchMode = 'solo_adventure' | 'solo_classic' | ChangeItMultiplayerMode;
 
 export type ChangeItModifierType =
   | 'letter_lock'

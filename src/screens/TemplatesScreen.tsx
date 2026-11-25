@@ -51,17 +51,26 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
   const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
-  const myTemplates = useMemo(
+  const chainItOnlyTemplates = useMemo(
     () =>
       templates.filter((t) => {
+        const th = t.theme.toLowerCase();
+        return th !== 'changeit' && !th.startsWith('guessit') && !th.startsWith('twistit');
+      }),
+    [templates]
+  );
+
+  const myTemplates = useMemo(
+    () =>
+      chainItOnlyTemplates.filter((t) => {
         if (activeTab === 'official') return t.status === 'official';
         if (activeTab === 'draft') return t.status === 'draft' && t.ownerId === profile.id;
         return t.status === 'saved' && t.ownerId === profile.id;
       }),
-    [templates, activeTab, profile.id]
+    [chainItOnlyTemplates, activeTab, profile.id]
   );
 
-  const initialSelected = myTemplates[0] ?? templates[0] ?? null;
+  const initialSelected = myTemplates[0] ?? chainItOnlyTemplates[0] ?? null;
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [editingId, setEditingId] = useState<string | undefined>(initialSelected?.id);
   const [editName, setEditName] = useState<string>(initialSelected?.name ?? 'School Days');
@@ -191,8 +200,8 @@ export const TemplatesScreen: React.FC<TemplatesScreenProps> = ({
         <div style={{ width: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Layers size={22} color="#a5f3fc" />
         </div>
-        <span style={{ fontSize: 21, fontWeight: 900, fontStyle: 'italic', textShadow: '0 2px 8px rgba(8,12,56,0.6)' }}>
-          My Templates
+        <span style={{ fontSize: 20, fontWeight: 900, fontStyle: 'italic', textShadow: '0 2px 8px rgba(8,12,56,0.6)' }}>
+          ChainIt Templates
         </span>
         <button
           type="button"

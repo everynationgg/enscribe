@@ -40,7 +40,7 @@ export const GridItHomeScreen: React.FC<GridItHomeScreenProps> = ({
     },
     {
       id: 'solo',
-      label: 'Solo Adventure — Play at your own pace!',
+      label: 'Classic Solo — Custom difficulty, shapes & timers!',
       artSrc: '/art/mode-card-solo.png',
       glowClass: 'glow-gridit',
       onClick: onOpenSolo,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, HelpCircle } from 'lucide-react';
+import { FileText, HelpCircle, Target } from 'lucide-react';
 import { Profile } from '../../../shared/types';
 import { GameLandingModeCard, GameLandingShell } from '../../components/GameLandingShell';
 
@@ -8,6 +8,7 @@ interface GuessItEntryScreenProps {
   onExitToHub: () => void;
   onPlayMultiplayer: (pathway?: 'rooms' | 'ranked') => void;
   onSoloAdventure: () => void;
+  onClassicSolo?: () => void;
   onOpenLeaderboard?: () => void;
   onOpenTemplates: () => void;
   onOpenProfile?: () => void;
@@ -19,6 +20,7 @@ export const GuessItEntryScreen: React.FC<GuessItEntryScreenProps> = ({
   onExitToHub,
   onPlayMultiplayer,
   onSoloAdventure,
+  onClassicSolo,
   onOpenLeaderboard,
   onOpenTemplates,
   onOpenProfile,
@@ -70,14 +72,26 @@ export const GuessItEntryScreen: React.FC<GuessItEntryScreenProps> = ({
       onOpenProfile={() => (onOpenProfile ? onOpenProfile() : onExitToHub())}
       onSwitchGuest={onSwitchGuest}
       extras={
-        <button
-          type="button"
-          className="ens-landing-mini-pill"
-          onClick={onOpenTemplates}
-        >
-          <FileText size={13} />
-          <span>Custom Word Packs</span>
-        </button>
+        <>
+          {onClassicSolo && (
+            <button
+              type="button"
+              className="ens-landing-mini-pill is-gold"
+              onClick={onClassicSolo}
+            >
+              <Target size={13} />
+              <span>Classic Solo</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="ens-landing-mini-pill"
+            onClick={onOpenTemplates}
+          >
+            <FileText size={13} />
+            <span>Custom Word Packs</span>
+          </button>
+        </>
       }
     />
   );

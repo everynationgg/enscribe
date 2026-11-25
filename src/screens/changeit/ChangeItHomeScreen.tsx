@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Repeat, Star } from 'lucide-react';
+import { Layers, Repeat, Star, Target } from 'lucide-react';
 import { ChangeItAdventureProgressClient, PlayerSession, Profile } from '../../../shared/types';
 import { GameLandingModeCard, GameLandingShell } from '../../components/GameLandingShell';
 
@@ -10,6 +10,7 @@ interface ChangeItHomeScreenProps {
   onExitToHub: () => void;
   onOpenRanked: () => void;
   onOpenAdventure: () => void;
+  onOpenClassicSolo?: () => void;
   onOpenRooms: () => void;
   onOpenLeaderboard: () => void;
   onOpenTemplates: () => void;
@@ -24,6 +25,7 @@ export const ChangeItHomeScreen: React.FC<ChangeItHomeScreenProps> = ({
   onExitToHub,
   onOpenRanked,
   onOpenAdventure,
+  onOpenClassicSolo,
   onOpenRooms,
   onOpenLeaderboard,
   onOpenTemplates,
@@ -87,6 +89,16 @@ export const ChangeItHomeScreen: React.FC<ChangeItHomeScreenProps> = ({
                 {adventureProgress.totalStars}/{adventureProgress.maxStars} Adventure Stars
               </span>
             </div>
+          )}
+          {onOpenClassicSolo && (
+            <button
+              type="button"
+              className="ens-landing-mini-pill is-gold"
+              onClick={onOpenClassicSolo}
+            >
+              <Target size={13} />
+              <span>Classic Solo</span>
+            </button>
           )}
           <button
             type="button"

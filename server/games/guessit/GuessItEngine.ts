@@ -1966,6 +1966,92 @@ export class GuessItEngine {
     });
   }
 
+  async startClassicSoloMatch(params: {
+    playerId: string;
+    difficulty: GuessItDifficulty;
+    category: GuessItCategory | 'mix';
+    format: 'classic' | 'crossword';
+    timeLimitSeconds?: number;
+    customAnswer?: string;
+    customClue?: string;
+  }): Promise<StoredGuessItMatch> {
+    const profile = await this.requireProfile(params.playerId);
+    const difficulty: GuessItDifficulty =
+      params.difficulty === 'easy' || params.difficulty === 'hard' ? params.difficulty : 'medium';
+    const format: 'classic' | 'crossword' =
+      params.format === 'crossword' && !params.customAnswer ? 'crossword' : 'classic';
+    const category: GuessItCategory =
+      params.category !== 'mix' && GUESSIT_CATEGORIES.includes(params.category)
+        ? params.category
+        : GUESSIT_CATEGORIES[Math.floor(Math.random() * GUESSIT_CATEGORIES.length)];
+
+    const maxMistakes = difficulty === 'easy' ? 8 : difficulty === 'hard' ? 4 : 6;
+    const penaltyMs = difficulty === 'easy' ? 1200 : difficulty === 'hard' ? 3000 : 2000;
+    const roundTimeSeconds =
+      params.timeLimitSeconds && params.timeLimitSeconds > 0
+        ? Math.max(60, Math.min(300, Math.round(params.timeLimitSeconds)))
+        : 300;
+
+    const settings: GuessItRoomSettings = this.normalizeSettings({
+      mode: 'speed_rush',
+      format,
+      category,
+      difficulty,
+      wordSource: params.customAnswer ? 'custom_word' : 'curated_db',
+      roundsCount: 1,
+      maxMistakes,
+      roundTimeSeconds,
+      penaltyMs,
+      capacity: 2,
+      isPublic: false,
+    });
+
+    let customStage: GuessItAdventureStage | undefined;
+    if (params.customAnswer && params.customAnswer.trim()) {
+      const check = validateCustomPhrase(params.customAnswer);
+      if (!check.valid) {
+        throw new GuessItBadRequestError(check.error || 'Invalid custom word or phrase.');
+      }
+      customStage = {
+        id: 'classic_custom',
+        chapterId: 'classic_custom',
+        stageNumber: 1,
+        label: 'Custom Pack',
+        title: 'Custom Pack',
+        subtitle: category,
+        category,
+        difficulty,
+        format: 'classic',
+        answers: [check.normalized],
+        clue: params.customClue?.trim().slice(0, 120) || category,
+        maxMistakes,
+        timeLimitSeconds: roundTimeSeconds,
+        penaltyMs,
+        rewardCoins: 0,
+        rewardShards: 0,
+        rewardExp: 0,
+      };
+    }
+
+    return this.createMatchFromParticipants({
+      roomId: null,
+      mode: 'solo_adventure',
+      settings,
+      isRanked: false,
+      players: [
+        {
+          playerId: profile.id,
+          username: profile.username,
+          avatarId: profile.avatarId,
+          teamId: null,
+        },
+      ],
+      stageId: null,
+      chapterId: null,
+      customStage,
+    });
+  }
+
   async claimAdventureReward(
     playerId: string,
     matchId: string
