@@ -90,6 +90,16 @@ export const HUB_GAME_TILES: HubGameTile[] = [
     gameId: 'guessit',
   },
   {
+    id: 'tile_twistit',
+    slug: 'twistit',
+    name: 'TwistIt',
+    tagline: 'Twist six letters into words solo or race 1v1 live!',
+    status: 'playable',
+    badgeText: 'NEW',
+    themeVariant: 'twistit',
+    gameId: 'twistit',
+  },
+  {
     id: 'tile_changeit',
     slug: 'changeit',
     name: 'ChangeIt',

@@ -72,14 +72,14 @@ async function run() {
     await page1.goto(APP_URL, { waitUntil: 'networkidle' });
     await signInGuest(page1, nick1);
 
-    // Verify Enscribe Hub 2x2 has ChainIt, GridIt, GuessIt, ChangeIt
+    // Verify Enscribe Hub has all 5 playable game cards (ChainIt, GridIt, GuessIt, TwistIt, ChangeIt)
     await page1.waitForSelector('.ens-hub-grid2x2', { timeout: 15000 });
-    for (const gameName of ['ChainIt', 'GridIt', 'GuessIt', 'ChangeIt']) {
+    for (const gameName of ['ChainIt', 'GridIt', 'GuessIt', 'TwistIt', 'ChangeIt']) {
       await page1.getByRole('button', { name: new RegExp(`^${gameName}\\b`, 'i') }).waitFor({ timeout: 8000 });
     }
     await checkNoOverflow(page1, 'Hub 390x844');
-    await page1.screenshot({ path: path.join(SCREENSHOT_DIR, 'ci-hub-mobile.png') });
-    console.log('[PASS] Verified Enscribe 4-game Hub at 390x844.');
+    await page1.screenshot({ path: path.join(SCREENSHOT_DIR, 'ci-hub-mobile.png'), fullPage: true });
+    console.log('[PASS] Verified Enscribe 5-game Hub at 390x844.');
 
     // Enter ChangeIt
     await page1.getByRole('button', { name: /^ChangeIt\b/i }).click();

@@ -73,7 +73,7 @@ export const GuestEntryScreen: React.FC<GuestEntryScreenProps> = ({
           </div>
           <EnscribeBrandLogo centered />
           <p style={{ margin: '8px 0 0', fontSize: 13.5, fontWeight: 700, color: '#D4DCFF', textAlign: 'center' }}>
-            ChainIt &bull; GridIt &bull; GuessIt &bull; ChangeIt
+            ChainIt &bull; GridIt &bull; GuessIt &bull; TwistIt &bull; ChangeIt
           </p>
         </div>
 
