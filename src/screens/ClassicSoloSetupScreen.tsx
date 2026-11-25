@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ArrowLeft,
   Clock,
+  Compass,
   HelpCircle,
   Lightbulb,
   Play,
@@ -9,6 +10,7 @@ import {
   RotateCw,
   Sliders,
   Sparkles,
+  Target,
 } from 'lucide-react';
 import {
   CHANGEIT_DIFFICULTY_ORDER,
@@ -30,6 +32,7 @@ export type ClassicSoloGame = 'guessit' | 'twistit' | 'changeit';
 interface ClassicSoloSetupScreenProps {
   game: ClassicSoloGame;
   onBack: () => void;
+  onOpenAdventure?: () => void;
   onStartGuessIt?: (params: {
     difficulty: GuessItDifficulty;
     category: GuessItCategory | 'mix';
@@ -63,6 +66,7 @@ const GUESSIT_CATS: Array<{ id: GuessItCategory | 'mix'; label: string }> = [
 export const ClassicSoloSetupScreen: React.FC<ClassicSoloSetupScreenProps> = ({
   game,
   onBack,
+  onOpenAdventure,
   onStartGuessIt,
   onStartTwistIt,
   onStartChangeIt,
@@ -149,6 +153,67 @@ export const ClassicSoloSetupScreen: React.FC<ClassicSoloSetupScreenProps> = ({
 
       <div className="ci-scroll">
         <div className="ci-wrap">
+          {onOpenAdventure && (
+            <div
+              role="tablist"
+              aria-label="Single Player Modes"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 6,
+                padding: 4,
+                borderRadius: 16,
+                background: 'rgba(11, 18, 66, 0.84)',
+                border: '1.5px solid rgba(165, 243, 252, 0.35)',
+              }}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={false}
+                onClick={onOpenAdventure}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '9px 10px',
+                  borderRadius: 12,
+                  border: '1px solid transparent',
+                  background: 'transparent',
+                  color: '#dbeafe',
+                  fontWeight: 800,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                <Compass size={14} />
+                <span>Adventure</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={true}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '9px 10px',
+                  borderRadius: 12,
+                  border: '1.5px solid rgba(254, 240, 138, 0.8)',
+                  background: 'linear-gradient(135deg, #06b6d4 0%, #6366f1 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 13,
+                  cursor: 'default',
+                }}
+              >
+                <Target size={14} />
+                <span>Classic Round</span>
+              </button>
+            </div>
+          )}
           {/* GUESSIT CLASSIC SOLO */}
           {game === 'guessit' && (
             <>

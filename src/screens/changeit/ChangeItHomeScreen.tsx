@@ -43,7 +43,7 @@ export const ChangeItHomeScreen: React.FC<ChangeItHomeScreenProps> = ({
     },
     {
       id: 'solo',
-      label: 'Solo Adventure — Climb themed word-ladder chapters!',
+      label: 'Solo — Adventure & Classic Round!',
       artSrc: '/art/mode-card-solo.png',
       glowClass: 'glow-changeit',
       onClick: onOpenAdventure,

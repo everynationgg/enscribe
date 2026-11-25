@@ -8,6 +8,7 @@ import {
   Map as MapIcon,
   Play,
   Star,
+  Target,
 } from 'lucide-react';
 import { GuessItAdventureProgressClient } from '../../../shared/guessit/types';
 
@@ -15,12 +16,14 @@ interface GuessItAdventureMapScreenProps {
   progress: GuessItAdventureProgressClient;
   onBack: () => void;
   onStartStage: (stageId: string) => Promise<void>;
+  onOpenClassicSolo?: () => void;
 }
 
 export const GuessItAdventureMapScreen: React.FC<GuessItAdventureMapScreenProps> = ({
   progress,
   onBack,
   onStartStage,
+  onOpenClassicSolo,
 }) => {
   const chapter = progress.chapters[0];
   const defaultStage = useMemo(() => {
@@ -64,7 +67,7 @@ export const GuessItAdventureMapScreen: React.FC<GuessItAdventureMapScreenProps>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <MapIcon size={20} color="#7dd3fc" />
           <span className="ens-guessit-screen-title-wordmark" style={{ fontSize: 22 }}>
-            Adventure
+            Single Player
           </span>
         </div>
 
@@ -79,6 +82,68 @@ export const GuessItAdventureMapScreen: React.FC<GuessItAdventureMapScreenProps>
       </header>
 
       <div className="ens-guessit-scroll">
+        {onOpenClassicSolo && (
+          <div
+            role="tablist"
+            aria-label="GuessIt Single Player Modes"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 6,
+              padding: 4,
+              borderRadius: 16,
+              background: 'rgba(11, 18, 66, 0.84)',
+              border: '1.5px solid rgba(147, 197, 253, 0.35)',
+              marginBottom: 12,
+            }}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={true}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                padding: '9px 10px',
+                borderRadius: 12,
+                border: '1.5px solid rgba(254, 240, 138, 0.75)',
+                background: 'linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%)',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 13,
+                cursor: 'default',
+              }}
+            >
+              <MapIcon size={14} />
+              <span>Adventure</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={false}
+              onClick={onOpenClassicSolo}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                padding: '9px 10px',
+                borderRadius: 12,
+                border: '1px solid transparent',
+                background: 'transparent',
+                color: '#dbeafe',
+                fontWeight: 800,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              <Target size={14} />
+              <span>Classic Round</span>
+            </button>
+          </div>
+        )}
         {/* Chapter 1 Header Card matching Screen 6 */}
         <div className="ens-guessit-chapter-banner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

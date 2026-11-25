@@ -36,7 +36,7 @@ export const GuessItEntryScreen: React.FC<GuessItEntryScreenProps> = ({
     },
     {
       id: 'solo',
-      label: 'Solo Adventure — Play at your own pace!',
+      label: 'Solo — Adventure & Classic Round!',
       artSrc: '/art/mode-card-solo.png',
       glowClass: 'glow-gridit',
       onClick: onSoloAdventure,

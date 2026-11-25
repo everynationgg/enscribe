@@ -8,6 +8,7 @@ import {
   Play,
   RotateCcw,
   Star,
+  Target,
 } from 'lucide-react';
 import { ChangeItAdventureProgressClient } from '../../../shared/types';
 
@@ -15,12 +16,14 @@ interface ChangeItAdventureScreenProps {
   progress: ChangeItAdventureProgressClient;
   onBack: () => void;
   onStartStage: (stageId: string) => Promise<void>;
+  onOpenClassicSolo?: () => void;
 }
 
 export const ChangeItAdventureScreen: React.FC<ChangeItAdventureScreenProps> = ({
   progress,
   onBack,
   onStartStage,
+  onOpenClassicSolo,
 }) => {
   const defaultChapterIdx = useMemo(() => {
     const idx = progress.chapters.findIndex(
@@ -58,7 +61,7 @@ export const ChangeItAdventureScreen: React.FC<ChangeItAdventureScreenProps> = (
         </button>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <Compass size={18} color="#22d3ee" />
-          <span style={{ fontSize: 17, fontWeight: 900 }}>Solo Adventure</span>
+          <span style={{ fontSize: 17, fontWeight: 900 }}>Single Player</span>
         </div>
         <div className="ci-pill is-amber">
           <Star size={12} fill="#fde047" color="#fde047" />
@@ -70,6 +73,67 @@ export const ChangeItAdventureScreen: React.FC<ChangeItAdventureScreenProps> = (
 
       <div className="ci-scroll">
         <div className="ci-wrap">
+          {onOpenClassicSolo && (
+            <div
+              role="tablist"
+              aria-label="ChangeIt Single Player Modes"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 6,
+                padding: 4,
+                borderRadius: 16,
+                background: 'rgba(11, 18, 66, 0.84)',
+                border: '1.5px solid rgba(34, 211, 238, 0.35)',
+              }}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={true}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '9px 10px',
+                  borderRadius: 12,
+                  border: '1.5px solid rgba(165, 243, 252, 0.8)',
+                  background: 'linear-gradient(135deg, #06b6d4 0%, #6366f1 100%)',
+                  color: '#ffffff',
+                  fontWeight: 900,
+                  fontSize: 13,
+                  cursor: 'default',
+                }}
+              >
+                <Compass size={14} />
+                <span>Adventure</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={false}
+                onClick={onOpenClassicSolo}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '9px 10px',
+                  borderRadius: 12,
+                  border: '1px solid transparent',
+                  background: 'transparent',
+                  color: '#cffafe',
+                  fontWeight: 800,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                <Target size={14} />
+                <span>Classic Round</span>
+              </button>
+            </div>
+          )}
           {/* Chapter Selector Strip */}
           <div
             style={{

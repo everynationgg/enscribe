@@ -198,7 +198,7 @@ export const SoloScreen: React.FC<SoloScreenProps> = ({
               },
               {
                 id: 'practice',
-                label: 'Practice',
+                label: 'Classic Round',
                 icon: <Target size={15} />,
               },
               {

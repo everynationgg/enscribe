@@ -2012,6 +2012,7 @@ export const App: React.FC = () => {
         <ClassicSoloSetupScreen
           game="changeit"
           onBack={() => setRoute({ view: 'changeit_home' })}
+          onOpenAdventure={() => setRoute({ view: 'changeit_adventure' })}
           onStartChangeIt={async (params) => {
             setChangeItAdventureClaim(null);
             if (isOffline || playerSession.isOffline) {
@@ -2211,6 +2212,7 @@ export const App: React.FC = () => {
         <ChangeItAdventureScreen
           progress={progress}
           onBack={() => setRoute({ view: 'changeit_home' })}
+          onOpenClassicSolo={() => setRoute({ view: 'changeit_solo_setup' })}
           onStartStage={async (stageId) => {
             setChangeItAdventureClaim(null);
             if (isOffline || playerSession.isOffline) {
@@ -2615,6 +2617,7 @@ export const App: React.FC = () => {
         <ClassicSoloSetupScreen
           game="guessit"
           onBack={() => setRoute({ view: 'guessit_entry' })}
+          onOpenAdventure={() => setRoute({ view: 'guessit_adventure' })}
           onStartGuessIt={async (params) => {
             try {
               const m = await api.startGuessItClassicSolo(playerSession.playerId, {
@@ -2928,6 +2931,7 @@ export const App: React.FC = () => {
         <GuessItAdventureMapScreen
           progress={guessItAdventureProgress}
           onBack={() => setRoute({ view: 'guessit_entry' })}
+          onOpenClassicSolo={() => setRoute({ view: 'guessit_solo_setup' })}
           onStartStage={async (stageId) => {
             try {
               const match = await api.startGuessItAdventureStage(playerSession.playerId, stageId);
