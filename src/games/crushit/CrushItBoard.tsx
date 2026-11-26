@@ -5,16 +5,14 @@ import {
   BoardCoord,
   CrushItBoardGrid,
   DestroyedTileInfo,
-  PowerUpType,
+  PowerUpActivationRecord,
   TileColor,
+  TilePowerUp,
 } from '../../../shared/crushit/types';
 
-export interface ActiveBlastFx {
+export interface ActiveTurnFx {
   id: string;
-  kind: 'word' | 'powerup';
-  powerUpType?: PowerUpType;
-  targetCoord?: BoardCoord;
-  orientation?: 'row' | 'col';
+  activations: PowerUpActivationRecord[];
   destroyedTiles: DestroyedTileInfo[];
   scoreGained: number;
   centroidRow: number;
@@ -28,15 +26,11 @@ interface CrushItBoardProps {
   hasPowerUpReward: boolean;
   isLocked: boolean;
   isReshuffling: boolean;
+  illuminatedCoordKeys: Set<string>;
   destroyingCoordKeys: Set<string>;
   fallAnimationKey: number;
-  activePowerUp: PowerUpType | null;
-  powerUpPreviewCoords: BoardCoord[];
-  powerUpTargetCoord: BoardCoord | null;
-  activeBlastFx: ActiveBlastFx | null;
-  bannerText: string | null;
+  activeTurnFx: ActiveTurnFx | null;
   onPathChange: (nextPath: BoardCoord[], action: 'select' | 'undo' | 'start') => void;
-  onSelectPowerUpTarget: (coord: BoardCoord) => void;
 }
 
 const SPARK_COLORS: Record<TileColor, string> = {
@@ -46,6 +40,63 @@ const SPARK_COLORS: Record<TileColor, string> = {
   gold: '#ffe970',
 };
 
+function getPowerUpTileClass(powerUp?: TilePowerUp | null): string {
+  if (!powerUp) return '';
+  switch (powerUp.type) {
+    case 'line_blast':
+      return powerUp.orientation === 'col' ? 'ci6-tile--pu-line-col' : 'ci6-tile--pu-line-row';
+    case 'cross_blast':
+      return 'ci6-tile--pu-cross';
+    case 'word_bomb':
+      return 'ci6-tile--pu-bomb';
+    case 'letter_purge':
+      return 'ci6-tile--pu-purge';
+    case 'mega_blast':
+      return 'ci6-tile--pu-mega';
+  }
+}
+
+function renderPowerUpChrome(powerUp?: TilePowerUp | null) {
+  if (!powerUp) return null;
+  switch (powerUp.type) {
+    case 'line_blast':
+      return powerUp.orientation === 'col' ? (
+        <>
+          <span className="ci6-pu-flow-col" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--up" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--down" aria-hidden="true" />
+        </>
+      ) : (
+        <>
+          <span className="ci6-pu-flow-row" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--left" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--right" aria-hidden="true" />
+        </>
+      );
+    case 'cross_blast':
+      return (
+        <>
+          <span className="ci6-pu-cross-pulse" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--up" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--down" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--left" aria-hidden="true" />
+          <span className="ci6-pu-arrow ci6-pu-arrow--right" aria-hidden="true" />
+        </>
+      );
+    case 'word_bomb':
+      return <span className="ci6-pu-bomb-ring" aria-hidden="true" />;
+    case 'letter_purge':
+      return <span className="ci6-pu-purge-orbit" aria-hidden="true" />;
+    case 'mega_blast':
+      return (
+        <>
+          <span className="ci6-pu-mega-star" aria-hidden="true" />
+          <span className="ci6-pu-mega-core" aria-hidden="true" />
+        </>
+      );
+  }
+}
+
 export const CrushItBoard: React.FC<CrushItBoardProps> = ({
   board,
   selectedPath,
@@ -53,15 +104,11 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
   hasPowerUpReward,
   isLocked,
   isReshuffling,
+  illuminatedCoordKeys,
   destroyingCoordKeys,
   fallAnimationKey,
-  activePowerUp,
-  powerUpPreviewCoords,
-  powerUpTargetCoord,
-  activeBlastFx,
-  bannerText,
+  activeTurnFx,
   onPathChange,
-  onSelectPowerUpTarget,
 }) => {
   const gridRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
@@ -78,14 +125,6 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
     selectedPath.forEach((c, idx) => map.set(`${c.row},${c.col}`, idx));
     return map;
   }, [selectedPath]);
-
-  const previewSet = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of powerUpPreviewCoords) {
-      set.add(`${c.row},${c.col}`);
-    }
-    return set;
-  }, [powerUpPreviewCoords]);
 
   const hitTestCell = useCallback(
     (clientX: number, clientY: number, innerRadiusFactor: number): BoardCoord | null => {
@@ -123,15 +162,6 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
     const coord = hitTestCell(e.clientX, e.clientY, 1.0);
     if (!coord) return;
 
-    // Power-up targeting mode: tap or hover-drag aims the blast
-    if (activePowerUp) {
-      e.currentTarget.setPointerCapture(e.pointerId);
-      activePointerIdRef.current = e.pointerId;
-      draggingRef.current = true;
-      onSelectPowerUpTarget(coord);
-      return;
-    }
-
     e.currentTarget.setPointerCapture(e.pointerId);
     activePointerIdRef.current = e.pointerId;
     draggingRef.current = true;
@@ -148,7 +178,6 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
     }
 
     if (last && last.row === coord.row && last.col === coord.col) {
-      // Allow continuing swipe from last tile, or tapping it to undo on pointerUp
       return;
     }
 
@@ -165,27 +194,12 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
       return;
     }
 
-    // Starting a new swipe path on a non-adjacent tile seamlessly starts fresh
     onPathChange([coord], 'start');
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isLocked || !draggingRef.current || activePointerIdRef.current !== e.pointerId) return;
 
-    if (activePowerUp) {
-      const target = hitTestCell(e.clientX, e.clientY, 0.96);
-      if (
-        target &&
-        (!powerUpTargetCoord ||
-          powerUpTargetCoord.row !== target.row ||
-          powerUpTargetCoord.col !== target.col)
-      ) {
-        onSelectPowerUpTarget(target);
-      }
-      return;
-    }
-
-    // Inner circular hit radius (0.82 of half-cell = 41% of cell size) keeps diagonal swipes super accurate
     const coord = hitTestCell(e.clientX, e.clientY, 0.82);
     if (!coord) return;
 
@@ -198,7 +212,6 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
     const last = current[current.length - 1];
     if (last.row === coord.row && last.col === coord.col) return;
 
-    // Reverse swipe onto previous tile undoes the last letter
     if (current.length >= 2) {
       const prev = current[current.length - 2];
       if (prev.row === coord.row && prev.col === coord.col) {
@@ -208,12 +221,10 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
       }
     }
 
-    // Prevent reusing any tile already in the path
     if (current.some((c) => c.row === coord.row && c.col === coord.col)) {
       return;
     }
 
-    // Only allow 8-directional adjacent tiles
     if (isAdjacentCoord(last, coord)) {
       didExtendDuringDragRef.current = true;
       onPathChange([...current, coord], 'select');
@@ -227,12 +238,10 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
     }
 
     if (
-      !activePowerUp &&
       tappedLastOnDownRef.current &&
       !didExtendDuringDragRef.current &&
       pathRef.current.length > 0
     ) {
-      // Simple tap on the last selected tile pops it
       onPathChange(pathRef.current.slice(0, -1), 'undo');
     }
 
@@ -256,7 +265,7 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
   const beamColor = hasPowerUpReward ? '#fde047' : isValidWord ? '#34d399' : '#38bdf8';
 
   const sparkParticles = useMemo(() => {
-    if (!activeBlastFx) return [];
+    if (!activeTurnFx) return [];
     const list: Array<{
       key: string;
       left: string;
@@ -265,17 +274,17 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
       dy: string;
       color: string;
     }> = [];
-    const sample = activeBlastFx.destroyedTiles.slice(0, 16);
+    const sample = activeTurnFx.destroyedTiles.slice(0, 18);
     sample.forEach((dt, idx) => {
       const leftPct = ((dt.col + 0.5) / boardSize) * 100;
       const topPct = ((dt.row + 0.5) / boardSize) * 100;
-      const baseColor = SPARK_COLORS[dt.color] || '#ffffff';
+      const baseColor = dt.hadPowerUp ? '#fde047' : SPARK_COLORS[dt.color] || '#ffffff';
       const count = sample.length > 10 ? 2 : 3;
       for (let s = 0; s < count; s++) {
         const angle = ((idx * 137.5 + s * (360 / count)) * Math.PI) / 180;
-        const dist = 22 + ((idx * 17 + s * 13) % 22);
+        const dist = 22 + ((idx * 17 + s * 13) % 24);
         list.push({
-          key: `${activeBlastFx.id}_${dt.id}_${s}`,
+          key: `${activeTurnFx.id}_${dt.id}_${s}`,
           left: `${leftPct.toFixed(2)}%`,
           top: `${topPct.toFixed(2)}%`,
           dx: `${Math.round(Math.cos(angle) * dist)}px`,
@@ -285,14 +294,12 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
       }
     });
     return list;
-  }, [activeBlastFx, boardSize]);
+  }, [activeTurnFx, boardSize]);
 
   return (
     <div className="ci6-board-stage">
       <div
-        className={`ci6-board-frame ${activePowerUp ? 'is-targeting' : ''} ${
-          isReshuffling ? 'is-reshuffling' : ''
-        }`}
+        className={`ci6-board-frame ${isReshuffling ? 'is-reshuffling' : ''}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUpOrCancel}
@@ -305,39 +312,36 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
             rowArr.map((tile, cIdx) => {
               const coordKey = `${rIdx},${cIdx}`;
               const isSelected = selectedIndexMap.has(coordKey);
+              const isIlluminated = illuminatedCoordKeys.has(coordKey);
               const isDestroying = destroyingCoordKeys.has(coordKey);
-              const isBlastPreview = Boolean(activePowerUp && previewSet.has(coordKey));
-              const isBlastCenter = Boolean(
-                activePowerUp &&
-                  powerUpTargetCoord &&
-                  powerUpTargetCoord.row === rIdx &&
-                  powerUpTargetCoord.col === cIdx
-              );
               const shouldFall = fallAnimationKey > 0 && tile.fallDistance > 0 && !isDestroying;
+              const isJustBornPu =
+                fallAnimationKey > 0 && Boolean(tile.justCreatedPowerUp) && !isDestroying;
               const tilePts = getLetterBasePoints(tile.letter);
-              const showRarePts = tile.color === 'gold' || tile.color === 'green';
+              const showRarePts = !tile.powerUp && (tile.color === 'gold' || tile.color === 'green');
+              const puClass = getPowerUpTileClass(tile.powerUp);
 
               const style = shouldFall
                 ? ({
                     '--fall-rows': tile.fallDistance,
                     '--spawn-opacity': tile.isNew ? 0.35 : 1,
-                    animationDelay: `${Math.min(cIdx * 16 + (boardSize - 1 - rIdx) * 10, 120)}ms`,
+                    animationDelay: `${Math.min(cIdx * 14 + (boardSize - 1 - rIdx) * 9, 110)}ms`,
                   } as React.CSSProperties)
                 : undefined;
 
               return (
                 <div
-                  key={`${tile.id}_${shouldFall ? fallAnimationKey : 0}`}
+                  key={`${tile.id}_${shouldFall || isJustBornPu ? fallAnimationKey : 0}`}
                   className={[
                     'ci6-tile',
-                    `ci6-tile--${tile.color}`,
+                    puClass || `ci6-tile--${tile.color}`,
                     isSelected ? 'is-selected' : '',
                     isSelected && isValidWord ? 'is-valid-chain' : '',
                     isSelected && hasPowerUpReward ? 'is-powerup-chain' : '',
-                    isBlastPreview ? 'is-blast-preview' : '',
-                    isBlastCenter ? 'is-blast-center' : '',
+                    isIlluminated ? 'is-illuminated' : '',
                     isDestroying ? 'is-destroying' : '',
                     shouldFall ? 'is-falling' : '',
+                    isJustBornPu && !shouldFall ? 'is-pu-born' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')}
@@ -346,7 +350,10 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
                   data-col={cIdx}
                   data-letter={tile.letter}
                   data-color={tile.color}
+                  data-powerup={tile.powerUp?.type ?? ''}
+                  data-orientation={tile.powerUp?.orientation ?? ''}
                 >
+                  {renderPowerUpChrome(tile.powerUp)}
                   <span className="ci6-tile-letter">{tile.letter}</span>
                   {showRarePts && (
                     <span className="ci6-tile-pts" aria-hidden="true">
@@ -358,8 +365,7 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
             })
           )}
 
-          {/* Smooth glowing swipe path */}
-          {svgPoints && !activePowerUp && (
+          {svgPoints && (
             <svg
               className="ci6-path-svg"
               viewBox="0 0 100 100"
@@ -376,8 +382,8 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
           )}
         </div>
 
-        {/* Destruction sparks, power-up beams/shockwaves & floating score */}
-        {activeBlastFx && (
+        {/* Distinct Power-Up Activation FX, Purge Tethers, Chain Arcs & Floating Score */}
+        {activeTurnFx && (
           <div className="ci6-fx-layer" aria-hidden="true">
             {sparkParticles.map((sp) => (
               <span
@@ -395,76 +401,110 @@ export const CrushItBoard: React.FC<CrushItBoardProps> = ({
               />
             ))}
 
-            {activeBlastFx.kind === 'powerup' && activeBlastFx.targetCoord && (
-              <>
-                {(activeBlastFx.powerUpType === 'line_blast' &&
-                  (activeBlastFx.orientation ?? 'row') === 'row') ||
-                activeBlastFx.powerUpType === 'cross_blast' ||
-                activeBlastFx.powerUpType === 'mega_blast' ? (
-                  <div
-                    className="ci6-beam-h"
-                    style={{
-                      left: 0,
-                      right: 0,
-                      top: `${((activeBlastFx.targetCoord.row + 0.5) / boardSize) * 100}%`,
-                      height: '11%',
-                      transform: 'translateY(-50%)',
-                    }}
-                  />
-                ) : null}
+            {/* SVG energy tethers for Letter Purge & Chain Reactions */}
+            <svg
+              className="ci6-fx-svg"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+            >
+              {activeTurnFx.activations.map((act, idx) => {
+                const x1 = ((act.col + 0.5) / boardSize) * 100;
+                const y1 = ((act.row + 0.5) / boardSize) * 100;
+                const delay = `${act.chainDepth * 70}ms`;
 
-                {(activeBlastFx.powerUpType === 'line_blast' &&
-                  activeBlastFx.orientation === 'col') ||
-                activeBlastFx.powerUpType === 'cross_blast' ||
-                activeBlastFx.powerUpType === 'mega_blast' ? (
-                  <div
-                    className="ci6-beam-v"
-                    style={{
-                      top: 0,
-                      bottom: 0,
-                      left: `${((activeBlastFx.targetCoord.col + 0.5) / boardSize) * 100}%`,
-                      width: '11%',
-                      transform: 'translateX(-50%)',
-                    }}
-                  />
-                ) : null}
+                return (
+                  <React.Fragment key={`svg_${act.tileId}_${idx}`}>
+                    {act.triggeredBy && (
+                      <line
+                        x1={((act.triggeredBy.col + 0.5) / boardSize) * 100}
+                        y1={((act.triggeredBy.row + 0.5) / boardSize) * 100}
+                        x2={x1}
+                        y2={y1}
+                        className="ci6-chain-arc"
+                        style={{ animationDelay: delay }}
+                      />
+                    )}
+                    {act.type === 'letter_purge' &&
+                      act.affectedCoords.map((ac, acIdx) => (
+                        <line
+                          key={`pt_${acIdx}`}
+                          x1={x1}
+                          y1={y1}
+                          x2={((ac.col + 0.5) / boardSize) * 100}
+                          y2={((ac.row + 0.5) / boardSize) * 100}
+                          className="ci6-purge-tether"
+                          style={{ animationDelay: delay }}
+                        />
+                      ))}
+                  </React.Fragment>
+                );
+              })}
+            </svg>
 
-                {(activeBlastFx.powerUpType === 'word_bomb' ||
-                  activeBlastFx.powerUpType === 'mega_blast' ||
-                  activeBlastFx.powerUpType === 'letter_purge') && (
-                  <div
-                    className="ci6-blast-wave"
-                    style={
-                      {
-                        left: `${((activeBlastFx.targetCoord.col + 0.5) / boardSize) * 100}%`,
-                        top: `${((activeBlastFx.targetCoord.row + 0.5) / boardSize) * 100}%`,
-                        '--wave-size':
-                          activeBlastFx.powerUpType === 'mega_blast' ? '340px' : '210px',
-                      } as React.CSSProperties
-                    }
-                  />
-                )}
-              </>
-            )}
+            {/* Row/Col Beams & Radial/Mega Shockwaves for every activated power-up */}
+            {activeTurnFx.activations.map((act, idx) => {
+              const leftPct = `${((act.col + 0.5) / boardSize) * 100}%`;
+              const topPct = `${((act.row + 0.5) / boardSize) * 100}%`;
+              const delay = `${act.chainDepth * 75}ms`;
+              return (
+                <React.Fragment key={`fx_${act.tileId}_${idx}`}>
+                  {((act.type === 'line_blast' && (act.orientation ?? 'row') === 'row') ||
+                    act.type === 'cross_blast') && (
+                    <div
+                      className={`ci6-beam-h ${act.type === 'cross_blast' ? 'is-violet' : ''}`}
+                      style={{
+                        left: 0,
+                        right: 0,
+                        top: topPct,
+                        height: '11%',
+                        transform: 'translateY(-50%)',
+                        animationDelay: delay,
+                      }}
+                    />
+                  )}
+                  {((act.type === 'line_blast' && act.orientation === 'col') ||
+                    act.type === 'cross_blast') && (
+                    <div
+                      className={`ci6-beam-v ${act.type === 'cross_blast' ? 'is-violet' : ''}`}
+                      style={{
+                        top: 0,
+                        bottom: 0,
+                        left: leftPct,
+                        width: '11%',
+                        transform: 'translateX(-50%)',
+                        animationDelay: delay,
+                      }}
+                    />
+                  )}
+                  {(act.type === 'word_bomb' || act.type === 'mega_blast') && (
+                    <div
+                      className={`ci6-blast-wave ${act.type === 'mega_blast' ? 'is-mega' : ''}`}
+                      style={
+                        {
+                          left: leftPct,
+                          top: topPct,
+                          '--wave-size': act.type === 'mega_blast' ? '310px' : '190px',
+                          animationDelay: delay,
+                        } as React.CSSProperties
+                      }
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
 
-            {activeBlastFx.scoreGained > 0 && (
+            {activeTurnFx.scoreGained > 0 && (
               <div
-                key={`score_${activeBlastFx.id}`}
+                key={`score_${activeTurnFx.id}`}
                 className="ci6-float-score"
                 style={{
-                  left: `${Math.min(82, Math.max(18, ((activeBlastFx.centroidCol + 0.5) / boardSize) * 100))}%`,
-                  top: `${Math.min(82, Math.max(18, ((activeBlastFx.centroidRow + 0.5) / boardSize) * 100))}%`,
+                  left: `${Math.min(82, Math.max(18, ((activeTurnFx.centroidCol + 0.5) / boardSize) * 100))}%`,
+                  top: `${Math.min(82, Math.max(18, ((activeTurnFx.centroidRow + 0.5) / boardSize) * 100))}%`,
                 }}
               >
-                +{activeBlastFx.scoreGained}
+                +{activeTurnFx.scoreGained.toLocaleString()}
               </div>
             )}
-          </div>
-        )}
-
-        {bannerText && (
-          <div className="ci6-board-banner" role="status" aria-live="polite">
-            {bannerText}
           </div>
         )}
       </div>

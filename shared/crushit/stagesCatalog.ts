@@ -1,6 +1,6 @@
 import {
   CrushItStageConfig,
-  PowerUpInventory,
+  PowerUpSeedConfig,
   PowerUpType,
   StageObjectiveConfig,
   StageTier,
@@ -167,7 +167,7 @@ interface StageSpec {
   scoreTarget: number;
   maxMoves: number;
   objectives: StageObjectiveConfig[];
-  startingPowerUps?: Partial<PowerUpInventory>;
+  startingPowerUps?: PowerUpSeedConfig;
   description: string;
 }
 
@@ -247,7 +247,7 @@ const STAGE_SPECS: StageSpec[] = [
     maxMoves: 18,
     objectives: [objScore(680), objSpecificPowerUp('line_blast', 1)],
     startingPowerUps: { line_blast: 1 },
-    description: 'Select Line Blast from your toolbar to clear an entire row or column.',
+    description: 'Include the Line Blast tile inside a valid word to clear its entire row or column!',
   },
   {
     stageNumber: 6,
@@ -546,7 +546,7 @@ const STAGE_SPECS: StageSpec[] = [
     scoreTarget: 5750,
     maxMoves: 16,
     objectives: [objScore(5750), objAnyPowerUp(5), objTiles(110)],
-    description: 'Keep the power-up toolbar firing — five blasts required!',
+    description: 'Trigger power-up tiles and chain reactions — five blasts required!',
   },
   {
     stageNumber: 38,

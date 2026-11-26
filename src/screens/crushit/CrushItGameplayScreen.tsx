@@ -2,13 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
-  Bomb,
-  Check,
   CheckCircle2,
-  Flame,
+  Crown,
   HelpCircle,
-  Minus,
-  Plus,
   RotateCcw,
   Shuffle,
   Sparkles,
@@ -18,30 +14,25 @@ import {
   Volume2,
   VolumeX,
   X,
-  Zap,
 } from 'lucide-react';
 import {
-  activatePowerUpMove,
   createCrushItGameState,
   evaluateWordPreview,
   manualReshuffleBoard,
   submitWordMove,
 } from '../../../shared/crushit/engine';
-import {
-  getPowerUpAffectedCoords,
-  POWER_UP_CONFIG,
-  POWER_UP_ORDER,
-} from '../../../shared/crushit/powerUpConfig';
+import { POWER_UP_CONFIG, POWER_UP_ORDER } from '../../../shared/crushit/powerUpConfig';
 import { CRUSHIT_TOTAL_STAGES, getCrushItStage } from '../../../shared/crushit/stagesCatalog';
 import {
   BoardCoord,
   CrushItGameState,
+  CrushItLifecyclePhase,
   CrushItProgressionState,
   CrushItStageResultPayload,
   PowerUpType,
   TurnResolutionEvent,
 } from '../../../shared/crushit/types';
-import { ActiveBlastFx, CrushItBoard } from '../../games/crushit/CrushItBoard';
+import { ActiveTurnFx, CrushItBoard } from '../../games/crushit/CrushItBoard';
 import { CrushItDictionaryBundle, loadCrushItDictionary } from '../../games/crushit/dictionary';
 import {
   crushItSfx,
@@ -58,18 +49,33 @@ interface CrushItGameplayScreenProps {
   onRecordStageResult: (payload: CrushItStageResultPayload) => void;
 }
 
-function renderPowerUpIcon(type: PowerUpType, size = 17) {
+function getCreatedFeedbackLabel(type: PowerUpType): string {
   switch (type) {
     case 'line_blast':
-      return <Minus size={size} strokeWidth={3} />;
+      return 'LINE BLAST CREATED!';
     case 'cross_blast':
-      return <Plus size={size} strokeWidth={3} />;
+      return 'CROSS BLAST CREATED!';
     case 'word_bomb':
-      return <Bomb size={size} strokeWidth={2.4} />;
+      return 'WORD BOMB CREATED!';
     case 'letter_purge':
-      return <Sparkles size={size} strokeWidth={2.4} />;
+      return 'LETTER PURGE CREATED!';
     case 'mega_blast':
-      return <Flame size={size} strokeWidth={2.5} />;
+      return 'MEGA BLAST CREATED!';
+  }
+}
+
+function getActivatedFeedbackLabel(type: PowerUpType): string {
+  switch (type) {
+    case 'line_blast':
+      return 'LINE BLAST!';
+    case 'cross_blast':
+      return 'CROSS BLAST!';
+    case 'word_bomb':
+      return 'WORD BOMB!';
+    case 'letter_purge':
+      return 'LETTER PURGE!';
+    case 'mega_blast':
+      return 'MEGA BLAST!';
   }
 }
 
@@ -83,27 +89,29 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
   const [dictBundle, setDictBundle] = useState<CrushItDictionaryBundle | null>(null);
   const [gameState, setGameState] = useState<CrushItGameState | null>(null);
   const [selectedPath, setSelectedPath] = useState<BoardCoord[]>([]);
-  const [activePowerUp, setActivePowerUp] = useState<PowerUpType | null>(null);
-  const [lineOrientation, setLineOrientation] = useState<'row' | 'col'>('row');
-  const [powerUpTarget, setPowerUpTarget] = useState<BoardCoord | null>(null);
 
-  // Animation states (prevents overlapping animations & input races)
-  const [animLocked, setAnimLocked] = useState(false);
+  // Explicit stage lifecycle tracking (RESOLVING locks input during animation without altering qualification)
+  const [isResolving, setIsResolving] = useState(false);
+  const [illuminatedCoordKeys, setIlluminatedCoordKeys] = useState<Set<string>>(() => new Set());
   const [destroyingCoordKeys, setDestroyingCoordKeys] = useState<Set<string>>(() => new Set());
   const [fallAnimationKey, setFallAnimationKey] = useState(0);
   const [isReshuffling, setIsReshuffling] = useState(false);
-  const [activeBlastFx, setActiveBlastFx] = useState<ActiveBlastFx | null>(null);
-  const [bannerText, setBannerText] = useState<string | null>(null);
+  const [activeTurnFx, setActiveTurnFx] = useState<ActiveTurnFx | null>(null);
+  const [feedbackNotice, setFeedbackNotice] = useState<{
+    text: string;
+    tone: 'default' | 'chain' | 'qualified';
+  } | null>(null);
   const [invalidShake, setInvalidShake] = useState(false);
-  const [justEarnedPowerUp, setJustEarnedPowerUp] = useState<PowerUpType | null>(null);
   const [justCompletedObjIds, setJustCompletedObjIds] = useState<Set<string>>(() => new Set());
 
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [showOutcomeModal, setShowOutcomeModal] = useState(false);
+  const [showResultsModal, setShowResultsModal] = useState(false);
+  const [isNewPersonalBest, setIsNewPersonalBest] = useState(false);
   const [muted, setMuted] = useState<boolean>(() => isSfxMuted());
 
   const timersRef = useRef<number[]>([]);
   const recordedSessionIdRef = useRef<string | null>(null);
+  const initialBestScoreRef = useRef<number>(0);
 
   const clearTimers = useCallback(() => {
     for (const id of timersRef.current) {
@@ -137,29 +145,34 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
       clearTimers();
       const fresh = createCrushItGameState(targetStageNum, bundle.trie);
       recordedSessionIdRef.current = null;
+      initialBestScoreRef.current = progression.stages[targetStageNum]?.bestScore ?? 0;
       setGameState(fresh);
       setSelectedPath([]);
-      setActivePowerUp(null);
-      setPowerUpTarget(null);
-      setLineOrientation('row');
-      setAnimLocked(false);
+      setIsResolving(false);
+      setIlluminatedCoordKeys(new Set());
       setDestroyingCoordKeys(new Set());
       setFallAnimationKey(0);
       setIsReshuffling(false);
-      setActiveBlastFx(null);
-      setBannerText(null);
-      setShowOutcomeModal(false);
-      setJustEarnedPowerUp(null);
+      setActiveTurnFx(null);
+      setFeedbackNotice(null);
+      setShowResultsModal(false);
+      setIsNewPersonalBest(false);
       setJustCompletedObjIds(new Set());
     },
-    [clearTimers]
+    [clearTimers, progression.stages]
   );
 
   useEffect(() => {
     if (!dictBundle) return;
     startFreshStage(stageNumber, dictBundle);
     return () => clearTimers();
-  }, [dictBundle, stageNumber, startFreshStage, clearTimers]);
+    // Intentionally only restart when dictionary finishes loading or user switches stageNumber
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dictBundle, stageNumber]);
+
+  const effectiveLifecycle: CrushItLifecyclePhase = isResolving
+    ? 'RESOLVING'
+    : gameState?.lifecyclePhase ?? 'PLAYING';
 
   const wordPreview = useMemo(() => {
     if (!gameState || !dictBundle) {
@@ -170,136 +183,182 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
         reason: 'empty' as const,
         potentialScore: 0,
         earnedPowerUp: null,
+        includedPowerUps: [],
       };
     }
     return evaluateWordPreview(gameState.board, selectedPath, dictBundle.words);
   }, [gameState, dictBundle, selectedPath]);
 
-  const powerUpPreviewCoords = useMemo(() => {
-    if (!gameState || !activePowerUp || !powerUpTarget) return [];
-    return getPowerUpAffectedCoords(gameState.board, {
-      type: activePowerUp,
-      row: powerUpTarget.row,
-      col: powerUpTarget.col,
-      orientation: activePowerUp === 'line_blast' ? lineOrientation : undefined,
-    });
-  }, [gameState, activePowerUp, powerUpTarget, lineOrientation]);
+  /**
+   * Finalizes stage outcome ONLY when movesRemaining === 0 AND all animations/chain reactions
+   * have completely finished resolving. Never triggers early while moves remain.
+   */
+  const finalizeTerminalOutcomeIfReady = useCallback(
+    (resolvedState: CrushItGameState) => {
+      if (resolvedState.lifecyclePhase !== 'VICTORY' && resolvedState.lifecyclePhase !== 'FAILURE') {
+        return;
+      }
+      if (recordedSessionIdRef.current !== resolvedState.sessionId) {
+        recordedSessionIdRef.current = resolvedState.sessionId;
+        const beatPriorBest =
+          resolvedState.score > 0 && resolvedState.score > initialBestScoreRef.current;
+        setIsNewPersonalBest(beatPriorBest);
 
-  const finalizeOutcomeIfNeeded = useCallback(
-    (nextState: CrushItGameState) => {
-      if (nextState.status === 'playing') return;
-      if (recordedSessionIdRef.current !== nextState.sessionId) {
-        recordedSessionIdRef.current = nextState.sessionId;
         onRecordStageResult({
-          stageNumber: nextState.stage.stageNumber,
-          completed: nextState.status === 'won',
-          score: nextState.score,
-          stars: nextState.starsEarned,
-          movesRemaining: nextState.movesRemaining,
-          wordsFormed: nextState.wordsFormed,
-          longestWordLength: nextState.longestWordLength,
-          powerUpsUsed: nextState.powerUpsUsed,
+          stageNumber: resolvedState.stage.stageNumber,
+          completed: resolvedState.lifecyclePhase === 'VICTORY',
+          score: resolvedState.score,
+          stars: resolvedState.starsEarned,
+          movesRemaining: resolvedState.movesRemaining,
+          wordsFormed: resolvedState.wordsFormed,
+          longestWordLength: resolvedState.longestWordLength,
+          powerUpsUsed: resolvedState.powerUpsUsed,
         });
       }
-      if (nextState.status === 'won') {
+
+      if (resolvedState.lifecyclePhase === 'VICTORY') {
         crushItSfx.stageWin();
       } else {
         crushItSfx.stageLose();
       }
-      setShowOutcomeModal(true);
+      setShowResultsModal(true);
     },
     [onRecordStageResult]
   );
 
-  const runTurnAnimationSequence = useCallback(
+  const runTurnResolution = useCallback(
     (nextState: CrushItGameState, event: TurnResolutionEvent) => {
-      setAnimLocked(true);
+      setIsResolving(true);
       setSelectedPath([]);
-      setActivePowerUp(null);
-      setPowerUpTarget(null);
 
-      // Compute centroid for floating score
+      // Compute centroid for floating score popup
       let sumR = 0;
       let sumC = 0;
       for (const dt of event.destroyedTiles) {
         sumR += dt.row;
         sumC += dt.col;
       }
-      const count = Math.max(1, event.destroyedTiles.length);
-      const centroidRow = event.targetCoord ? event.targetCoord.row : sumR / count;
-      const centroidCol = event.targetCoord ? event.targetCoord.col : sumC / count;
+      const denom = Math.max(1, event.destroyedTiles.length);
+      const centroidRow =
+        event.activations.length > 0 ? event.activations[0].row : sumR / denom;
+      const centroidCol =
+        event.activations.length > 0 ? event.activations[0].col : sumC / denom;
 
-      // Phase 1: Tile destruction burst & blast effects
-      const destroySet = new Set(event.destroyedTiles.map((d) => `${d.row},${d.col}`));
-      setDestroyingCoordKeys(destroySet);
-      setActiveBlastFx({
-        id: `fx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        kind: event.kind === 'powerup' ? 'powerup' : 'word',
-        powerUpType: event.powerUpType,
-        targetCoord: event.targetCoord,
-        orientation: event.orientation,
-        destroyedTiles: event.destroyedTiles,
-        scoreGained: event.scoreGained,
-        centroidRow,
-        centroidCol,
-      });
-
-      if (event.kind === 'powerup') {
-        crushItSfx.powerUpBlast(event.powerUpType === 'mega_blast');
-      } else {
-        crushItSfx.wordValid(event.word?.length ?? 3);
+      // Determine feedback pill text (unobtrusive, above board)
+      let notice: { text: string; tone: 'default' | 'chain' | 'qualified' } | null = null;
+      if (event.justQualifiedAllObjectives && nextState.movesRemaining > 0) {
+        notice = { text: 'OBJECTIVES COMPLETE!', tone: 'qualified' };
+      } else if (event.chainReactionSize >= 2) {
+        notice = { text: `CHAIN REACTION ×${event.chainReactionSize}!`, tone: 'chain' };
+      } else if (event.activations.length === 1) {
+        notice = { text: getActivatedFeedbackLabel(event.activations[0].type), tone: 'chain' };
+      } else if (event.createdPowerUp) {
+        notice = {
+          text: getCreatedFeedbackLabel(event.createdPowerUp.powerUp.type),
+          tone: 'default',
+        };
+      } else if (
+        nextState.score > initialBestScoreRef.current &&
+        initialBestScoreRef.current > 0 &&
+        nextState.score - event.scoreGained <= initialBestScoreRef.current
+      ) {
+        notice = { text: 'NEW PERSONAL BEST!', tone: 'qualified' };
       }
 
-      if (event.earnedPowerUp) {
-        const puDef = POWER_UP_CONFIG[event.earnedPowerUp];
-        setJustEarnedPowerUp(event.earnedPowerUp);
-        setBannerText(`+${puDef.name} Earned!`);
-        schedule(() => crushItSfx.powerUpEarned(), 110);
-        schedule(() => setJustEarnedPowerUp(null), 700);
-        schedule(() => setBannerText((prev) => (prev === `+${puDef.name} Earned!` ? null : prev)), 950);
+      if (notice) {
+        setFeedbackNotice(notice);
+        schedule(() => setFeedbackNotice(null), 1350);
       }
 
-      // Phase 2: Gravity drop & weighted refill
-      schedule(() => {
-        setDestroyingCoordKeys(new Set());
-        setGameState(nextState);
-        setFallAnimationKey((k) => k + 1);
+      // Brief illumination preview for Letter Purge / Mega Blast before destruction pop
+      const needsPreIlluminate = event.activations.some(
+        (a) => a.type === 'letter_purge' || a.type === 'mega_blast'
+      );
+      const preDelayMs = needsPreIlluminate ? 160 : 0;
 
-        if (event.newlyCompletedObjectiveIds.length > 0) {
-          crushItSfx.objectiveComplete();
-          setJustCompletedObjIds(new Set(event.newlyCompletedObjectiveIds));
-          schedule(() => setJustCompletedObjIds(new Set()), 650);
+      if (needsPreIlluminate) {
+        const illumSet = new Set<string>();
+        for (const a of event.activations) {
+          for (const c of a.affectedCoords) illumSet.add(`${c.row},${c.col}`);
         }
+        setIlluminatedCoordKeys(illumSet);
+      }
 
-        // Phase 3: Auto-reshuffle if dead board was detected
-        if (event.autoReshuffled) {
-          schedule(() => {
-            setIsReshuffling(true);
-            setBannerText('No playable words — Reshuffling!');
-            crushItSfx.reshuffle();
+      const startDestructionPhase = () => {
+        setIlluminatedCoordKeys(new Set());
+        const destroySet = new Set(event.destroyedTiles.map((d) => `${d.row},${d.col}`));
+        setDestroyingCoordKeys(destroySet);
+        setActiveTurnFx({
+          id: `fx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          activations: event.activations,
+          destroyedTiles: event.destroyedTiles,
+          scoreGained: event.scoreGained,
+          centroidRow,
+          centroidCol,
+        });
 
-            schedule(() => {
-              setIsReshuffling(false);
-              setBannerText(null);
-              setActiveBlastFx(null);
-              setAnimLocked(false);
-              finalizeOutcomeIfNeeded(nextState);
-            }, 520);
-          }, 340);
+        if (event.activations.length > 0) {
+          const hasMega = event.activations.some((a) => a.type === 'mega_blast');
+          crushItSfx.powerUpBlast(hasMega);
         } else {
-          schedule(() => {
-            setActiveBlastFx(null);
-            setAnimLocked(false);
-            finalizeOutcomeIfNeeded(nextState);
-          }, 360);
+          crushItSfx.wordValid(event.word?.length ?? 3);
         }
-      }, 240);
+
+        if (event.createdPowerUp) {
+          schedule(() => crushItSfx.powerUpEarned(), 110);
+        }
+
+        const destroyDurationMs = event.chainReactionSize >= 2 ? 320 : 250;
+
+        // Phase 2: Gravity & weighted replenishment
+        schedule(() => {
+          setDestroyingCoordKeys(new Set());
+          setGameState(nextState);
+          setFallAnimationKey((k) => k + 1);
+
+          if (event.newlyCompletedObjectiveIds.length > 0) {
+            crushItSfx.objectiveComplete();
+            setJustCompletedObjIds(new Set(event.newlyCompletedObjectiveIds));
+            schedule(() => setJustCompletedObjIds(new Set()), 650);
+          }
+
+          // Phase 3: Automatic dead-board reshuffle (if triggered)
+          if (event.autoReshuffled) {
+            schedule(() => {
+              setIsReshuffling(true);
+              setFeedbackNotice({ text: 'NO PLAYABLE WORDS — RESHUFFLING!', tone: 'default' });
+              crushItSfx.reshuffle();
+
+              schedule(() => {
+                setIsReshuffling(false);
+                setFeedbackNotice(null);
+                setActiveTurnFx(null);
+                setIsResolving(false);
+                finalizeTerminalOutcomeIfReady(nextState);
+              }, 500);
+            }, 340);
+          } else {
+            schedule(() => {
+              setActiveTurnFx(null);
+              setIsResolving(false);
+              finalizeTerminalOutcomeIfReady(nextState);
+            }, 360);
+          }
+        }, destroyDurationMs);
+      };
+
+      if (preDelayMs > 0) {
+        schedule(startDestructionPhase, preDelayMs);
+      } else {
+        startDestructionPhase();
+      }
     },
-    [finalizeOutcomeIfNeeded, schedule]
+    [finalizeTerminalOutcomeIfReady, schedule]
   );
 
-  const handleConfirmWord = useCallback(() => {
-    if (!gameState || !dictBundle || animLocked || gameState.status !== 'playing') return;
+  const handleSubmitWord = useCallback(() => {
+    if (!gameState || !dictBundle || isResolving) return;
+    if (gameState.lifecyclePhase === 'VICTORY' || gameState.lifecyclePhase === 'FAILURE') return;
     if (selectedPath.length === 0) return;
 
     const result = submitWordMove(gameState, selectedPath, dictBundle.words, dictBundle.trie);
@@ -310,72 +369,32 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
       return;
     }
 
-    runTurnAnimationSequence(result.state, result.event);
-  }, [gameState, dictBundle, animLocked, selectedPath, runTurnAnimationSequence, schedule]);
-
-  const handleActivatePowerUp = useCallback(() => {
-    if (
-      !gameState ||
-      !dictBundle ||
-      animLocked ||
-      gameState.status !== 'playing' ||
-      !activePowerUp ||
-      !powerUpTarget
-    ) {
-      return;
-    }
-
-    const res = activatePowerUpMove(
-      gameState,
-      {
-        type: activePowerUp,
-        row: powerUpTarget.row,
-        col: powerUpTarget.col,
-        orientation: activePowerUp === 'line_blast' ? lineOrientation : undefined,
-      },
-      dictBundle.trie
-    );
-
-    if (!res.accepted || !res.event) {
-      crushItSfx.wordInvalid();
-      return;
-    }
-
-    runTurnAnimationSequence(res.state, res.event);
-  }, [
-    gameState,
-    dictBundle,
-    animLocked,
-    activePowerUp,
-    powerUpTarget,
-    lineOrientation,
-    runTurnAnimationSequence,
-  ]);
+    runTurnResolution(result.state, result.event);
+  }, [gameState, dictBundle, isResolving, selectedPath, runTurnResolution, schedule]);
 
   const handleManualReshuffle = useCallback(() => {
-    if (!gameState || !dictBundle || animLocked || gameState.status !== 'playing') return;
+    if (!gameState || !dictBundle || isResolving) return;
+    if (gameState.lifecyclePhase === 'VICTORY' || gameState.lifecyclePhase === 'FAILURE') return;
     if (gameState.manualShufflesRemaining <= 0) return;
 
     const res = manualReshuffleBoard(gameState, dictBundle.trie);
     if (!res.accepted) return;
 
     setSelectedPath([]);
-    setActivePowerUp(null);
-    setPowerUpTarget(null);
-    setAnimLocked(true);
+    setIsResolving(true);
     setIsReshuffling(true);
-    setBannerText('Board Reshuffled!');
+    setFeedbackNotice({ text: 'BOARD RESHUFFLED!', tone: 'default' });
     crushItSfx.reshuffle();
 
     schedule(() => {
       setGameState(res.state);
       schedule(() => {
         setIsReshuffling(false);
-        setBannerText(null);
-        setAnimLocked(false);
+        setFeedbackNotice(null);
+        setIsResolving(false);
       }, 280);
     }, 200);
-  }, [gameState, dictBundle, animLocked, schedule]);
+  }, [gameState, dictBundle, isResolving, schedule]);
 
   const handlePathChange = useCallback(
     (nextPath: BoardCoord[], action: 'select' | 'undo' | 'start') => {
@@ -389,62 +408,50 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
     []
   );
 
-  const handleSelectPowerUpSlot = (type: PowerUpType) => {
-    if (!gameState || animLocked || gameState.status !== 'playing') return;
-    if ((gameState.inventory[type] ?? 0) <= 0) return;
-
-    if (activePowerUp === type) {
-      setActivePowerUp(null);
-      setPowerUpTarget(null);
-      return;
-    }
-
-    setSelectedPath([]);
-    setActivePowerUp(type);
-    // Pre-aim center of board so player immediately sees targeting preview
-    setPowerUpTarget({ row: 3, col: 3 });
-    crushItSfx.tileSelect(2);
-  };
-
-  const handleSelectPowerUpTarget = useCallback((coord: BoardCoord) => {
-    setPowerUpTarget(coord);
-    crushItSfx.tileSelect(1);
-  }, []);
-
-  // Keyboard shortcuts for desktop players (Enter = Confirm, Escape = Cancel)
+  // Keyboard shortcuts for desktop players
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (showHelpModal) {
         if (e.key === 'Escape') setShowHelpModal(false);
         return;
       }
-      if (showOutcomeModal) return;
-      if (e.key === 'Escape') {
-        if (activePowerUp) {
-          setActivePowerUp(null);
-          setPowerUpTarget(null);
-        } else if (selectedPath.length > 0) {
-          setSelectedPath([]);
-        }
-      } else if (e.key === 'Enter') {
-        if (activePowerUp && powerUpTarget) {
-          handleActivatePowerUp();
-        } else if (selectedPath.length >= 3) {
-          handleConfirmWord();
-        }
+      if (showResultsModal) return;
+      if (e.key === 'Escape' && selectedPath.length > 0) {
+        setSelectedPath([]);
+      } else if (e.key === 'Enter' && selectedPath.length >= 3) {
+        handleSubmitWord();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [
-    showHelpModal,
-    showOutcomeModal,
-    activePowerUp,
-    powerUpTarget,
-    selectedPath,
-    handleActivatePowerUp,
-    handleConfirmWord,
-  ]);
+  }, [showHelpModal, showResultsModal, selectedPath, handleSubmitWord]);
+
+  // Live unobtrusive hint pill above board when swiping a power-up word or power-up tiles
+  const liveSwipePill = useMemo(() => {
+    if (feedbackNotice) return feedbackNotice;
+    if (!wordPreview.isValid) return null;
+    if (wordPreview.earnedPowerUp && wordPreview.includedPowerUps.length > 0) {
+      const puDef = POWER_UP_CONFIG[wordPreview.earnedPowerUp];
+      return {
+        text: `${wordPreview.length}-letter word → ${puDef.shortName} + ${wordPreview.includedPowerUps.length} Blast${wordPreview.includedPowerUps.length > 1 ? 's' : ''}`,
+        tone: 'chain' as const,
+      };
+    }
+    if (wordPreview.earnedPowerUp) {
+      const puDef = POWER_UP_CONFIG[wordPreview.earnedPowerUp];
+      return {
+        text: `${wordPreview.length}-letter word → ${puDef.shortName}`,
+        tone: 'default' as const,
+      };
+    }
+    if (wordPreview.includedPowerUps.length > 0) {
+      return {
+        text: `Triggers ${wordPreview.includedPowerUps.length} Power-Up${wordPreview.includedPowerUps.length > 1 ? 's' : ''}!`,
+        tone: 'chain' as const,
+      };
+    }
+    return null;
+  }, [feedbackNotice, wordPreview]);
 
   if (!gameState) {
     return (
@@ -469,18 +476,22 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
   }
 
   const stage = gameState.stage;
-  const scorePct = Math.min(100, Math.round((gameState.score / Math.max(1, stage.scoreTarget)) * 100));
-  const bestForStage = progression.stages[stage.stageNumber]?.bestScore ?? 0;
+  const isQualified = gameState.objectivesComplete && gameState.movesRemaining > 0;
+  const isTerminal =
+    gameState.lifecyclePhase === 'VICTORY' || gameState.lifecyclePhase === 'FAILURE';
   const hasNextStage = stage.stageNumber < CRUSHIT_TOTAL_STAGES;
   const nextStageConfig = hasNextStage ? getCrushItStage(stage.stageNumber + 1) : null;
-  const activePuDef = activePowerUp ? POWER_UP_CONFIG[activePowerUp] : null;
+  const displayBestScore = Math.max(
+    progression.stages[stage.stageNumber]?.bestScore ?? 0,
+    gameState.score
+  );
 
   return (
-    <div className="ci6-play-shell">
+    <div className="ci6-play-shell" data-lifecycle={effectiveLifecycle}>
       <div className="ens-sky-sparkles" aria-hidden="true" />
 
       <div className="ci6-play-inner">
-        {/* TOP SECTION: Compact Brand Bar + Wide Stage Goal & Objectives */}
+        {/* TOP BRAND BAR */}
         <header className="ci6-topbar">
           <div className="ci6-topbar-left">
             <button
@@ -502,9 +513,17 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
           </div>
 
           <div className="ci6-topbar-right">
-            <span className="ci6-stage-badge" title={stage.title}>
-              Stage {stage.stageNumber}
-            </span>
+            <button
+              type="button"
+              className="ci6-icon-btn"
+              disabled={isResolving || isTerminal || gameState.manualShufflesRemaining <= 0}
+              onClick={handleManualReshuffle}
+              aria-label={`Shuffle board, ${gameState.manualShufflesRemaining} remaining`}
+              title={`Shuffle Board (${gameState.manualShufflesRemaining} free left)`}
+            >
+              <Shuffle size={15} />
+              <span className="ci6-icon-badge">{gameState.manualShufflesRemaining}</span>
+            </button>
             <button
               type="button"
               className="ci6-icon-btn"
@@ -526,256 +545,176 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
           </div>
         </header>
 
-        <section className="ci6-hud-panel" aria-label="Stage progress and objectives">
-          <div className="ci6-hud-top-row">
-            <div className="ci6-score-block">
-              <div className="ci6-score-header">
-                <span className="ci6-score-value">{gameState.score.toLocaleString()}</span>
-                <span className="ci6-score-target">
-                  Goal {stage.scoreTarget.toLocaleString()}
-                </span>
-              </div>
-              <div className="ci6-progress-track">
-                <div className="ci6-progress-fill" style={{ width: `${scorePct}%` }} />
-              </div>
-            </div>
-
-            <div
-              className={`ci6-moves-pill ${
-                gameState.movesRemaining <= 3
-                  ? 'is-critical'
-                  : gameState.movesRemaining <= 6
-                    ? 'is-low'
-                    : ''
-              }`}
-              aria-label={`${gameState.movesRemaining} moves remaining`}
-            >
-              <span className="ci6-moves-num">{gameState.movesRemaining}</span>
-              <span className="ci6-moves-lbl">Moves</span>
-            </div>
+        {/* STATS STRIP: Stage | Score | Remaining Moves */}
+        <section className="ci6-stats-strip" aria-label="Stage status">
+          <div className="ci6-stat-box">
+            <span className="ci6-stat-label">Stage</span>
+            <span className="ci6-stat-val is-gold">{stage.stageNumber}</span>
           </div>
-
-          <div className="ci6-objectives-row">
-            {gameState.objectives.map((obj) => (
-              <div
-                key={obj.id}
-                className={`ci6-obj-chip ${obj.completed ? 'is-done' : ''} ${
-                  justCompletedObjIds.has(obj.id) ? 'is-just-done' : ''
-                }`}
-                title={obj.label}
-              >
-                {obj.completed ? (
-                  <CheckCircle2 size={13} color="#34d399" strokeWidth={2.8} />
-                ) : (
-                  <Target size={12} color="#93c5fd" />
-                )}
-                <span>{obj.shortLabel}</span>
-                <strong style={{ color: obj.completed ? '#6ee7b7' : '#fde047' }}>
-                  {Math.min(obj.current, obj.target).toLocaleString()}/{obj.target.toLocaleString()}
-                </strong>
-              </div>
-            ))}
+          <div className="ci6-stat-box">
+            <span className="ci6-stat-label">
+              <Trophy size={11} color="#fde047" /> Score
+            </span>
+            <span className="ci6-stat-val">{gameState.score.toLocaleString()}</span>
+          </div>
+          <div
+            className={`ci6-stat-box ${
+              gameState.movesRemaining <= 3
+                ? 'is-moves-critical'
+                : gameState.movesRemaining <= 6
+                  ? 'is-moves-low'
+                  : ''
+            }`}
+            aria-label={`${gameState.movesRemaining} moves remaining`}
+          >
+            <span className="ci6-stat-label">Moves</span>
+            <span className="ci6-stat-val">{gameState.movesRemaining}</span>
           </div>
         </section>
 
-        {/* CENTER SECTION: Maximized 8x8 Interactive Board */}
+        {/* FULL-WIDTH STAGE OBJECTIVE AREA (Transforms into QUALIFIED state when complete!) */}
+        <section
+          className={`ci6-goal-bar ${gameState.objectivesComplete ? 'is-qualified' : ''}`}
+          aria-label="Stage objectives"
+        >
+          {isQualified ? (
+            <>
+              <div className="ci6-qualified-banner" role="status" aria-live="polite">
+                <CheckCircle2 size={15} color="#fef08a" strokeWidth={2.8} />
+                <span>OBJECTIVES COMPLETE — NEXT STAGE QUALIFIED</span>
+              </div>
+              <div className="ci6-qualified-sub">
+                Keep playing your remaining {gameState.movesRemaining} move
+                {gameState.movesRemaining === 1 ? '' : 's'} to boost your score!
+              </div>
+            </>
+          ) : (
+            <div className="ci6-objectives-row">
+              {gameState.objectives.map((obj) => (
+                <div
+                  key={obj.id}
+                  className={`ci6-obj-chip ${obj.completed ? 'is-done' : ''} ${
+                    justCompletedObjIds.has(obj.id) ? 'is-just-done' : ''
+                  }`}
+                  title={obj.label}
+                >
+                  {obj.completed ? (
+                    <CheckCircle2 size={13} color="#6ee7b7" strokeWidth={2.8} />
+                  ) : (
+                    <Target size={12} color="#fde047" />
+                  )}
+                  <span>{obj.shortLabel}</span>
+                  <strong style={{ color: obj.completed ? '#a7f3d0' : '#fde047' }}>
+                    {Math.min(obj.current, obj.target).toLocaleString()}/
+                    {obj.target.toLocaleString()}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* UNOBTRUSIVE POWER-UP / CHAIN FEEDBACK SLOT */}
+        <div className="ci6-context-slot" aria-live="polite">
+          {liveSwipePill && (
+            <div
+              className={`ci6-context-pill ${
+                liveSwipePill.tone === 'chain'
+                  ? 'is-chain'
+                  : liveSwipePill.tone === 'qualified'
+                    ? 'is-qualified'
+                    : ''
+              }`}
+            >
+              <Sparkles size={12} />
+              <span>{liveSwipePill.text}</span>
+            </div>
+          )}
+        </div>
+
+        {/* CENTER HERO: MAXIMIZED 8x8 INTEGRATED POWER-UP BOARD */}
         <CrushItBoard
           board={gameState.board}
           selectedPath={selectedPath}
           isValidWord={wordPreview.isValid}
-          hasPowerUpReward={Boolean(wordPreview.isValid && wordPreview.earnedPowerUp)}
-          isLocked={animLocked || gameState.status !== 'playing'}
+          hasPowerUpReward={Boolean(
+            wordPreview.isValid &&
+              (wordPreview.earnedPowerUp || wordPreview.includedPowerUps.length > 0)
+          )}
+          isLocked={isResolving || isTerminal}
           isReshuffling={isReshuffling}
+          illuminatedCoordKeys={illuminatedCoordKeys}
           destroyingCoordKeys={destroyingCoordKeys}
           fallAnimationKey={fallAnimationKey}
-          activePowerUp={activePowerUp}
-          powerUpPreviewCoords={powerUpPreviewCoords}
-          powerUpTargetCoord={powerUpTarget}
-          activeBlastFx={activeBlastFx}
-          bannerText={bannerText}
+          activeTurnFx={activeTurnFx}
           onPathChange={handlePathChange}
-          onSelectPowerUpTarget={handleSelectPowerUpTarget}
         />
 
-        {/* BOTTOM SECTION: Word Preview / Targeting Controls + Compact Power-Up Toolbar */}
-        <div className="ci6-bottom-dock">
-          {activePuDef ? (
-            <div className="ci6-word-bar" aria-label="Power-up targeting controls">
-              <button
-                type="button"
-                className="ci6-action-btn is-cancel"
-                onClick={() => {
-                  setActivePowerUp(null);
-                  setPowerUpTarget(null);
-                }}
-                aria-label="Cancel power-up targeting"
+        {/* BOTTOM SECTION: Word Preview + Score + Cancel / Submit (NO inventory toolbar!) */}
+        <section
+          className={`ci6-bottom-dock ${invalidShake ? 'is-invalid-shake' : ''}`}
+          aria-label="Word submission controls"
+        >
+          <div className="ci6-word-preview-row">
+            <div className="ci6-word-left">
+              <span
+                className={`ci6-word-text ${selectedPath.length === 0 ? 'is-placeholder' : ''}`}
               >
-                <X size={20} strokeWidth={2.8} />
-              </button>
+                {wordPreview.word || 'Swipe adjacent tiles'}
+              </span>
 
-              <div className="ci6-word-readout">
-                <div className="ci6-word-main-row">
-                  <span style={{ fontSize: 13.5, fontWeight: 900, color: '#fde047' }}>
-                    {activePuDef.name}
-                  </span>
-                  {activePuDef.requiresOrientation && (
-                    <button
-                      type="button"
-                      className="ci6-orient-toggle"
-                      onClick={() =>
-                        setLineOrientation((prev) => (prev === 'row' ? 'col' : 'row'))
-                      }
-                    >
-                      {lineOrientation === 'row' ? 'Row ↔' : 'Col ↕'}
-                    </button>
-                  )}
-                </div>
-                <div className="ci6-word-sub-row">
-                  <span className="ci6-status-pill is-pu">
-                    {powerUpPreviewCoords.length > 0
-                      ? `Hits ${powerUpPreviewCoords.length} tiles`
-                      : 'Tap any tile to target'}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className="ci6-action-btn is-confirm is-powerup-ready"
-                disabled={animLocked || !powerUpTarget || powerUpPreviewCoords.length === 0}
-                onClick={handleActivatePowerUp}
-                aria-label={`Activate ${activePuDef.name}`}
-              >
-                <Zap size={16} fill="currentColor" />
-                <span>Blast</span>
-              </button>
+              {selectedPath.length > 0 && wordPreview.reason === 'too_short' && (
+                <span className="ci6-status-pill is-invalid">Need 3+</span>
+              )}
+              {selectedPath.length > 0 && wordPreview.reason === 'not_in_dictionary' && (
+                <span className="ci6-status-pill is-invalid">Not a word</span>
+              )}
+              {wordPreview.isValid && <span className="ci6-status-pill is-valid">Valid</span>}
             </div>
-          ) : (
-            <div
-              className={`ci6-word-bar ${invalidShake ? 'is-invalid-shake' : ''}`}
-              aria-label="Word submission controls"
+
+            <div className="ci6-word-right">
+              {wordPreview.isValid ? (
+                <>
+                  <span className="ci6-word-score-num">
+                    +{wordPreview.potentialScore.toLocaleString()}
+                  </span>
+                  <span className="ci6-word-score-lbl">Word Score</span>
+                </>
+              ) : (
+                <span className="ci6-word-score-lbl">3+ letters • 8 dirs</span>
+              )}
+            </div>
+          </div>
+
+          <div className="ci6-actions-row">
+            <button
+              type="button"
+              className="ci6-btn-cancel"
+              disabled={isResolving || selectedPath.length === 0}
+              onClick={() => {
+                setSelectedPath([]);
+                crushItSfx.tileUndo();
+              }}
+              aria-label="Cancel word selection"
             >
-              <button
-                type="button"
-                className="ci6-action-btn is-cancel"
-                disabled={animLocked || selectedPath.length === 0}
-                onClick={() => {
-                  setSelectedPath([]);
-                  crushItSfx.tileUndo();
-                }}
-                aria-label="Cancel word selection"
-              >
-                <X size={20} strokeWidth={2.8} />
-              </button>
-
-              <div className="ci6-word-readout">
-                <div className="ci6-word-main-row">
-                  <span
-                    className={`ci6-word-text ${
-                      selectedPath.length === 0 ? 'is-placeholder' : ''
-                    }`}
-                  >
-                    {wordPreview.word || 'Swipe adjacent tiles'}
-                  </span>
-                </div>
-
-                <div className="ci6-word-sub-row">
-                  {selectedPath.length === 0 ? (
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: '#93c5fd' }}>
-                      3+ letters • 8 directions • reverse to undo
-                    </span>
-                  ) : wordPreview.reason === 'too_short' ? (
-                    <span className="ci6-status-pill is-invalid">Need 3+ letters</span>
-                  ) : wordPreview.reason === 'not_in_dictionary' ? (
-                    <span className="ci6-status-pill is-invalid">Not a word</span>
-                  ) : wordPreview.isValid ? (
-                    <>
-                      <span className="ci6-status-pill is-valid">Valid</span>
-                      <span className="ci6-status-pill is-score">
-                        +{wordPreview.potentialScore}
-                      </span>
-                      {wordPreview.earnedPowerUp && (
-                        <span className="ci6-status-pill is-pu">
-                          +{POWER_UP_CONFIG[wordPreview.earnedPowerUp].shortName}
-                        </span>
-                      )}
-                    </>
-                  ) : null}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className={`ci6-action-btn is-confirm ${
-                  wordPreview.isValid && wordPreview.earnedPowerUp ? 'is-powerup-ready' : ''
-                }`}
-                disabled={animLocked || selectedPath.length === 0 || gameState.status !== 'playing'}
-                onClick={handleConfirmWord}
-                aria-label="Confirm word"
-              >
-                <Check size={18} strokeWidth={3} />
-                <span>Play</span>
-              </button>
-            </div>
-          )}
-
-          {/* Compact Power-Up Inventory Toolbar + Manual Reshuffle */}
-          <div className="ci6-powerup-bar" role="toolbar" aria-label="Power-up inventory">
-            {POWER_UP_ORDER.map((puType) => {
-              const def = POWER_UP_CONFIG[puType];
-              const qty = gameState.inventory[puType] ?? 0;
-              const isSelected = activePowerUp === puType;
-              const isJustEarned = justEarnedPowerUp === puType;
-              return (
-                <button
-                  key={puType}
-                  type="button"
-                  className={`ci6-pu-slot ${qty > 0 ? 'is-available' : 'is-empty'} ${
-                    isSelected ? 'is-active' : ''
-                  } ${isJustEarned ? 'is-just-earned' : ''}`}
-                  style={{ '--pu-accent': def.accentColor } as React.CSSProperties}
-                  disabled={animLocked || qty <= 0 || gameState.status !== 'playing'}
-                  onClick={() => handleSelectPowerUpSlot(puType)}
-                  title={`${def.name}: ${def.description}`}
-                  aria-label={`${def.name}, ${qty} available`}
-                  aria-pressed={isSelected}
-                >
-                  <span style={{ color: qty > 0 ? def.accentColor : '#94a3b8' }}>
-                    {renderPowerUpIcon(puType, 17)}
-                  </span>
-                  <span className="ci6-pu-label">{def.shortName}</span>
-                  <span className="ci6-pu-qty">{qty}</span>
-                </button>
-              );
-            })}
+              <X size={17} strokeWidth={2.8} />
+              <span>Cancel</span>
+            </button>
 
             <button
               type="button"
-              className={`ci6-pu-slot ${
-                gameState.manualShufflesRemaining > 0 ? 'is-available' : 'is-empty'
-              }`}
-              style={{ '--pu-accent': '#60a5fa' } as React.CSSProperties}
-              disabled={
-                animLocked ||
-                gameState.manualShufflesRemaining <= 0 ||
-                gameState.status !== 'playing'
-              }
-              onClick={handleManualReshuffle}
-              title="Reshuffle board (does not use moves)"
-              aria-label={`Reshuffle board, ${gameState.manualShufflesRemaining} left`}
+              className={`ci6-btn-submit ${wordPreview.isValid ? 'is-ready' : ''}`}
+              disabled={isResolving || selectedPath.length === 0 || isTerminal}
+              onClick={handleSubmitWord}
+              aria-label="Submit word"
             >
-              <Shuffle
-                size={16}
-                color={gameState.manualShufflesRemaining > 0 ? '#93c5fd' : '#94a3b8'}
-              />
-              <span className="ci6-pu-label">Mix</span>
-              <span className="ci6-pu-qty">{gameState.manualShufflesRemaining}</span>
+              <span>Submit</span>
             </button>
           </div>
-        </div>
+        </section>
       </div>
 
-      {/* OPTIONAL HELP DIALOG (Not permanently displayed on gameplay screen) */}
+      {/* OPTIONAL HELP DIALOG */}
       {showHelpModal && (
         <div
           className="ci6-modal-backdrop"
@@ -797,17 +736,18 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
               </button>
             </div>
 
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: '#dbeafe', fontWeight: 700 }}>
-              Swipe across adjacent letter tiles in any of the 8 directions to form English words
-              (3+ letters). Reverse your swipe to undo. Destroyed tiles trigger gravity and new
-              letters fall from above!
+            <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.45, color: '#dbeafe', fontWeight: 700 }}>
+              Swipe adjacent tiles in any of the 8 directions to form English words (3+ letters).
+              Longer words transform their final letter into a glowing Power-Up Tile right on the
+              board! Include any Power-Up Tile in a future valid word to automatically blast and
+              trigger chain reactions. Play through all allocated moves to maximize your final score!
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 900, color: '#fde047', textTransform: 'uppercase' }}>
-                Letter Tile Colors
+              <div style={{ fontSize: 11, fontWeight: 900, color: '#fde047', textTransform: 'uppercase' }}>
+                Ordinary Letter Colors
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12, fontWeight: 800 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11.5, fontWeight: 800 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <span className="ci6-guide-swatch ci6-tile--pink">A</span>
                   <span>Pink: Vowels</span>
@@ -828,11 +768,31 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 900, color: '#fde047', textTransform: 'uppercase' }}>
-                Word-Length Power-Ups
+              <div style={{ fontSize: 11, fontWeight: 900, color: '#fde047', textTransform: 'uppercase' }}>
+                Integrated Power-Up Tiles
               </div>
               {POWER_UP_ORDER.map((puType) => {
                 const def = POWER_UP_CONFIG[puType];
+                const swatchCls =
+                  puType === 'line_blast'
+                    ? 'ci6-tile--pu-line-row'
+                    : puType === 'cross_blast'
+                      ? 'ci6-tile--pu-cross'
+                      : puType === 'word_bomb'
+                        ? 'ci6-tile--pu-bomb'
+                        : puType === 'letter_purge'
+                          ? 'ci6-tile--pu-purge'
+                          : 'ci6-tile--pu-mega';
+                const sampleCh =
+                  puType === 'line_blast'
+                    ? 'T'
+                    : puType === 'cross_blast'
+                      ? 'E'
+                      : puType === 'word_bomb'
+                        ? 'N'
+                        : puType === 'letter_purge'
+                          ? 'R'
+                          : 'A';
                 return (
                   <div
                     key={puType}
@@ -844,12 +804,10 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
                       borderRadius: 11,
                       background: 'rgba(10, 16, 68, 0.72)',
                       border: '1px solid rgba(165, 180, 252, 0.24)',
-                      fontSize: 12,
+                      fontSize: 11.5,
                     }}
                   >
-                    <span style={{ color: def.accentColor, flexShrink: 0 }}>
-                      {renderPowerUpIcon(puType, 16)}
-                    </span>
+                    <span className={`ci6-guide-swatch ${swatchCls}`}>{sampleCh}</span>
                     <div style={{ minWidth: 0 }}>
                       <strong>
                         {def.minWordLength === 8 ? '8+' : def.minWordLength} Letters — {def.name}:
@@ -872,40 +830,67 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
         </div>
       )}
 
-      {/* STAGE COMPLETION / FAILURE MODAL */}
-      {showOutcomeModal && gameState.status !== 'playing' && (
+      {/* FINAL STAGE RESULTS MODAL (Displayed ONLY when moves === 0 and resolution finished) */}
+      {showResultsModal && isTerminal && (
         <div
           className="ci6-modal-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label={gameState.status === 'won' ? 'Stage Complete' : 'Out of Moves'}
+          aria-label={
+            gameState.lifecyclePhase === 'VICTORY'
+              ? stage.stageNumber === CRUSHIT_TOTAL_STAGES
+                ? 'CrushIt Mastery Complete'
+                : 'Stage Complete'
+              : 'Stage Failed'
+          }
         >
           <div className="ci6-modal-card">
             <div style={{ textAlign: 'center' }}>
               <div
                 style={{
-                  fontSize: 11.5,
+                  fontSize: 11,
                   fontWeight: 900,
                   textTransform: 'uppercase',
                   letterSpacing: '0.08em',
-                  color: gameState.status === 'won' ? '#6ee7b7' : '#fda4af',
+                  color: gameState.lifecyclePhase === 'VICTORY' ? '#6ee7b7' : '#fda4af',
                 }}
               >
-                Stage {stage.stageNumber} • {stage.title}
+                Stage {stage.stageNumber} of {CRUSHIT_TOTAL_STAGES} • {stage.title}
               </div>
-              <div style={{ fontSize: 26, fontWeight: 900, marginTop: 2 }}>
-                {gameState.status === 'won' ? 'Stage Crushed!' : 'Out of Moves'}
+              <div style={{ fontSize: 24, fontWeight: 900, marginTop: 2 }}>
+                {gameState.lifecyclePhase === 'VICTORY'
+                  ? stage.stageNumber === CRUSHIT_TOTAL_STAGES
+                    ? 'CrushIt Mastered!'
+                    : 'Stage Complete!'
+                  : 'Stage Incomplete'}
               </div>
+              {gameState.lifecyclePhase === 'VICTORY' &&
+                stage.stageNumber === CRUSHIT_TOTAL_STAGES && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      color: '#fde047',
+                    }}
+                  >
+                    <Crown size={15} />
+                    <span>All 50 Single-Player Stages Conquered!</span>
+                  </div>
+                )}
             </div>
 
-            {gameState.status === 'won' && (
+            {gameState.lifecyclePhase === 'VICTORY' && (
               <div className="ci6-stars-row" aria-label={`${gameState.starsEarned} of 3 stars`}>
                 {[1, 2, 3].map((n) => {
                   const earned = n <= gameState.starsEarned;
                   return (
                     <Star
                       key={n}
-                      size={n === 2 ? 42 : 34}
+                      size={n === 2 ? 40 : 32}
                       fill={earned ? '#fde047' : 'rgba(255,255,255,0.12)'}
                       color={earned ? '#fde047' : 'rgba(255,255,255,0.3)'}
                       className={earned ? 'ci6-star-earned' : undefined}
@@ -916,72 +901,85 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
               </div>
             )}
 
+            {/* Final Score + Personal Best Callout */}
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: 7,
+                padding: '10px 12px',
+                borderRadius: 15,
+                background: 'rgba(10, 16, 68, 0.78)',
+                border: isNewPersonalBest
+                  ? '1.5px solid rgba(253, 224, 71, 0.85)'
+                  : '1px solid rgba(165, 180, 252, 0.3)',
                 textAlign: 'center',
               }}
             >
-              <div
-                style={{
-                  padding: '8px 6px',
-                  borderRadius: 13,
-                  background: 'rgba(10, 16, 68, 0.72)',
-                  border: '1px solid rgba(165, 180, 252, 0.25)',
-                }}
-              >
-                <div style={{ fontSize: 17, fontWeight: 900, color: '#fde047' }}>
-                  {gameState.score.toLocaleString()}
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 800, color: '#a5b4fc' }}>Score</div>
+              <div style={{ fontSize: 10.5, fontWeight: 900, color: '#a5b4fc', textTransform: 'uppercase' }}>
+                Final Total Score
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: '#fde047', lineHeight: 1.1 }}>
+                {gameState.score.toLocaleString()}
               </div>
               <div
                 style={{
-                  padding: '8px 6px',
-                  borderRadius: 13,
-                  background: 'rgba(10, 16, 68, 0.72)',
-                  border: '1px solid rgba(165, 180, 252, 0.25)',
+                  marginTop: 4,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 11.5,
+                  fontWeight: 900,
+                  color: isNewPersonalBest ? '#6ee7b7' : '#fde68a',
                 }}
               >
-                <div style={{ fontSize: 17, fontWeight: 900, color: '#67e8f9' }}>
-                  {gameState.wordsFormed}
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 800, color: '#a5b4fc' }}>Words</div>
-              </div>
-              <div
-                style={{
-                  padding: '8px 6px',
-                  borderRadius: 13,
-                  background: 'rgba(10, 16, 68, 0.72)',
-                  border: '1px solid rgba(165, 180, 252, 0.25)',
-                }}
-              >
-                <div style={{ fontSize: 17, fontWeight: 900, color: '#f9a8d4' }}>
-                  {gameState.longestWordLength > 0 ? `${gameState.longestWordLength} ltr` : '—'}
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 800, color: '#a5b4fc' }}>Longest</div>
+                <Trophy size={13} />
+                <span>
+                  {isNewPersonalBest
+                    ? 'NEW PERSONAL BEST!'
+                    : `Personal Best: ${displayBestScore.toLocaleString()}`}
+                </span>
               </div>
             </div>
 
-            {bestForStage > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  color: '#fde68a',
-                }}
-              >
-                <Trophy size={14} />
-                <span>Personal Best: {Math.max(bestForStage, gameState.score).toLocaleString()}</span>
+            {/* Full Stage Performance Records */}
+            <div className="ci6-results-grid">
+              <div className="ci6-result-stat">
+                <div className="ci6-result-stat-val" style={{ color: '#67e8f9' }}>
+                  {gameState.wordsFormed}
+                </div>
+                <div className="ci6-result-stat-lbl">Valid Words</div>
               </div>
-            )}
+              <div className="ci6-result-stat">
+                <div className="ci6-result-stat-val" style={{ color: '#f9a8d4' }}>
+                  {gameState.longestWordLength > 0 ? `${gameState.longestWordLength} ltr` : '—'}
+                </div>
+                <div className="ci6-result-stat-lbl">Longest Word</div>
+              </div>
+              <div className="ci6-result-stat">
+                <div className="ci6-result-stat-val" style={{ color: '#6ee7b7' }}>
+                  {gameState.tilesDestroyed}
+                </div>
+                <div className="ci6-result-stat-lbl">Tiles Crushed</div>
+              </div>
+              <div className="ci6-result-stat">
+                <div className="ci6-result-stat-val" style={{ color: '#c4b5fd' }}>
+                  {gameState.powerUpsCreated}
+                </div>
+                <div className="ci6-result-stat-lbl">PU Created</div>
+              </div>
+              <div className="ci6-result-stat">
+                <div className="ci6-result-stat-val" style={{ color: '#fdba74' }}>
+                  {gameState.powerUpsUsed}
+                </div>
+                <div className="ci6-result-stat-lbl">PU Activated</div>
+              </div>
+              <div className="ci6-result-stat">
+                <div className="ci6-result-stat-val" style={{ color: '#fde047' }}>
+                  {gameState.largestChainReaction > 0 ? `×${gameState.largestChainReaction}` : '—'}
+                </div>
+                <div className="ci6-result-stat-lbl">Max Chain</div>
+              </div>
+            </div>
 
+            {/* Objective Completion Breakdown */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               {gameState.objectives.map((obj) => (
                 <div
@@ -990,28 +988,37 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '6px 10px',
+                    padding: '5px 9px',
                     borderRadius: 10,
                     background: obj.completed
                       ? 'rgba(16, 185, 129, 0.22)'
-                      : 'rgba(244, 63, 94, 0.18)',
+                      : 'rgba(244, 63, 94, 0.2)',
                     border: obj.completed
-                      ? '1px solid rgba(52, 211, 153, 0.5)'
-                      : '1px solid rgba(251, 113, 133, 0.45)',
-                    fontSize: 12,
+                      ? '1px solid rgba(52, 211, 153, 0.52)'
+                      : '1px solid rgba(251, 113, 133, 0.48)',
+                    fontSize: 11.5,
                     fontWeight: 800,
                   }}
                 >
-                  <span>{obj.label}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    {obj.completed ? (
+                      <CheckCircle2 size={13} color="#34d399" />
+                    ) : (
+                      <X size={13} color="#fb7185" />
+                    )}
+                    {obj.label}
+                  </span>
                   <span>
-                    {Math.min(obj.current, obj.target).toLocaleString()}/{obj.target.toLocaleString()}
+                    {Math.min(obj.current, obj.target).toLocaleString()}/
+                    {obj.target.toLocaleString()}
                   </span>
                 </div>
               ))}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
-              {gameState.status === 'won' && nextStageConfig && (
+            {/* Navigation Actions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 2 }}>
+              {gameState.lifecyclePhase === 'VICTORY' && nextStageConfig && (
                 <button
                   type="button"
                   className="ci6-cta-primary"
@@ -1026,20 +1033,18 @@ export const CrushItGameplayScreen: React.FC<CrushItGameplayScreenProps> = ({
 
               <button
                 type="button"
-                className={gameState.status === 'lost' ? 'ci6-cta-primary' : 'ci6-cta-secondary'}
+                className={
+                  gameState.lifecyclePhase === 'FAILURE' ? 'ci6-cta-primary' : 'ci6-cta-secondary'
+                }
                 onClick={() => {
                   if (dictBundle) startFreshStage(stage.stageNumber, dictBundle);
                 }}
               >
                 <RotateCcw size={15} />
-                <span>{gameState.status === 'won' ? 'Replay Stage' : 'Retry Stage'}</span>
+                <span>{gameState.lifecyclePhase === 'VICTORY' ? 'Replay Stage' : 'Retry Stage'}</span>
               </button>
 
-              <button
-                type="button"
-                className="ci6-cta-secondary"
-                onClick={onBackToStages}
-              >
+              <button type="button" className="ci6-cta-secondary" onClick={onBackToStages}>
                 <ArrowLeft size={15} />
                 <span>Back to Stages 1–50</span>
               </button>

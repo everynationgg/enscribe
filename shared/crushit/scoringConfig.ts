@@ -9,6 +9,8 @@ export interface ScoringConfig {
   extraLengthStepBonus: number;
   powerUpTileScoreMultiplier: number;
   powerUpActivationBonus: Record<PowerUpType, number>;
+  /** Extra multiplier per chained power-up beyond the first in a single move. */
+  chainReactionBonusPerExtra: number;
 }
 
 /**
@@ -36,14 +38,15 @@ export const CRUSHIT_SCORING_CONFIG: ScoringConfig = {
   },
   extraLengthStepMultiplier: 0.75,
   extraLengthStepBonus: 140,
-  powerUpTileScoreMultiplier: 1.15,
+  powerUpTileScoreMultiplier: 1.25,
   powerUpActivationBonus: {
     line_blast: 60,
     cross_blast: 110,
-    word_bomb: 140,
-    letter_purge: 165,
+    word_bomb: 145,
+    letter_purge: 175,
     mega_blast: 260,
   },
+  chainReactionBonusPerExtra: 95,
 };
 
 export function calculateWordScore(
@@ -73,16 +76,32 @@ export function calculateWordScore(
   return Math.round(basePoints * multiplier + bonus);
 }
 
-export function calculatePowerUpScore(
-  powerUpType: PowerUpType,
-  destroyedLetters: string[],
+/**
+ * Calculates total bonus score for power-up destruction during a move.
+ * Every affected extra tile is counted strictly ONCE (deduplicated before calling).
+ */
+export function calculatePowerUpDestructionScore(
+  activatedTypes: PowerUpType[],
+  uniqueExtraDestroyedLetters: string[],
   config: ScoringConfig = CRUSHIT_SCORING_CONFIG
 ): number {
+  if (activatedTypes.length === 0) return 0;
+
   let tilePoints = 0;
-  for (const ch of destroyedLetters) {
+  for (const ch of uniqueExtraDestroyedLetters) {
     tilePoints += getLetterBasePoints(ch);
   }
-  const scaled = Math.round(tilePoints * config.powerUpTileScoreMultiplier);
-  const flatBonus = config.powerUpActivationBonus[powerUpType] ?? 50;
-  return scaled + flatBonus;
+  const scaledTilePts = Math.round(tilePoints * config.powerUpTileScoreMultiplier);
+
+  let activationBonuses = 0;
+  for (const t of activatedTypes) {
+    activationBonuses += config.powerUpActivationBonus[t] ?? 50;
+  }
+
+  const chainBonus =
+    activatedTypes.length > 1
+      ? (activatedTypes.length - 1) * config.chainReactionBonusPerExtra
+      : 0;
+
+  return scaledTilePts + activationBonuses + chainBonus;
 }

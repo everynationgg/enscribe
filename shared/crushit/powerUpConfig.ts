@@ -1,9 +1,10 @@
 import {
   BoardCoord,
   CrushItBoardGrid,
-  PowerUpInventory,
+  LineBlastOrientation,
   PowerUpTarget,
   PowerUpType,
+  TilePowerUp,
 } from './types.js';
 
 export interface PowerUpDefinition {
@@ -11,9 +12,6 @@ export interface PowerUpDefinition {
   name: string;
   shortName: string;
   minWordLength: number;
-  moveCost: number;
-  maxStack: number;
-  requiresOrientation: boolean;
   description: string;
   accentColor: string;
 }
@@ -27,82 +25,65 @@ export const POWER_UP_ORDER: PowerUpType[] = [
 ];
 
 /**
- * Configurable word-length-based power-up definitions.
+ * Configurable word-length-based integrated power-up definitions.
  * Earned strictly by submitted word length (never geometric shape):
  * - 3 letters: Normal Clear (no power-up)
- * - 4 letters: Line Blast
- * - 5 letters: Cross Blast
- * - 6 letters: Word Bomb
- * - 7 letters: Letter Purge
- * - 8+ letters: Mega Blast
+ * - 4 letters: Line Blast (random horizontal or vertical orientation)
+ * - 5 letters: Cross Blast (full row + full column)
+ * - 6 letters: Word Bomb (3x3 area, max 9 tiles)
+ * - 7 letters: Letter Purge (every tile sharing the power-up's letter)
+ * - 8+ letters: Mega Blast (5x5 area, max 25 tiles)
  */
 export const POWER_UP_CONFIG: Record<PowerUpType, PowerUpDefinition> = {
   line_blast: {
     type: 'line_blast',
     name: 'Line Blast',
-    shortName: 'Line',
+    shortName: 'Line Tile',
     minWordLength: 4,
-    moveCost: 0,
-    maxStack: 9,
-    requiresOrientation: true,
-    description: 'Clears an entire selected row or column.',
+    description: 'Clears an entire row or column along its luminous stripes when used in a word.',
     accentColor: '#38bdf8',
   },
   cross_blast: {
     type: 'cross_blast',
     name: 'Cross Blast',
-    shortName: 'Cross',
+    shortName: 'Cross Tile',
     minWordLength: 5,
-    moveCost: 0,
-    maxStack: 9,
-    requiresOrientation: false,
-    description: 'Clears both the row and column intersecting your chosen tile.',
+    description: 'Clears both the full row and full column intersecting this tile.',
     accentColor: '#a855f7',
   },
   word_bomb: {
     type: 'word_bomb',
     name: 'Word Bomb',
-    shortName: 'Bomb',
+    shortName: 'Bomb Tile',
     minWordLength: 6,
-    moveCost: 0,
-    maxStack: 9,
-    requiresOrientation: false,
-    description: 'Detonates a 3 × 3 blast centered on the chosen tile.',
-    accentColor: '#f43f5e',
+    description: 'Detonates a fiery 3 × 3 blast (up to 9 tiles) centered on this tile.',
+    accentColor: '#f97316',
   },
   letter_purge: {
     type: 'letter_purge',
     name: 'Letter Purge',
-    shortName: 'Purge',
+    shortName: 'Purge Tile',
     minWordLength: 7,
-    moveCost: 0,
-    maxStack: 9,
-    requiresOrientation: false,
-    description: 'Destroys every occurrence of the chosen letter across the board.',
-    accentColor: '#10b981',
+    description: 'Destroys every occurrence of this tile’s letter across the entire board.',
+    accentColor: '#e879f9',
   },
   mega_blast: {
     type: 'mega_blast',
     name: 'Mega Blast',
-    shortName: 'Mega',
+    shortName: 'Mega Tile',
     minWordLength: 8,
-    moveCost: 0,
-    maxStack: 9,
-    requiresOrientation: false,
-    description: 'Unleashes a massive 5 × 5 blast plus shockwave rays across the board.',
-    accentColor: '#fbbf24',
+    description: 'Unleashes a crystalline 5 × 5 blast (up to 25 tiles) centered on this tile.',
+    accentColor: '#fde047',
   },
 };
 
-export function createEmptyInventory(
-  seed?: Partial<PowerUpInventory>
-): PowerUpInventory {
+export function createZeroPowerUpCounters(): Record<PowerUpType, number> {
   return {
-    line_blast: seed?.line_blast ?? 0,
-    cross_blast: seed?.cross_blast ?? 0,
-    word_bomb: seed?.word_bomb ?? 0,
-    letter_purge: seed?.letter_purge ?? 0,
-    mega_blast: seed?.mega_blast ?? 0,
+    line_blast: 0,
+    cross_blast: 0,
+    word_bomb: 0,
+    letter_purge: 0,
+    mega_blast: 0,
   };
 }
 
@@ -120,8 +101,25 @@ export function getEarnedPowerUpForWordLength(wordLength: number): PowerUpType |
 }
 
 /**
- * Computes the exact board coordinates affected by a power-up target.
- * Shared by both targeting preview UI and the execution engine.
+ * Creates a TilePowerUp metadata object. For Line Blast, assigns horizontal ('row')
+ * or vertical ('col') orientation with equal 50/50 probability unless explicitly provided.
+ */
+export function createTilePowerUp(
+  type: PowerUpType,
+  rng: () => number = Math.random,
+  explicitOrientation?: LineBlastOrientation
+): TilePowerUp {
+  if (type === 'line_blast') {
+    const orientation: LineBlastOrientation =
+      explicitOrientation ?? (rng() < 0.5 ? 'row' : 'col');
+    return { type, orientation };
+  }
+  return { type };
+}
+
+/**
+ * Computes the exact board coordinates affected by a power-up at its current position.
+ * Bounded strictly to valid grid coordinates.
  */
 export function getPowerUpAffectedCoords(
   board: CrushItBoardGrid,
@@ -161,6 +159,7 @@ export function getPowerUpAffectedCoords(
     }
 
     case 'word_bomb': {
+      // 3x3 area centered on the power-up tile (max 9 tiles)
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           add(target.row + dr, target.col + dc);
@@ -184,14 +183,12 @@ export function getPowerUpAffectedCoords(
     }
 
     case 'mega_blast': {
-      // 5x5 core explosion centered on target + full cross shockwave rays
+      // 5x5 area centered on the power-up tile (max 25 tiles)
       for (let dr = -2; dr <= 2; dr++) {
         for (let dc = -2; dc <= 2; dc++) {
           add(target.row + dr, target.col + dc);
         }
       }
-      for (let c = 0; c < cols; c++) add(target.row, c);
-      for (let r = 0; r < rows; r++) add(r, target.col);
       break;
     }
   }

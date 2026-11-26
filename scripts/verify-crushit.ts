@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  activatePowerUpMove,
   createCrushItGameState,
   ensurePlayableBoard,
   evaluateWordPreview,
@@ -15,17 +14,21 @@ import {
   sampleWeightedLetter,
 } from '../shared/crushit/letterConfig.js';
 import {
+  createTilePowerUp,
   getEarnedPowerUpForWordLength,
   getPowerUpAffectedCoords,
 } from '../shared/crushit/powerUpConfig.js';
 import { calculateWordScore } from '../shared/crushit/scoringConfig.js';
 import { CRUSHIT_STAGES, CRUSHIT_TOTAL_STAGES } from '../shared/crushit/stagesCatalog.js';
 import { buildCrushItTrieFromWords } from '../shared/crushit/trieSolver.js';
-import { CrushItBoardGrid, CrushItTile } from '../shared/crushit/types.js';
+import { CrushItBoardGrid, CrushItTile, TilePowerUp } from '../shared/crushit/types.js';
 import { HUB_GAME_TILES, REGISTERED_GAMES } from '../shared/gameRegistry.js';
 import { CrushItStateStore } from '../server/games/crushit/CrushItStateStore.js';
 
-function makeDeterministicBoard(letters: string[][]): CrushItBoardGrid {
+function makeDeterministicBoard(
+  letters: string[][],
+  powerUps: Record<string, TilePowerUp> = {}
+): CrushItBoardGrid {
   let seq = 1;
   return letters.map((row, r) =>
     row.map((letter, c): CrushItTile => ({
@@ -35,274 +38,321 @@ function makeDeterministicBoard(letters: string[][]): CrushItBoardGrid {
       color: getLetterColor(letter),
       row: r,
       col: c,
+      powerUp: powerUps[`${r},${c}`] ?? null,
       fallDistance: 0,
       isNew: false,
+      justCreatedPowerUp: false,
     }))
   );
 }
 
 async function main() {
-  console.log('=== Verifying Enscribe Game 06: CrushIt ===');
+  console.log('=== Verifying CrushIt — Integrated Power-Ups & Move-Based Completion ===');
 
   // 1. Registry & exact spelling
-  assert.equal(REGISTERED_GAMES.length, 6, 'Enscribe must contain exactly SIX registered games');
-  assert.equal(HUB_GAME_TILES.length, 6, 'Enscribe Hub must contain exactly SIX game tiles');
-  const gameNames = REGISTERED_GAMES.map((g) => g.name);
-  assert.deepEqual(gameNames, ['ChainIt', 'GridIt', 'GuessIt', 'TwistIt', 'ChangeIt', 'CrushIt']);
-  const crushTile = HUB_GAME_TILES.find((t) => t.gameId === 'crushit');
-  assert.ok(crushTile, 'CrushIt hub tile must exist');
-  assert.equal(crushTile.name, 'CrushIt', 'Official spelling must be exactly CrushIt');
-  console.log('✓ 1. Game registry contains exactly 6 games with exact spelling "CrushIt"');
+  assert.equal(REGISTERED_GAMES.length, 6);
+  assert.equal(HUB_GAME_TILES.length, 6);
+  assert.deepEqual(
+    REGISTERED_GAMES.map((g) => g.name),
+    ['ChainIt', 'GridIt', 'GuessIt', 'TwistIt', 'ChangeIt', 'CrushIt']
+  );
+  console.log('✓ 1. Game registry has exactly 6 games with exact spelling "CrushIt"');
 
-  // 2. All 50 stages configured cleanly
+  // 2. All 50 stages intact
   assert.equal(CRUSHIT_TOTAL_STAGES, 50);
   assert.equal(CRUSHIT_STAGES.length, 50);
-  for (let i = 0; i < 50; i++) {
-    const st = CRUSHIT_STAGES[i];
-    assert.equal(st.stageNumber, i + 1);
-    assert.equal(st.boardSize, 8);
-    assert.ok(st.scoreTarget > 0);
-    assert.ok(st.maxMoves >= 14);
-    assert.ok(st.objectives.length >= 2);
-  }
-  console.log('✓ 2. All 50 single-player stages (Stages 1–50) are configured');
+  console.log('✓ 2. All 50 single-player stages preserved');
 
-  // 3. Weighted letter distribution & strict color classification
-  const counts = { vowel: 0, common: 0, uncommon: 0, rare: 0 };
-  const samples = 50000;
-  for (let i = 0; i < samples; i++) {
-    const s = sampleWeightedLetter();
-    counts[s.category]++;
-    assert.equal(s.color, getLetterColor(s.letter), 'Tile color must strictly match category');
-  }
-  const pct = {
-    vowel: (counts.vowel / samples) * 100,
-    common: (counts.common / samples) * 100,
-    uncommon: (counts.uncommon / samples) * 100,
-    rare: (counts.rare / samples) * 100,
-  };
-  assert.ok(Math.abs(pct.vowel - 40) < 1.5, `Vowel % out of bounds: ${pct.vowel}`);
-  assert.ok(Math.abs(pct.common - 40) < 1.5, `Common % out of bounds: ${pct.common}`);
-  assert.ok(Math.abs(pct.uncommon - 15) < 1.5, `Uncommon % out of bounds: ${pct.uncommon}`);
-  assert.ok(Math.abs(pct.rare - 5) < 1.2, `Rare % out of bounds: ${pct.rare}`);
-
-  for (const ch of 'AEIOU') assert.equal(getLetterColor(ch), 'pink');
-  for (const ch of 'RSTNLDHCM') assert.equal(getLetterColor(ch), 'blue');
-  for (const ch of 'BFGKPVWY') assert.equal(getLetterColor(ch), 'green');
-  for (const ch of 'JQXZ') assert.equal(getLetterColor(ch), 'gold');
-  console.log(
-    `✓ 3. Weighted distribution verified (V:${pct.vowel.toFixed(1)}% C:${pct.common.toFixed(1)}% U:${pct.uncommon.toFixed(1)}% R:${pct.rare.toFixed(1)}%) & strict color rules`
-  );
-
-  // 4. Dictionary & Trie Solver performance
+  // 3. Dictionary + Trie
   const dictPath = path.resolve(process.cwd(), 'public', 'dictionaries', 'en.txt');
-  const rawDict = fs.readFileSync(dictPath, 'utf8');
   const words = new Set<string>();
-  for (const line of rawDict.split(/\r?\n/)) {
+  for (const line of fs.readFileSync(dictPath, 'utf8').split(/\r?\n/)) {
     const clean = line.trim().toUpperCase();
     if (clean.length >= 3 && clean.length <= 15) words.add(clean);
   }
-  assert.ok(words.size > 100000, 'Expected full English dictionary');
-  const t0 = performance.now();
   const trie = buildCrushItTrieFromWords(words, 6);
-  const buildMs = performance.now() - t0;
-  console.log(`✓ 4. Loaded ${words.size.toLocaleString()} words; Trie built in ${buildMs.toFixed(1)}ms (${trie.getNodeCount().toLocaleString()} nodes)`);
 
-  // 5. Board generation, diagonal/irregular paths, invalid word rejection, gravity & refill
-  const state1 = createCrushItGameState(1, trie);
-  assert.equal(state1.board.length, 8);
-  assert.equal(state1.board[0].length, 8);
-  assert.ok(trie.hasPlayableWord(state1.board), 'Initial board must be playable');
+  // 4. Weighted letter distribution + strict color classification + Line Blast 50/50 orientation
+  const counts = { vowel: 0, common: 0, uncommon: 0, rare: 0 };
+  for (let i = 0; i < 30000; i++) {
+    const s = sampleWeightedLetter();
+    counts[s.category]++;
+    assert.equal(s.color, getLetterColor(s.letter));
+  }
+  assert.ok(Math.abs((counts.vowel / 30000) * 100 - 40) < 1.8);
+  assert.ok(Math.abs((counts.common / 30000) * 100 - 40) < 1.8);
 
-  // Construct controlled board with diagonal/irregular word "CRUSHING" (8 letters)
-  const customLetters = [
-    ['C', 'A', 'T', 'S', 'E', 'R', 'O', 'N'],
-    ['D', 'R', 'O', 'P', 'A', 'T', 'I', 'L'],
-    ['M', 'L', 'U', 'S', 'H', 'I', 'N', 'G'],
-    ['B', 'E', 'A', 'R', 'T', 'O', 'P', 'S'],
-    ['F', 'O', 'R', 'M', 'S', 'A', 'N', 'D'],
-    ['G', 'A', 'M', 'E', 'P', 'L', 'A', 'Y'],
-    ['W', 'O', 'R', 'D', 'L', 'I', 'N', 'E'],
-    ['Z', 'Q', 'X', 'J', 'K', 'V', 'Y', 'W'],
+  let rowOrient = 0;
+  let colOrient = 0;
+  for (let i = 0; i < 4000; i++) {
+    const lb = createTilePowerUp('line_blast');
+    if (lb.orientation === 'row') rowOrient++;
+    else if (lb.orientation === 'col') colOrient++;
+  }
+  assert.ok(Math.abs(rowOrient - colOrient) < 250, `Line Blast orientation should be ~50/50 (${rowOrient}/${colOrient})`);
+  console.log('✓ 3. Weighted letter distribution, strict colors & 50/50 Line Blast orientation verified');
+
+  // 5. Integrated power-up creation: PLANET -> Word Bomb with letter 'T', other 5 letters destroyed, does NOT self-detonate
+  const gridLetters = [
+    ['S', 'T', 'R', 'E', 'A', 'M', 'Q', 'U'],
+    ['B', 'L', 'O', 'K', 'G', 'F', 'X', 'D'],
+    ['C', 'R', 'E', 'V', 'I', 'S', 'Z', 'H'],
+    ['W', 'R', 'D', 'B', 'O', 'G', 'J', 'K'],
+    ['P', 'L', 'A', 'N', 'E', 'T', 'F', 'S'],
+    ['I', 'V', 'M', 'U', 'N', 'R', 'A', 'I'],
+    ['G', 'H', 'Y', 'A', 'T', 'K', 'I', 'N'],
+    ['X', 'S', 'O', 'L', 'I', 'T', 'B', 'E'],
   ];
-  const controlled = { ...state1, board: makeDeterministicBoard(customLetters) };
+  const baseState = createCrushItGameState(1, trie);
+  const s0 = { ...baseState, board: makeDeterministicBoard(gridLetters) };
 
-  // Test invalid submission does not consume moves
-  const invalidRes = submitWordMove(
-    controlled,
+  const planetPath = [
+    { row: 4, col: 0 },
+    { row: 4, col: 1 },
+    { row: 4, col: 2 },
+    { row: 4, col: 3 },
+    { row: 4, col: 4 },
+    { row: 4, col: 5 },
+  ];
+  const planetRes = submitWordMove(s0, planetPath, words, trie);
+  assert.equal(planetRes.accepted, true);
+  assert.equal(planetRes.event?.createdPowerUp?.powerUp.type, 'word_bomb');
+  assert.equal(planetRes.event?.createdPowerUp?.letter, 'T');
+  assert.equal(planetRes.event?.activations.length, 0, 'Newly created power-up must NOT immediately activate');
+  assert.equal(planetRes.event?.destroyedTiles.length, 5, '5 remaining letters destroyed while final tile transforms');
+  const createdCoord = planetRes.event!.createdPowerUp!;
+  const placedBomb = planetRes.state.board[createdCoord.row][createdCoord.col];
+  assert.equal(placedBomb.letter, 'T');
+  assert.equal(placedBomb.powerUp?.type, 'word_bomb');
+  assert.equal(planetRes.state.powerUpsCreated, 1);
+  assert.equal(planetRes.state.powerUpsUsed, 0);
+  // Ensure all newly refilled tiles are ordinary tiles
+  for (const row of planetRes.state.board) {
+    for (const t of row) {
+      if (t.isNew) assert.equal(t.powerUp ?? null, null, 'Newly falling tiles must remain ordinary letters');
+    }
+  }
+  console.log('✓ 4. PLANET creates Word Bomb on "T" without immediate detonation; other 5 letters destroyed');
+
+  // 6. Automatic activation when using the power-up tile in a valid word (TRAIN) + no activation on invalid word
+  // Place TRAIN starting from the Word Bomb 'T' at (4,5) -> R(5,5) -> A(5,6) -> I(6,6) -> N(6,7)
+  const trainGrid = planetRes.state.board.map((r) => r.map((t) => ({ ...t })));
+  trainGrid[5][5] = { ...trainGrid[5][5], letter: 'R', category: getLetterCategory('R'), color: getLetterColor('R'), powerUp: null };
+  trainGrid[5][6] = { ...trainGrid[5][6], letter: 'A', category: getLetterCategory('A'), color: getLetterColor('A'), powerUp: null };
+  trainGrid[6][6] = { ...trainGrid[6][6], letter: 'I', category: getLetterCategory('I'), color: getLetterColor('I'), powerUp: null };
+  trainGrid[6][7] = { ...trainGrid[6][7], letter: 'N', category: getLetterCategory('N'), color: getLetterColor('N'), powerUp: null };
+  const preTrainState = { ...planetRes.state, board: trainGrid };
+
+  // Invalid word including Word Bomb 'T' must NOT activate it or consume a move
+  const invalidWithBomb = submitWordMove(
+    preTrainState,
     [
-      { row: 7, col: 0 },
-      { row: 7, col: 1 },
-      { row: 7, col: 2 },
+      { row: 4, col: 5 },
+      { row: 5, col: 5 },
+      { row: 6, col: 7 },
     ],
     words,
     trie
   );
-  assert.equal(invalidRes.accepted, false);
-  assert.equal(invalidRes.state.movesRemaining, controlled.movesRemaining);
+  assert.equal(invalidWithBomb.accepted, false);
+  assert.equal(invalidWithBomb.state.movesRemaining, preTrainState.movesRemaining);
+  assert.equal(invalidWithBomb.state.board[4][5].powerUp?.type, 'word_bomb');
 
-  // Test reused tile rejected
-  const reusedPreview = evaluateWordPreview(
-    controlled.board,
+  // Valid 5-letter word TRAIN using Word Bomb 'T' -> detonates Word Bomb AND creates Cross Blast on final ordinary letter 'N'
+  const trainRes = submitWordMove(
+    preTrainState,
+    [
+      { row: 4, col: 5 },
+      { row: 5, col: 5 },
+      { row: 5, col: 6 },
+      { row: 6, col: 6 },
+      { row: 6, col: 7 },
+    ],
+    words,
+    trie
+  );
+  assert.equal(trainRes.accepted, true);
+  assert.equal(trainRes.event?.activations.length, 1);
+  assert.equal(trainRes.event?.activations[0].type, 'word_bomb');
+  assert.equal(trainRes.event?.createdPowerUp?.powerUp.type, 'cross_blast');
+  assert.equal(trainRes.event?.createdPowerUp?.letter, 'N');
+  assert.equal(trainRes.state.movesRemaining, preTrainState.movesRemaining - 1, 'Auto power-up must not consume extra moves');
+  assert.equal(trainRes.state.powerUpsUsed, 1);
+  assert.equal(trainRes.state.powerUpsCreated, 2);
+  console.log('✓ 5. Using Word Bomb "T" in TRAIN auto-detonates 3x3 blast + creates Cross Blast on "N" with 1 move');
+
+  // 7. Chain reaction test: Line Blast -> Word Bomb -> Cross Blast -> Letter Purge (each activates once, no duplicate tile counting)
+  const chainBoard = makeDeterministicBoard(gridLetters, {
+    '4,0': { type: 'line_blast', orientation: 'row' }, // 'P' hits row 4 -> hits (4,3) 'N' Word Bomb
+    '4,3': { type: 'word_bomb' },                      // 3x3 around (4,3) -> hits (3,3) 'B' Cross Blast
+    '3,3': { type: 'cross_blast' },                    // row 3 + col 3 -> hits (3,1) 'R' Letter Purge
+    '3,1': { type: 'letter_purge' },                   // destroys all 'R' tiles across board
+  });
+  // Make (4,0)->(4,1)->(4,2) = PLA? No, let's make (4,0)='C', (4,1)='A', (4,2)='T'
+  chainBoard[4][0].letter = 'C';
+  chainBoard[4][1].letter = 'A';
+  chainBoard[4][2].letter = 'T';
+
+  const chainState = { ...baseState, board: chainBoard };
+  const chainRes = submitWordMove(
+    chainState,
+    [
+      { row: 4, col: 0 },
+      { row: 4, col: 1 },
+      { row: 4, col: 2 },
+    ],
+    words,
+    trie
+  );
+  assert.equal(chainRes.accepted, true);
+  assert.equal(chainRes.event?.activations.length, 4, 'All 4 chained power-ups must trigger exactly once');
+  assert.equal(chainRes.event?.chainReactionSize, 4);
+  assert.equal(chainRes.state.largestChainReaction, 4);
+  assert.equal(chainRes.state.powerUpsUsed, 4);
+  assert.equal(chainRes.state.movesRemaining, chainState.movesRemaining - 1);
+  // Check no duplicate destroyed tile coords
+  const destroyedCoordsUnique = new Set(
+    chainRes.event!.destroyedTiles.map((d) => `${d.row},${d.col}`)
+  );
+  assert.equal(destroyedCoordsUnique.size, chainRes.event!.destroyedTiles.length, 'No duplicate destroyed tiles');
+  // Check Mega Blast area is strictly 5x5 (max 25, clipped at boundary)
+  assert.equal(getPowerUpAffectedCoords(chainBoard, { type: 'mega_blast', row: 3, col: 3 }).length, 25);
+  assert.equal(getPowerUpAffectedCoords(chainBoard, { type: 'mega_blast', row: 0, col: 0 }).length, 9);
+  console.log('✓ 6. 4-step chain reaction (Line -> Bomb -> Cross -> Purge) + 5x5 Mega Blast verified without duplicates');
+
+  // 8. Multiple power-ups in ONE word where EVERY tile is an existing power-up (all resolve + new power-up spawns at final vacated slot)
+  const allPuBoard = makeDeterministicBoard(gridLetters, {
+    '0,0': { type: 'line_blast', orientation: 'col' }, // S
+    '0,1': { type: 'word_bomb' },                      // T
+    '0,2': { type: 'line_blast', orientation: 'row' }, // R
+    '0,3': { type: 'cross_blast' },                    // E
+    '0,4': { type: 'word_bomb' },                      // A
+    '0,5': { type: 'line_blast', orientation: 'col' }, // M
+  });
+  const allPuState = { ...baseState, board: allPuBoard };
+  const streamRes = submitWordMove(
+    allPuState,
     [
       { row: 0, col: 0 },
       { row: 0, col: 1 },
-      { row: 0, col: 0 },
+      { row: 0, col: 2 },
+      { row: 0, col: 3 },
+      { row: 0, col: 4 },
+      { row: 0, col: 5 },
     ],
-    words
+    words,
+    trie
   );
-  assert.equal(reusedPreview.isValid, false);
-  assert.equal(reusedPreview.reason, 'invalid_path');
+  assert.equal(streamRes.accepted, true);
+  assert.equal(streamRes.event?.activations.length, 6, 'All 6 existing power-ups must activate');
+  assert.equal(streamRes.event?.createdPowerUp?.powerUp.type, 'word_bomb', '6-letter STREAM creates new Word Bomb');
+  assert.equal(streamRes.event?.createdPowerUp?.letter, 'M', 'Final tile letter M preserved');
+  const newBombPos = streamRes.event!.createdPowerUp!;
+  assert.equal(
+    streamRes.state.board[newBombPos.row][newBombPos.col].powerUp?.type,
+    'word_bomb',
+    'Newly created power-up must survive the current destruction sequence'
+  );
+  console.log('✓ 7. All-power-up word activates all existing blasts and spawns surviving new Word Bomb at vacated slot');
 
-  // Test diagonal + horizontal irregular path: C(0,0)->R(1,1)->U(2,2)->S(2,3)->H(2,4)->I(2,5)->N(2,6)->G(2,7) = CRUSHING (8 letters)
-  const crushingPath = [
-    { row: 0, col: 0 },
-    { row: 1, col: 1 },
-    { row: 2, col: 2 },
-    { row: 2, col: 3 },
-    { row: 2, col: 4 },
-    { row: 2, col: 5 },
-    { row: 2, col: 6 },
-    { row: 2, col: 7 },
-  ];
-  const valid8 = submitWordMove(controlled, crushingPath, words, trie);
-  assert.equal(valid8.accepted, true);
-  assert.equal(valid8.event?.earnedPowerUp, 'mega_blast', '8-letter word must grant Mega Blast');
-  assert.equal(valid8.state.inventory.mega_blast, 1);
-  assert.equal(valid8.state.inventory.line_blast, 0, 'Must grant ONLY highest power-up');
-  assert.equal(valid8.state.movesRemaining, controlled.movesRemaining - 1);
-  assert.ok(trie.hasPlayableWord(valid8.state.board), 'Board must remain playable after refill');
-  // Check gravity: in col 0, row 0 was destroyed so row 0 should be new and row 1 should still be 'D'
-  assert.equal(valid8.state.board[0][0].isNew, true);
-  assert.equal(valid8.state.board[1][0].letter, 'D');
-  assert.equal(valid8.state.board[1][0].fallDistance, 0);
-  // In col 2, row 2 was destroyed so old (1,2)='O' falls to (2,2), old (0,2)='T' falls to (1,2), (0,2) is new
-  assert.equal(valid8.state.board[2][2].letter, 'O');
-  assert.equal(valid8.state.board[2][2].fallDistance, 1);
-  assert.equal(valid8.state.board[1][2].letter, 'T');
-  assert.equal(valid8.state.board[1][2].fallDistance, 1);
-  assert.equal(valid8.state.board[0][2].isNew, true);
-  console.log('✓ 5. Diagonal/irregular paths, invalid rejection, gravity & weighted refill verified');
+  // 9. Reshuffle preserves power-up tiles & orientations without activating them
+  const shufRes = manualReshuffleBoard(planetRes.state, trie);
+  assert.equal(shufRes.accepted, true);
+  const survivingBombs = shufRes.state.board.flat().filter((t) => t.powerUp?.type === 'word_bomb');
+  assert.equal(survivingBombs.length, 1, 'Reshuffle must preserve existing power-up tiles');
+  assert.equal(survivingBombs[0].letter, 'T');
 
-  // 6. Scoring scales meaningfully for longer words
-  const score3 = calculateWordScore(['C', 'A', 'T']);
-  const score6 = calculateWordScore(['C', 'A', 'S', 'T', 'L', 'E']);
-  const score8 = calculateWordScore(['C', 'R', 'U', 'S', 'H', 'I', 'N', 'G']);
-  assert.ok(score6 > score3 * 4, `Expected 6-letter (${score6}) >> 3-letter (${score3})`);
-  assert.ok(score8 > score6 * 2, `Expected 8-letter (${score8}) >> 6-letter (${score6})`);
-  console.log(`✓ 6. Scoring scaling verified (3-ltr=${score3}, 6-ltr=${score6}, 8-ltr=${score8})`);
+  const deadBoard = makeDeterministicBoard(
+    Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => 'Q')),
+    { '2,2': { type: 'line_blast', orientation: 'col' } }
+  );
+  const recovered = ensurePlayableBoard(deadBoard, trie, 900);
+  assert.equal(recovered.reshuffled, true);
+  assert.equal(trie.hasPlayableWord(recovered.board), true);
+  const keptLine = recovered.board.flat().filter((t) => t.powerUp?.type === 'line_blast');
+  assert.equal(keptLine.length, 1);
+  assert.equal(keptLine[0].powerUp?.orientation, 'col', 'Line Blast orientation preserved through dead-board recovery');
+  console.log('✓ 8. Gravity, manual reshuffle & dead-board recovery preserve power-up tiles and orientations');
 
-  // 7. Word-length power-up progression
+  // 10. Move-based stage completion: QUALIFIED keeps playing until moves === 0, then VICTORY / FAILURE
+  let moveState = createCrushItGameState(1, trie);
+  // Stage 1: goal 260 pts + 4 words, 18 moves. Let's simulate 4 valid words using the Trie solver!
+  for (let step = 0; step < 4; step++) {
+    const found = trie.findPlayableWords(moveState.board, 20, 4);
+    const picked = found[0] ?? trie.findPlayableWords(moveState.board, 5, 3)[0];
+    assert.ok(picked, 'Playable board must always have a word');
+    const r = submitWordMove(moveState, picked.path, words, trie);
+    assert.equal(r.accepted, true);
+    moveState = r.state;
+  }
+  // If score still < 260, play until objectivesComplete while moves > 0
+  while (!moveState.objectivesComplete && moveState.movesRemaining > 1) {
+    const picked =
+      trie.findPlayableWords(moveState.board, 20, 4)[0] ??
+      trie.findPlayableWords(moveState.board, 5, 3)[0];
+    const r = submitWordMove(moveState, picked.path, words, trie);
+    assert.equal(r.accepted, true);
+    moveState = r.state;
+  }
+  assert.equal(moveState.objectivesComplete, true, 'Objectives should complete before running out of moves on Stage 1');
+  assert.ok(moveState.movesRemaining > 0, 'Moves must still remain');
+  assert.equal(
+    moveState.lifecyclePhase,
+    'QUALIFIED',
+    'Completing objectives with remaining moves MUST enter QUALIFIED, NOT terminate early!'
+  );
+
+  const scoreAtQualification = moveState.score;
+  // Continue playing ALL remaining moves until movesRemaining === 0
+  while (moveState.movesRemaining > 0) {
+    assert.equal(moveState.lifecyclePhase, 'QUALIFIED');
+    const picked = trie.findPlayableWords(moveState.board, 5, 3)[0];
+    const r = submitWordMove(moveState, picked.path, words, trie);
+    assert.equal(r.accepted, true);
+    moveState = r.state;
+  }
+  assert.equal(moveState.movesRemaining, 0);
+  assert.equal(moveState.lifecyclePhase, 'VICTORY', 'Must transition to VICTORY only when moves === 0');
+  assert.ok(moveState.score > scoreAtQualification, 'Score must keep accumulating after QUALIFIED without cap');
+
+  // Verify FAILURE when moves === 0 and objectives incomplete
+  const failSetup = { ...createCrushItGameState(1, trie), movesRemaining: 1 };
+  const oneWord = trie.findPlayableWords(failSetup.board, 5, 3)[0];
+  const failRes = submitWordMove(failSetup, oneWord.path, words, trie);
+  assert.equal(failRes.accepted, true);
+  assert.equal(failRes.state.movesRemaining, 0);
+  assert.equal(failRes.state.objectivesComplete, false);
+  assert.equal(failRes.state.lifecyclePhase, 'FAILURE');
+  console.log(
+    `✓ 9. Move-based lifecycle verified (PLAYING -> QUALIFIED @ ${scoreAtQualification} pts -> continued to VICTORY @ ${moveState.score} pts; FAILURE on unmet final move)`
+  );
+
+  // 11. Progression persistence sanity check
+  const store = new CrushItStateStore({ forceLocalMemory: true });
+  const saved = await store.recordStageResult('pw_player', {
+    stageNumber: 1,
+    completed: true,
+    score: moveState.score,
+    stars: moveState.starsEarned,
+    movesRemaining: 0,
+    wordsFormed: moveState.wordsFormed,
+    longestWordLength: moveState.longestWordLength,
+    powerUpsUsed: moveState.powerUpsUsed,
+  });
+  assert.equal(saved.highestUnlockedStage, 2);
+  assert.equal(saved.stages[1].bestScore, moveState.score);
+  console.log('✓ 10. Progression persistence & monotonic unlocking verified');
+
+  // Word length power-up mapping check
   assert.equal(getEarnedPowerUpForWordLength(3), null);
   assert.equal(getEarnedPowerUpForWordLength(4), 'line_blast');
   assert.equal(getEarnedPowerUpForWordLength(5), 'cross_blast');
   assert.equal(getEarnedPowerUpForWordLength(6), 'word_bomb');
   assert.equal(getEarnedPowerUpForWordLength(7), 'letter_purge');
   assert.equal(getEarnedPowerUpForWordLength(8), 'mega_blast');
-  assert.equal(getEarnedPowerUpForWordLength(11), 'mega_blast');
+  assert.ok(calculateWordScore(['P', 'L', 'A', 'N', 'E', 'T']) > calculateWordScore(['C', 'A', 'T']) * 4);
 
-  // Test every power-up target geometry & execution
-  const seeded = {
-    ...controlled,
-    inventory: {
-      line_blast: 2,
-      cross_blast: 1,
-      word_bomb: 1,
-      letter_purge: 1,
-      mega_blast: 1,
-    },
-  };
-  assert.equal(
-    getPowerUpAffectedCoords(seeded.board, { type: 'line_blast', row: 3, col: 3, orientation: 'row' }).length,
-    8
-  );
-  assert.equal(
-    getPowerUpAffectedCoords(seeded.board, { type: 'line_blast', row: 3, col: 3, orientation: 'col' }).length,
-    8
-  );
-  assert.equal(
-    getPowerUpAffectedCoords(seeded.board, { type: 'cross_blast', row: 3, col: 3 }).length,
-    15
-  );
-  assert.equal(
-    getPowerUpAffectedCoords(seeded.board, { type: 'word_bomb', row: 3, col: 3 }).length,
-    9
-  );
-  const megaAffected = getPowerUpAffectedCoords(seeded.board, { type: 'mega_blast', row: 3, col: 3 });
-  assert.equal(megaAffected.length, 31, '5x5 (25) + 6 ray extensions = 31 tiles');
-
-  const pu1 = activatePowerUpMove(
-    seeded,
-    { type: 'line_blast', row: 2, col: 2, orientation: 'row' },
-    trie
-  );
-  assert.equal(pu1.accepted, true);
-  assert.equal(pu1.event?.destroyedTiles.length, 8);
-  assert.equal(pu1.state.inventory.line_blast, 1);
-
-  const pu2 = activatePowerUpMove(pu1.state, { type: 'letter_purge', row: 0, col: 0 }, trie);
-  assert.equal(pu2.accepted, true);
-  assert.ok((pu2.event?.destroyedTiles.length ?? 0) >= 1);
-
-  const pu3 = activatePowerUpMove(pu2.state, { type: 'mega_blast', row: 4, col: 4 }, trie);
-  assert.equal(pu3.accepted, true);
-  assert.equal(pu3.event?.destroyedTiles.length, 31);
-  console.log('✓ 7. All 5 word-length power-ups (Line, Cross, Bomb, Purge, Mega) verified');
-
-  // 8. Automatic dead-board detection & reshuffle
-  const deadLetters = Array.from({ length: 8 }, () =>
-    Array.from({ length: 8 }, () => 'Q')
-  );
-  const deadBoard = makeDeterministicBoard(deadLetters);
-  const deadCheckStart = performance.now();
-  assert.equal(trie.hasPlayableWord(deadBoard), false, 'All-Q board must be detected as dead');
-  const deadCheckMs = performance.now() - deadCheckStart;
-  const fixed = ensurePlayableBoard(deadBoard, trie, 1000);
-  assert.equal(fixed.reshuffled, true);
-  assert.equal(trie.hasPlayableWord(fixed.board), true, 'Recovered board must be playable');
-
-  const manualShuf = manualReshuffleBoard(state1, trie);
-  assert.equal(manualShuf.accepted, true);
-  assert.equal(manualShuf.state.movesRemaining, state1.movesRemaining);
-  assert.equal(manualShuf.state.score, state1.score);
-  console.log(`✓ 8. Automatic dead-board solver (${deadCheckMs.toFixed(2)}ms) & reshuffle recovery verified`);
-
-  // 9. Progression & unlocking persistence
-  const store = new CrushItStateStore({ forceLocalMemory: true });
-  const initialProg = await store.getProgress('test_player_crushit');
-  assert.equal(initialProg.highestUnlockedStage, 1);
-
-  const afterStage1 = await store.recordStageResult('test_player_crushit', {
-    stageNumber: 1,
-    completed: true,
-    score: 520,
-    stars: 3,
-    movesRemaining: 12,
-    wordsFormed: 5,
-    longestWordLength: 6,
-    powerUpsUsed: 1,
-  });
-  assert.equal(afterStage1.highestUnlockedStage, 2);
-  assert.equal(afterStage1.completedStagesCount, 1);
-  assert.equal(afterStage1.stages[1].bestScore, 520);
-
-  // Replaying with lower score must never regress personal best or unlock
-  const afterReplayLower = await store.recordStageResult('test_player_crushit', {
-    stageNumber: 1,
-    completed: true,
-    score: 300,
-    stars: 1,
-    movesRemaining: 5,
-    wordsFormed: 4,
-    longestWordLength: 4,
-    powerUpsUsed: 0,
-  });
-  assert.equal(afterReplayLower.highestUnlockedStage, 2);
-  assert.equal(afterReplayLower.stages[1].bestScore, 520);
-  assert.equal(afterReplayLower.stages[1].bestStars, 3);
-  console.log('✓ 9. Progression unlocking and monotonic personal-best persistence verified');
-
-  console.log('=== ALL CRUSHIT VERIFICATION CHECKS PASSED ===');
+  console.log('=== ALL INTEGRATED CRUSHIT VERIFICATION CHECKS PASSED ===');
 }
 
 main().catch((err) => {

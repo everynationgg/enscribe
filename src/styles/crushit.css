@@ -1,4 +1,4 @@
-/* ==================== CRUSHIT — GLOSSY CASUAL WORD-CRUSH PUZZLE UI ==================== */
+/* ==================== CRUSHIT — INTEGRATED POWER-UPS & MOVE-BASED GAMEPLAY UI ==================== */
 
 .ci6-shell {
   position: relative;
@@ -30,10 +30,10 @@
   padding-top: max(6px, env(safe-area-inset-top));
   padding-bottom: max(8px, env(safe-area-inset-bottom));
   background:
-    radial-gradient(ellipse 90% 36% at 50% 6%, rgba(168, 85, 247, 0.34) 0%, transparent 62%),
-    radial-gradient(ellipse 80% 44% at 15% 58%, rgba(37, 99, 235, 0.32) 0%, transparent 65%),
-    radial-gradient(ellipse 80% 40% at 88% 72%, rgba(236, 72, 153, 0.24) 0%, transparent 64%),
-    linear-gradient(180deg, #071258 0%, #0d1e7c 42%, #181c8c 78%, #0a1252 100%);
+    radial-gradient(ellipse 92% 34% at 50% 4%, rgba(168, 85, 247, 0.36) 0%, transparent 62%),
+    radial-gradient(ellipse 80% 44% at 12% 56%, rgba(37, 99, 235, 0.32) 0%, transparent 65%),
+    radial-gradient(ellipse 82% 40% at 88% 72%, rgba(236, 72, 153, 0.24) 0%, transparent 64%),
+    linear-gradient(180deg, #071156 0%, #0d1c7a 42%, #191c8e 78%, #0a1252 100%);
   color: #ffffff;
   overscroll-behavior: none;
 }
@@ -48,28 +48,29 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 6px;
+  gap: 5px;
   padding: 0 6px;
 }
 
-/* ---------- Top Navigation Bar ---------- */
+/* ---------- Top Brand & Navigation Header ---------- */
 .ci6-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 2px 4px;
+  padding: 1px 4px;
   flex-shrink: 0;
 }
 
 .ci6-topbar-left {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
 .ci6-icon-btn {
+  position: relative;
   width: 34px;
   height: 34px;
   border-radius: 999px;
@@ -82,12 +83,35 @@
   cursor: pointer;
   flex-shrink: 0;
   box-shadow: 0 4px 12px rgba(4, 10, 48, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  transition: transform 0.12s ease, filter 0.12s ease;
+  transition: transform 0.12s ease, opacity 0.12s ease;
   padding: 0;
 }
 
-.ci6-icon-btn:active {
+.ci6-icon-btn:active:not(:disabled) {
   transform: scale(0.92);
+}
+
+.ci6-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ci6-icon-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #fde047;
+  color: #3b1700;
+  font-size: 9.5px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ffffff;
 }
 
 .ci6-brand-lockup {
@@ -107,19 +131,19 @@
 .ci6-brand-text {
   display: flex;
   flex-direction: column;
-  line-height: 1.05;
+  line-height: 1.02;
 }
 
 .ci6-brand-enscribe {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   color: #a5b4fc;
 }
 
 .ci6-brand-title {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 900;
   letter-spacing: -0.02em;
   background: linear-gradient(90deg, #ffffff 0%, #f9a8d4 58%, #fde047 100%);
@@ -152,113 +176,100 @@
   white-space: nowrap;
 }
 
-/* ---------- Wide Horizontal Goal & Objectives Strip ---------- */
-.ci6-hud-panel {
-  width: 100%;
-  border-radius: 16px;
-  border: 1.5px solid rgba(180, 188, 255, 0.42);
-  background: linear-gradient(180deg, rgba(34, 45, 146, 0.9) 0%, rgba(17, 25, 96, 0.95) 100%);
-  box-shadow: 0 8px 20px rgba(4, 10, 48, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  padding: 7px 10px;
-  display: flex;
-  flex-direction: column;
+/* ---------- Reference-Aligned Stats Strip (Stage | Score | Moves) ---------- */
+.ci6-stats-strip {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 0.95fr;
   gap: 6px;
+  width: 100%;
   flex-shrink: 0;
 }
 
-.ci6-hud-top-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.ci6-score-block {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.ci6-score-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-}
-
-.ci6-score-value {
-  font-size: 17px;
-  font-weight: 900;
-  letter-spacing: -0.01em;
-  color: #ffffff;
-  line-height: 1;
-}
-
-.ci6-score-target {
-  font-size: 11px;
-  font-weight: 800;
-  color: #c7d2fe;
-}
-
-.ci6-progress-track {
-  position: relative;
-  width: 100%;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(8, 13, 56, 0.78);
-  border: 1px solid rgba(165, 180, 252, 0.25);
-  overflow: hidden;
-}
-
-.ci6-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #38bdf8 0%, #f472b6 55%, #fde047 100%);
-  box-shadow: 0 0 10px rgba(244, 114, 182, 0.65);
-  transition: width 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.ci6-moves-pill {
+.ci6-stat-box {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 62px;
-  padding: 4px 10px;
-  border-radius: 13px;
-  border: 1.5px solid rgba(125, 211, 252, 0.65);
-  background: linear-gradient(180deg, rgba(30, 80, 198, 0.92) 0%, rgba(16, 44, 132, 0.96) 100%);
-  box-shadow: 0 4px 12px rgba(14, 116, 244, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.32);
-  line-height: 1;
-  flex-shrink: 0;
+  padding: 5px 8px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(168, 178, 255, 0.44);
+  background: linear-gradient(180deg, rgba(36, 46, 150, 0.9) 0%, rgba(17, 25, 96, 0.96) 100%);
+  box-shadow: 0 5px 14px rgba(4, 10, 48, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  line-height: 1.05;
 }
 
-.ci6-moves-pill.is-low {
+.ci6-stat-box.is-moves-low {
   border-color: rgba(251, 191, 36, 0.85);
-  background: linear-gradient(180deg, rgba(217, 119, 6, 0.92) 0%, rgba(146, 64, 14, 0.96) 100%);
+  background: linear-gradient(180deg, rgba(180, 83, 9, 0.88) 0%, rgba(120, 53, 15, 0.95) 100%);
 }
 
-.ci6-moves-pill.is-critical {
+.ci6-stat-box.is-moves-critical {
   border-color: rgba(251, 113, 133, 0.95);
-  background: linear-gradient(180deg, rgba(225, 29, 72, 0.95) 0%, rgba(136, 19, 55, 0.98) 100%);
+  background: linear-gradient(180deg, rgba(225, 29, 72, 0.92) 0%, rgba(136, 19, 55, 0.97) 100%);
   animation: ci6PulseWarn 0.9s ease-in-out infinite;
 }
 
-.ci6-moves-num {
+.ci6-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #c7d2fe;
+}
+
+.ci6-stat-val {
   font-size: 18px;
   font-weight: 900;
   color: #ffffff;
+  margin-top: 1px;
 }
 
-.ci6-moves-lbl {
-  font-size: 9px;
+.ci6-stat-val.is-gold {
+  color: #fde047;
+}
+
+/* ---------- Full-Width Stage Objective Area (Active vs QUALIFIED State) ---------- */
+.ci6-goal-bar {
+  width: 100%;
+  border-radius: 15px;
+  border: 1.5px solid rgba(216, 180, 254, 0.62);
+  background: linear-gradient(90deg, rgba(76, 29, 149, 0.92) 0%, rgba(126, 34, 206, 0.86) 50%, rgba(76, 29, 149, 0.92) 100%);
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.ci6-goal-bar.is-qualified {
+  border-color: rgba(110, 231, 183, 0.92);
+  background: linear-gradient(90deg, rgba(6, 95, 70, 0.96) 0%, rgba(16, 185, 129, 0.92) 50%, rgba(217, 119, 6, 0.9) 100%);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.ci6-qualified-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  text-align: center;
+}
+
+.ci6-qualified-sub {
+  font-size: 10px;
   font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.86);
-  margin-top: 1px;
+  color: #fef9c3;
+  text-align: center;
 }
 
 .ci6-objectives-row {
@@ -281,28 +292,66 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 4px 8px;
+  padding: 3.5px 8px;
   border-radius: 10px;
-  border: 1px solid rgba(165, 180, 252, 0.32);
-  background: rgba(9, 16, 68, 0.74);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(11, 16, 68, 0.55);
   font-size: 11px;
   font-weight: 800;
-  color: #e0e7ff;
+  color: #f3e8ff;
   white-space: nowrap;
   transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
 .ci6-obj-chip.is-done {
-  border-color: rgba(52, 211, 153, 0.8);
-  background: linear-gradient(180deg, rgba(16, 185, 129, 0.34) 0%, rgba(5, 150, 105, 0.44) 100%);
-  color: #a7f3d0;
+  border-color: rgba(110, 231, 183, 0.82);
+  background: rgba(5, 150, 105, 0.42);
+  color: #d1fae5;
 }
 
 .ci6-obj-chip.is-just-done {
   animation: ci6ObjPop 0.45s cubic-bezier(0.22, 1.35, 0.36, 1);
 }
 
-/* ---------- Center 8x8 Gameplay Board (Maximized Width) ---------- */
+/* ---------- Unobtrusive Context / Power-Up Feedback Pill Above Board ---------- */
+.ci6-context-slot {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ci6-context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 13px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(253, 224, 71, 0.78);
+  background: linear-gradient(90deg, rgba(49, 24, 128, 0.94) 0%, rgba(109, 28, 168, 0.94) 100%);
+  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.45);
+  font-size: 11.5px;
+  font-weight: 900;
+  color: #fef08a;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  animation: ci6FadeIn 0.16s ease-out;
+}
+
+.ci6-context-pill.is-chain {
+  border-color: #38bdf8;
+  background: linear-gradient(90deg, rgba(14, 116, 244, 0.94) 0%, rgba(236, 72, 153, 0.94) 100%);
+  color: #ffffff;
+}
+
+.ci6-context-pill.is-qualified {
+  border-color: #6ee7b7;
+  background: linear-gradient(90deg, rgba(5, 150, 105, 0.96) 0%, rgba(217, 119, 6, 0.94) 100%);
+  color: #ffffff;
+}
+
+/* ---------- Center 8x8 Gameplay Board (Maximized Width via Reclaimed Toolbar Space) ---------- */
 .ci6-board-stage {
   position: relative;
   flex: 1;
@@ -315,14 +364,14 @@
 
 .ci6-board-frame {
   position: relative;
-  width: min(calc(100vw - 12px), 466px, calc(100dvh - 278px));
-  height: min(calc(100vw - 12px), 466px, calc(100dvh - 278px));
+  width: min(calc(100vw - 10px), 468px, calc(100dvh - 280px));
+  height: min(calc(100vw - 10px), 468px, calc(100dvh - 280px));
   max-width: 100%;
   aspect-ratio: 1 / 1;
   border-radius: 18px;
   padding: 5px;
   background: linear-gradient(160deg, rgba(46, 56, 166, 0.94) 0%, rgba(16, 22, 86, 0.98) 100%);
-  border: 2px solid rgba(168, 178, 255, 0.56);
+  border: 2px solid rgba(168, 178, 255, 0.58);
   box-shadow:
     0 12px 30px rgba(4, 8, 46, 0.65),
     0 0 26px rgba(124, 58, 237, 0.35),
@@ -331,13 +380,6 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
-}
-
-.ci6-board-frame.is-targeting {
-  border-color: rgba(251, 191, 36, 0.9);
-  box-shadow:
-    0 12px 30px rgba(4, 8, 46, 0.65),
-    0 0 28px rgba(251, 191, 36, 0.42);
 }
 
 .ci6-board-frame.is-reshuffling {
@@ -386,7 +428,7 @@
   stroke-linejoin: round;
 }
 
-/* ---------- Glossy Dimensional Letter Tiles ---------- */
+/* ---------- Glossy Dimensional Ordinary Letter Tiles ---------- */
 .ci6-tile {
   position: relative;
   width: 100%;
@@ -397,6 +439,7 @@
   justify-content: center;
   cursor: pointer;
   z-index: 2;
+  overflow: hidden;
   will-change: transform, opacity;
   transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1), filter 0.12s ease, box-shadow 0.12s ease;
   box-shadow:
@@ -405,7 +448,6 @@
     0 3px 6px rgba(3, 7, 36, 0.45);
 }
 
-/* Top glossy reflection cap */
 .ci6-tile::before {
   content: '';
   position: absolute;
@@ -414,50 +456,259 @@
   right: 10%;
   height: 36%;
   border-radius: 8px 8px 50% 50%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.46) 0%, rgba(255, 255, 255, 0.04) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.44) 0%, rgba(255, 255, 255, 0.04) 100%);
   pointer-events: none;
+  z-index: 1;
 }
 
 /* STRICT CATEGORY TILE COLORS (NEVER RANDOM) */
-/* PINK — Vowels: A, E, I, O, U */
 .ci6-tile--pink {
   background: linear-gradient(180deg, #ff70c8 0%, #ec2698 54%, #b51271 100%);
   border: 1.5px solid #ffb3e2;
 }
 
-/* BLUE — Common consonants: R, S, T, N, L, D, H, C, M */
 .ci6-tile--blue {
   background: linear-gradient(180deg, #5cc8ff 0%, #1c80f5 54%, #0f4db8 100%);
   border: 1.5px solid #a8e1ff;
 }
 
-/* GREEN — Uncommon consonants: B, F, G, K, P, V, W, Y */
 .ci6-tile--green {
   background: linear-gradient(180deg, #4ef2a8 0%, #10b981 54%, #047857 100%);
   border: 1.5px solid #a7f3d0;
 }
 
-/* GOLD — Rare consonants: J, Q, X, Z */
 .ci6-tile--gold {
   background: linear-gradient(180deg, #ffe970 0%, #f59e0b 54%, #b45309 100%);
   border: 1.5px solid #fef08a;
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.7),
     inset 0 -3px 0 rgba(120, 53, 15, 0.42),
-    0 0 10px rgba(251, 191, 36, 0.45),
+    0 0 10px rgba(251, 191, 36, 0.42),
     0 3px 6px rgba(3, 7, 36, 0.45);
+}
+
+/* ==================== INTEGRATED BOARD POWER-UP TILE MATERIALS ==================== */
+
+/* 4-Letter: LINE BLAST (Horizontal & Vertical luminous stripes + directional edge arrows) */
+.ci6-tile--pu-line-row {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(224, 242, 254, 0.34) 0px,
+      rgba(224, 242, 254, 0.34) 3px,
+      rgba(14, 165, 233, 0.1) 3px,
+      rgba(14, 165, 233, 0.1) 7px
+    ),
+    linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #0284c7 100%);
+  border: 2px solid #bae6fd;
+  box-shadow:
+    inset 0 0 12px rgba(224, 242, 254, 0.55),
+    0 0 12px rgba(56, 189, 248, 0.65);
+}
+
+.ci6-tile--pu-line-col {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(224, 242, 254, 0.34) 0px,
+      rgba(224, 242, 254, 0.34) 3px,
+      rgba(14, 165, 233, 0.1) 3px,
+      rgba(14, 165, 233, 0.1) 7px
+    ),
+    linear-gradient(180deg, #0284c7 0%, #38bdf8 50%, #0284c7 100%);
+  border: 2px solid #bae6fd;
+  box-shadow:
+    inset 0 0 12px rgba(224, 242, 254, 0.55),
+    0 0 12px rgba(56, 189, 248, 0.65);
+}
+
+.ci6-pu-flow-row {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  animation: ci6FlowHorizontal 1.6s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ci6-pu-flow-col {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  animation: ci6FlowVertical 1.6s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 5-Letter: CROSS BLAST (Glossy violet + pulsating cross illumination + 4 cardinal accents) */
+.ci6-tile--pu-cross {
+  background:
+    linear-gradient(90deg, transparent 36%, rgba(233, 213, 255, 0.45) 50%, transparent 64%),
+    linear-gradient(180deg, transparent 36%, rgba(233, 213, 255, 0.45) 50%, transparent 64%),
+    linear-gradient(155deg, #c084fc 0%, #7e22ce 55%, #4c1d95 100%);
+  border: 2px solid #e9d5ff;
+  box-shadow:
+    inset 0 0 12px rgba(233, 213, 255, 0.6),
+    0 0 14px rgba(168, 85, 247, 0.72);
+}
+
+.ci6-pu-cross-pulse {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 42%, rgba(255, 255, 255, 0.65) 50%, transparent 58%),
+    linear-gradient(180deg, transparent 42%, rgba(255, 255, 255, 0.65) 50%, transparent 58%);
+  animation: ci6CrossPulse 1.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 6-Letter: WORD BOMB (Fiery orange & crimson orb treatment + glowing circular perimeter) */
+.ci6-tile--pu-bomb {
+  background: radial-gradient(circle at 50% 45%, #fde047 0%, #f97316 32%, #dc2626 68%, #7f1d1d 100%);
+  border: 2px solid #fdba74;
+  box-shadow:
+    inset 0 0 10px rgba(254, 215, 170, 0.72),
+    0 0 14px rgba(249, 115, 22, 0.78);
+}
+
+.ci6-pu-bomb-ring {
+  position: absolute;
+  inset: 3px;
+  border-radius: 999px;
+  border: 2px solid rgba(254, 240, 138, 0.9);
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.95), inset 0 0 8px rgba(251, 146, 60, 0.75);
+  animation: ci6BombPulse 1.25s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 7-Letter: LETTER PURGE (Magenta/violet arcane energy + luminous ring + orbiting sparks) */
+.ci6-tile--pu-purge {
+  background: radial-gradient(circle at 50% 50%, #f0abfc 0%, #c026d3 46%, #581c87 100%);
+  border: 2px solid #f5d0fe;
+  box-shadow:
+    inset 0 0 12px rgba(245, 208, 254, 0.65),
+    0 0 14px rgba(217, 70, 239, 0.78);
+}
+
+.ci6-pu-purge-orbit {
+  position: absolute;
+  inset: 2.5px;
+  border-radius: 999px;
+  border: 2px dashed rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 8px rgba(240, 171, 252, 0.9);
+  animation: ci6OrbitSpin 3.4s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 8+ Letters: MEGA BLAST (Premium iridescent crystalline starburst material) */
+.ci6-tile--pu-mega {
+  background:
+    conic-gradient(
+      from 0deg at 50% 50%,
+      #f43f5e,
+      #f59e0b,
+      #fde047,
+      #34d399,
+      #38bdf8,
+      #a855f7,
+      #ec4899,
+      #f43f5e
+    );
+  border: 2px solid #ffffff;
+  box-shadow:
+    inset 0 0 12px rgba(255, 255, 255, 0.8),
+    0 0 16px rgba(253, 224, 71, 0.85);
+}
+
+.ci6-pu-mega-core {
+  position: absolute;
+  inset: 3px;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.55) 0%, rgba(49, 16, 118, 0.72) 72%, rgba(24, 12, 74, 0.88) 100%);
+  animation: ci6MegaPulse 1.4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ci6-pu-mega-star {
+  position: absolute;
+  inset: -4px;
+  background: conic-gradient(
+    from 15deg,
+    transparent 0deg 34deg,
+    rgba(255, 255, 255, 0.6) 45deg,
+    transparent 56deg 124deg,
+    rgba(253, 224, 71, 0.65) 135deg,
+    transparent 146deg 214deg,
+    rgba(125, 211, 252, 0.65) 225deg,
+    transparent 236deg 304deg,
+    rgba(244, 114, 182, 0.65) 315deg,
+    transparent 326deg 360deg
+  );
+  animation: ci6OrbitSpin 4.2s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Crisp directional edge arrows (non-overlapping, never obscuring letter) */
+.ci6-pu-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+
+.ci6-pu-arrow--left {
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-right: 5px solid #ffffff;
+}
+
+.ci6-pu-arrow--right {
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid #ffffff;
+}
+
+.ci6-pu-arrow--up {
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid #ffffff;
+}
+
+.ci6-pu-arrow--down {
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #ffffff;
 }
 
 .ci6-tile-letter {
   position: relative;
-  z-index: 2;
-  font-size: clamp(18px, 5.2vw, 24px);
+  z-index: 3;
+  font-size: clamp(19px, 5.4vw, 25px);
   font-weight: 900;
   color: #ffffff;
   line-height: 1;
   text-shadow:
-    0 1.5px 0 rgba(12, 10, 48, 0.55),
-    0 2px 6px rgba(8, 8, 36, 0.45);
+    0 1.5px 0 rgba(10, 8, 42, 0.72),
+    0 2px 6px rgba(6, 6, 30, 0.65);
   pointer-events: none;
 }
 
@@ -467,10 +718,11 @@
   bottom: 1.5px;
   font-size: 7.5px;
   font-weight: 900;
-  color: rgba(255, 255, 255, 0.88);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   pointer-events: none;
   line-height: 1;
+  z-index: 3;
 }
 
 .ci6-tile.is-selected {
@@ -497,34 +749,28 @@
     inset 0 2px 0 rgba(255, 255, 255, 0.8);
 }
 
-.ci6-tile.is-blast-preview {
-  transform: scale(1.06);
-  z-index: 7;
-  filter: brightness(1.22);
-  box-shadow:
-    0 0 0 2px #fde047,
-    0 0 14px rgba(251, 191, 36, 0.85);
-  animation: ci6TargetPulse 0.7s ease-in-out infinite alternate;
-}
-
-.ci6-tile.is-blast-center {
-  transform: scale(1.11);
+.ci6-tile.is-illuminated {
   z-index: 9;
+  filter: brightness(1.48);
   box-shadow:
-    0 0 0 3px #ffffff,
-    0 0 20px rgba(244, 63, 94, 0.95);
+    0 0 0 2.5px #ffffff,
+    0 0 20px rgba(244, 114, 182, 0.96);
 }
 
 .ci6-tile.is-destroying {
   z-index: 10;
-  animation: ci6TilePop 0.25s cubic-bezier(0.36, 0, 0.66, -0.56) forwards;
+  animation: ci6TilePop 0.27s cubic-bezier(0.36, 0, 0.66, -0.56) forwards;
 }
 
 .ci6-tile.is-falling {
   animation: ci6TileFall 0.34s cubic-bezier(0.22, 1.14, 0.36, 1) both;
 }
 
-/* Particle burst + floating score + shockwave overlays */
+.ci6-tile.is-pu-born {
+  animation: ci6PowerUpBirth 0.48s cubic-bezier(0.22, 1.35, 0.36, 1) both;
+}
+
+/* ---------- Activation FX Layer (Beams, Shockwaves, Purge Tethers, Chain Arcs, Floating Score) ---------- */
 .ci6-fx-layer {
   position: absolute;
   inset: 5px;
@@ -534,194 +780,185 @@
   border-radius: 13px;
 }
 
+.ci6-fx-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ci6-purge-tether {
+  stroke: #f0abfc;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px #e879f9);
+  animation: ci6BeamFlash 0.42s ease-out forwards;
+}
+
+.ci6-chain-arc {
+  stroke: #fde047;
+  stroke-width: 2.2;
+  stroke-dasharray: 4 2;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 5px #f59e0b);
+  animation: ci6BeamFlash 0.46s ease-out forwards;
+}
+
 .ci6-spark {
   position: absolute;
   width: 8px;
   height: 8px;
   border-radius: 3px;
-  animation: ci6SparkBurst 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: ci6SparkBurst 0.44s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .ci6-blast-wave {
   position: absolute;
   border-radius: 999px;
   border: 3px solid rgba(253, 224, 71, 0.95);
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.5) 0%, rgba(244, 114, 182, 0.28) 55%, transparent 72%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.52) 0%, rgba(249, 115, 22, 0.34) 55%, transparent 72%);
   transform: translate(-50%, -50%);
-  animation: ci6Shockwave 0.38s ease-out forwards;
+  animation: ci6Shockwave 0.4s ease-out forwards;
+}
+
+.ci6-blast-wave.is-mega {
+  border-width: 4px;
+  border-color: #ffffff;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(253, 224, 71, 0.45) 32%,
+    rgba(236, 72, 153, 0.35) 58%,
+    rgba(56, 189, 248, 0.25) 74%,
+    transparent 85%
+  );
 }
 
 .ci6-beam-h,
 .ci6-beam-v {
   position: absolute;
-  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.95), #ffffff, rgba(244, 114, 182, 0.95), transparent);
+  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.95), #ffffff, rgba(168, 85, 247, 0.95), transparent);
   box-shadow: 0 0 18px rgba(56, 189, 248, 0.95);
-  animation: ci6BeamFlash 0.36s ease-out forwards;
+  animation: ci6BeamFlash 0.38s ease-out forwards;
 }
 
 .ci6-beam-v {
-  background: linear-gradient(180deg, transparent, rgba(125, 211, 252, 0.95), #ffffff, rgba(244, 114, 182, 0.95), transparent);
+  background: linear-gradient(180deg, transparent, rgba(125, 211, 252, 0.95), #ffffff, rgba(168, 85, 247, 0.95), transparent);
+}
+
+.ci6-beam-h.is-violet,
+.ci6-beam-v.is-violet {
+  background: linear-gradient(90deg, transparent, rgba(216, 180, 254, 0.95), #ffffff, rgba(168, 85, 247, 0.95), transparent);
+  box-shadow: 0 0 18px rgba(168, 85, 247, 0.95);
+}
+
+.ci6-beam-v.is-violet {
+  background: linear-gradient(180deg, transparent, rgba(216, 180, 254, 0.95), #ffffff, rgba(168, 85, 247, 0.95), transparent);
 }
 
 .ci6-float-score {
   position: absolute;
   transform: translate(-50%, -50%);
-  font-size: 22px;
+  font-size: 23px;
   font-weight: 900;
   color: #fde047;
   -webkit-text-stroke: 3px #1e1064;
   paint-order: stroke fill;
   text-shadow: 0 4px 14px rgba(0, 0, 0, 0.65);
   white-space: nowrap;
-  animation: ci6FloatUp 0.92s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: ci6FloatUp 0.95s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.ci6-board-banner {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 25;
-  padding: 10px 18px;
-  border-radius: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.82);
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.96) 0%, rgba(236, 72, 153, 0.96) 100%);
-  box-shadow: 0 12px 28px rgba(4, 10, 48, 0.65);
-  font-size: 14px;
-  font-weight: 900;
-  color: #ffffff;
-  white-space: nowrap;
-  pointer-events: none;
-  animation: ci6BannerPop 0.25s ease-out;
-}
-
-/* ---------- Bottom Section: Word Preview + Cancel/Confirm + Power-Up Toolbar ---------- */
+/* ---------- Bottom Section: Reference-Faithful Word Card + Cancel / Submit ---------- */
 .ci6-bottom-dock {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   flex-shrink: 0;
   width: 100%;
+  padding: 6px 8px 4px;
+  border-radius: 20px;
+  border: 1.5px solid rgba(168, 178, 255, 0.42);
+  background: linear-gradient(180deg, rgba(28, 38, 134, 0.92) 0%, rgba(14, 21, 86, 0.96) 100%);
+  box-shadow: 0 8px 22px rgba(4, 10, 48, 0.5);
 }
 
-.ci6-word-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 6px;
-  border-radius: 16px;
-  border: 1.5px solid rgba(180, 188, 255, 0.42);
-  background: linear-gradient(180deg, rgba(32, 42, 138, 0.92) 0%, rgba(16, 24, 92, 0.96) 100%);
-  box-shadow: 0 6px 18px rgba(4, 10, 48, 0.45);
-  min-height: 52px;
-}
-
-.ci6-word-bar.is-invalid-shake {
+.ci6-bottom-dock.is-invalid-shake {
   animation: ci6Shake 0.32s ease;
-  border-color: rgba(251, 113, 133, 0.85);
+  border-color: rgba(251, 113, 133, 0.88);
 }
 
-.ci6-action-btn {
-  width: 44px;
-  height: 40px;
+.ci6-word-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 6px;
   border-radius: 12px;
-  border: 1.5px solid rgba(255, 255, 255, 0.45);
-  color: #ffffff;
-  display: inline-flex;
+  background: rgba(9, 15, 64, 0.66);
+  border: 1px solid rgba(165, 180, 252, 0.24);
+}
+
+.ci6-word-left {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  font-weight: 900;
-  transition: transform 0.12s ease, opacity 0.12s ease, filter 0.12s ease;
-}
-
-.ci6-action-btn:active:not(:disabled) {
-  transform: scale(0.92);
-}
-
-.ci6-action-btn:disabled {
-  opacity: 0.36;
-  cursor: not-allowed;
-}
-
-.ci6-action-btn.is-cancel {
-  background: linear-gradient(180deg, rgba(244, 63, 94, 0.88) 0%, rgba(159, 18, 57, 0.95) 100%);
-  box-shadow: 0 4px 12px rgba(225, 29, 72, 0.35);
-}
-
-.ci6-action-btn.is-confirm {
-  width: auto;
-  min-width: 78px;
-  padding: 0 12px;
-  gap: 5px;
-  font-size: 13px;
-  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
-  border-color: rgba(167, 243, 208, 0.88);
-  box-shadow: 0 5px 16px rgba(16, 185, 129, 0.46), inset 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-.ci6-action-btn.is-confirm.is-powerup-ready {
-  background: linear-gradient(135deg, #f59e0b 0%, #ec4899 55%, #8b5cf6 100%);
-  border-color: rgba(254, 240, 138, 0.92);
-  box-shadow: 0 5px 18px rgba(236, 72, 153, 0.52);
-}
-
-.ci6-word-readout {
-  flex: 1;
+  gap: 7px;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 2px;
-}
-
-.ci6-word-main-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  max-width: 100%;
+  flex: 1;
 }
 
 .ci6-word-text {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 900;
   letter-spacing: 0.08em;
   color: #ffffff;
-  line-height: 1.05;
+  line-height: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ci6-word-text.is-placeholder {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.01em;
   color: #a5b4fc;
 }
 
-.ci6-word-sub-row {
+.ci6-word-right {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   justify-content: center;
-  gap: 5px;
-  flex-wrap: nowrap;
+  flex-shrink: 0;
+  line-height: 1.05;
+}
+
+.ci6-word-score-num {
+  font-size: 16px;
+  font-weight: 900;
+  color: #fde047;
+}
+
+.ci6-word-score-lbl {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #c7d2fe;
 }
 
 .ci6-status-pill {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1.5px 7px;
+  padding: 2px 7px;
   border-radius: 999px;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .ci6-status-pill.is-valid {
@@ -736,113 +973,76 @@
   color: #fda4af;
 }
 
-.ci6-status-pill.is-score {
-  background: rgba(251, 191, 36, 0.22);
-  border: 1px solid rgba(253, 224, 71, 0.65);
-  color: #fef08a;
-}
-
 .ci6-status-pill.is-pu {
-  background: rgba(168, 85, 247, 0.3);
-  border: 1px solid rgba(216, 180, 254, 0.72);
+  background: rgba(168, 85, 247, 0.34);
+  border: 1px solid rgba(233, 213, 255, 0.72);
   color: #f3e8ff;
 }
 
-.ci6-orient-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 9px;
-  border-radius: 10px;
-  border: 1.5px solid rgba(125, 211, 252, 0.75);
-  background: rgba(14, 116, 244, 0.32);
-  color: #e0f2fe;
-  font-size: 11px;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-/* ---------- Compact Power-Up Inventory Toolbar ---------- */
-.ci6-powerup-bar {
+.ci6-actions-row {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 5px;
-  padding: 5px;
-  border-radius: 16px;
-  border: 1.5px solid rgba(180, 188, 255, 0.36);
-  background: linear-gradient(180deg, rgba(24, 34, 120, 0.92) 0%, rgba(13, 20, 82, 0.96) 100%);
-  box-shadow: 0 6px 18px rgba(4, 10, 48, 0.45);
+  grid-template-columns: 0.85fr 1.35fr;
+  gap: 8px;
 }
 
-.ci6-pu-slot {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  height: 50px;
-  border-radius: 12px;
-  border: 1.5px solid rgba(165, 180, 252, 0.34);
-  background: linear-gradient(180deg, rgba(46, 56, 162, 0.85) 0%, rgba(22, 30, 108, 0.94) 100%);
-  color: #ffffff;
-  cursor: pointer;
-  padding: 2px;
-  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease;
-}
-
-.ci6-pu-slot.is-empty {
-  opacity: 0.42;
-  cursor: default;
-}
-
-.ci6-pu-slot.is-available {
-  border-color: var(--pu-accent, rgba(165, 180, 252, 0.7));
-  box-shadow: 0 4px 12px rgba(4, 10, 48, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-
-.ci6-pu-slot.is-active {
-  transform: translateY(-2px) scale(1.04);
-  border-color: #fde047;
-  background: linear-gradient(180deg, rgba(124, 58, 237, 0.95) 0%, rgba(219, 39, 119, 0.92) 100%);
-  box-shadow: 0 0 0 2px rgba(254, 240, 138, 0.65), 0 6px 16px rgba(236, 72, 153, 0.5);
-}
-
-.ci6-pu-slot.is-just-earned {
-  animation: ci6PuEarnPop 0.55s cubic-bezier(0.22, 1.35, 0.36, 1);
-}
-
-.ci6-pu-label {
-  font-size: 9.5px;
-  font-weight: 900;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  color: #e0e7ff;
-}
-
-.ci6-pu-qty {
-  position: absolute;
-  top: -4px;
-  right: -3px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
+.ci6-btn-cancel {
+  height: 42px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #fde047 0%, #f59e0b 100%);
-  border: 1.5px solid #ffffff;
-  color: #3b1700;
-  font-size: 10px;
+  border: 1.5px solid rgba(180, 188, 255, 0.45);
+  background: linear-gradient(180deg, rgba(64, 72, 168, 0.82) 0%, rgba(34, 42, 120, 0.94) 100%);
+  color: #e0e7ff;
+  font-size: 14.5px;
   font-weight: 900;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  gap: 6px;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s ease;
 }
 
-.ci6-pu-slot.is-empty .ci6-pu-qty {
-  background: rgba(30, 41, 108, 0.9);
-  border-color: rgba(148, 163, 184, 0.45);
-  color: #94a3b8;
+.ci6-btn-cancel:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.ci6-btn-cancel:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.ci6-btn-submit {
+  height: 42px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(240, 216, 255, 0.86);
+  background: linear-gradient(135deg, #a855f7 0%, #7c3aed 48%, #4f46e5 100%);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  box-shadow:
+    0 6px 20px rgba(139, 92, 246, 0.56),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.52);
+  transition: transform 0.12s ease, opacity 0.12s ease, filter 0.12s ease;
+}
+
+.ci6-btn-submit.is-ready {
+  background: linear-gradient(135deg, #c084fc 0%, #ec4899 52%, #7c3aed 100%);
+  box-shadow:
+    0 6px 22px rgba(236, 72, 153, 0.56),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.62);
+}
+
+.ci6-btn-submit:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.ci6-btn-submit:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 /* ---------- Stage Selection Map UI ---------- */
@@ -993,34 +1193,34 @@
   cursor: pointer;
 }
 
-/* ---------- Optional Help / Victory / Failure Modals ---------- */
+/* ---------- Optional Help / Final Results Modals ---------- */
 .ci6-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgba(5, 9, 38, 0.78);
+  background: rgba(5, 9, 38, 0.8);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 14px;
   animation: ci6FadeIn 0.2s ease-out;
 }
 
 .ci6-modal-card {
   width: 100%;
-  max-width: 390px;
-  max-height: 86dvh;
+  max-width: 400px;
+  max-height: 90dvh;
   overflow-y: auto;
   border-radius: 24px;
   border: 2px solid rgba(208, 196, 255, 0.72);
   background: linear-gradient(170deg, rgba(44, 52, 162, 0.98) 0%, rgba(18, 24, 96, 0.99) 100%);
   box-shadow: 0 20px 50px rgba(3, 6, 32, 0.75), 0 0 36px rgba(139, 92, 246, 0.42);
-  padding: 18px;
+  padding: 16px;
   color: #ffffff;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   animation: ci6ModalPop 0.28s cubic-bezier(0.22, 1.2, 0.36, 1);
 }
 
@@ -1029,35 +1229,138 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .ci6-star-earned {
   animation: ci6StarPop 0.45s cubic-bezier(0.22, 1.4, 0.36, 1) both;
 }
 
+.ci6-results-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  text-align: center;
+}
+
+.ci6-result-stat {
+  padding: 7px 5px;
+  border-radius: 12px;
+  background: rgba(10, 16, 68, 0.74);
+  border: 1px solid rgba(165, 180, 252, 0.25);
+}
+
+.ci6-result-stat-val {
+  font-size: 15.5px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.ci6-result-stat-lbl {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #a5b4fc;
+  margin-top: 2px;
+}
+
 .ci6-guide-swatch {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 7px;
   font-size: 13px;
   font-weight: 900;
   color: #ffffff;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 /* ---------- Keyframes ---------- */
+@keyframes ci6FlowHorizontal {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes ci6FlowVertical {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes ci6CrossPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ci6BombPulse {
+  0%,
+  100% {
+    transform: scale(0.95);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+}
+
+@keyframes ci6OrbitSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ci6MegaPulse {
+  0%,
+  100% {
+    opacity: 0.86;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@keyframes ci6PowerUpBirth {
+  0% {
+    transform: scale(0.5);
+    filter: brightness(1.8);
+  }
+  60% {
+    transform: scale(1.16);
+    filter: brightness(1.25);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
 @keyframes ci6TilePop {
   0% {
     transform: scale(1.08);
     opacity: 1;
-    filter: brightness(1.4);
+    filter: brightness(1.45);
   }
   50% {
-    transform: scale(1.24);
+    transform: scale(1.22);
     opacity: 0.95;
   }
   100% {
@@ -1108,11 +1411,9 @@
 @keyframes ci6BeamFlash {
   0% {
     opacity: 0.98;
-    transform: scale(1);
   }
   100% {
     opacity: 0;
-    transform: scale(1.18);
   }
 }
 
@@ -1147,22 +1448,13 @@
   }
 }
 
-@keyframes ci6TargetPulse {
-  from {
-    filter: brightness(1.14);
-  }
-  to {
-    filter: brightness(1.34);
-  }
-}
-
 @keyframes ci6PulseWarn {
   0%,
   100% {
     transform: scale(1);
   }
   50% {
-    transform: scale(1.06);
+    transform: scale(1.05);
   }
 }
 
@@ -1191,30 +1483,6 @@
   }
   100% {
     transform: scale(1);
-  }
-}
-
-@keyframes ci6PuEarnPop {
-  0% {
-    transform: scale(0.92);
-  }
-  45% {
-    transform: scale(1.16);
-    box-shadow: 0 0 22px rgba(253, 224, 71, 0.9);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-@keyframes ci6BannerPop {
-  from {
-    transform: translate(-50%, -50%) scale(0.84);
-    opacity: 0;
-  }
-  to {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 1;
   }
 }
 
