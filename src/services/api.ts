@@ -57,6 +57,10 @@ import {
   ChangeItTransformResponse,
   ChangeItWordLength,
 } from '../../shared/changeit/types';
+import {
+  CrushItProgressionState,
+  CrushItStageResultPayload,
+} from '../../shared/crushit/types';
 
 const DEFAULT_PROD_API_BASE_URL = 'https://enscribe-game.fly.dev';
 const envApiBase = (
@@ -876,5 +880,19 @@ export const api = {
   getChangeItLeaderboard: (playerId?: string) =>
     request<ChangeItLeaderboardResponse>(
       `/api/changeit/leaderboard${playerId ? `?playerId=${encodeURIComponent(playerId)}` : ''}`
+    ),
+
+  // ==================== CRUSHIT PROGRESSION ====================
+  getCrushItProgress: (playerId: string) =>
+    request<CrushItProgressionState>(
+      `/api/crushit/progress/${encodeURIComponent(playerId)}`
+    ),
+  recordCrushItStageResult: (playerId: string, payload: CrushItStageResultPayload) =>
+    request<CrushItProgressionState>(
+      `/api/crushit/progress/${encodeURIComponent(playerId)}/stage`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
     ),
 };

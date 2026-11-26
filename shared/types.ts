@@ -1,4 +1,4 @@
-export type GameModuleId = 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit';
+export type GameModuleId = 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit' | 'crushit';
 
 export interface GameModuleDescriptor {
   id: GameModuleId;
@@ -19,12 +19,13 @@ export interface HubGameTile {
   tagline: string;
   status: 'playable' | 'coming_soon';
   badgeText: string;
-  themeVariant: 'chainit' | 'gridit' | 'guessit' | 'twistit' | 'changeit' | 'coming_soon';
+  themeVariant: 'chainit' | 'gridit' | 'guessit' | 'twistit' | 'changeit' | 'crushit' | 'coming_soon';
   gameId?: GameModuleId;
 }
 
 export * from './twistit/types.js';
 export * from './changeit/types.js';
+export * from './crushit/types.js';
 
 export interface GuestSession {
   sessionId: string;

@@ -1,9 +1,19 @@
 import React, { useEffect, useRef } from 'react';
 
 interface GameEntryAnimationProps {
-  gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit';
+  gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit' | 'crushit';
   onComplete: () => void;
 }
+
+const CRUSHIT_INTRO_TILES = [
+  { letter: 'C', cls: 'ci6-tile--blue', delay: '0.05s' },
+  { letter: 'R', cls: 'ci6-tile--blue', delay: '0.11s' },
+  { letter: 'U', cls: 'ci6-tile--pink', delay: '0.17s' },
+  { letter: 'S', cls: 'ci6-tile--blue', delay: '0.23s' },
+  { letter: 'H', cls: 'ci6-tile--blue', delay: '0.29s' },
+  { letter: 'I', cls: 'ci6-tile--pink', delay: '0.35s' },
+  { letter: 'T', cls: 'ci6-tile--blue', delay: '0.41s' },
+];
 
 const GRIDIT_TILES = [
   { letter: 'G', bg: 'linear-gradient(180deg, #fef9c3 0%, #fde047 100%)', ink: '#422006', delay: '0.08s' },
@@ -36,10 +46,11 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
   const isGuessIt = gameId === 'guessit';
   const isTwistIt = gameId === 'twistit';
   const isChangeIt = gameId === 'changeit';
+  const isCrushIt = gameId === 'crushit';
 
   return (
     <div
-      className={`ens-intro-overlay ${isGridIt || isGuessIt || isTwistIt || isChangeIt ? 'is-gridit' : 'is-chainit'}`}
+      className={`ens-intro-overlay ${isGridIt || isGuessIt || isTwistIt || isChangeIt || isCrushIt ? 'is-gridit' : 'is-chainit'}`}
       role="status"
       aria-live="polite"
       aria-label={
@@ -51,14 +62,42 @@ export const GameEntryAnimation: React.FC<GameEntryAnimationProps> = ({
               ? 'Entering TwistIt'
               : isChangeIt
                 ? 'Entering ChangeIt'
-                : 'Entering ChainIt'
+                : isCrushIt
+                  ? 'Entering CrushIt'
+                  : 'Entering ChainIt'
       }
     >
       <div className="ens-sky-sparkles" aria-hidden="true" />
       <div className="ens-intro-ambient-ring" aria-hidden="true" />
 
       <div className="ens-intro-stage">
-        {isChangeIt ? (
+        {isCrushIt ? (
+          <>
+            <div style={{ display: 'flex', gap: 6 }} aria-hidden="true">
+              {CRUSHIT_INTRO_TILES.map((t, i) => (
+                <div
+                  key={i}
+                  className={`ci6-tile ${t.cls}`}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    animation: 'ci6TileFall 0.42s cubic-bezier(0.22, 1.2, 0.36, 1) both',
+                    animationDelay: t.delay,
+                  }}
+                >
+                  <span className="ci6-tile-letter" style={{ fontSize: 20 }}>
+                    {t.letter}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="ens-intro-wordmark-wrap">
+              <div className="ens-intro-gridit-logo">CrushIt</div>
+              <div className="ens-intro-tagline">Swipe words &amp; crush tiles!</div>
+            </div>
+          </>
+        ) : isChangeIt ? (
           <>
             <div className="ci-intro-ladder" aria-hidden="true">
               {['C', 'O', 'L', 'D'].map((ch, idx) => (

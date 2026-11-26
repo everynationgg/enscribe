@@ -21,6 +21,7 @@ const HUB_CARD_ART: Record<string, { src: string; glow: string }> = {
   guessit: { src: '/art/hub-card-guessit.png', glow: 'glow-guessit' },
   twistit: { src: '/art/hub-card-twistit.png', glow: 'glow-twistit' },
   changeit: { src: '/art/hub-card-changeit.png', glow: 'glow-changeit' },
+  crushit: { src: '/art/hub-card-crushit.png', glow: 'glow-crushit' },
 };
 
 export const EnscribeHubScreen: React.FC<EnscribeHubScreenProps> = ({

@@ -37,7 +37,15 @@ import {
   ChangeItMatchStateClient,
   ChangeItRoom,
   ChainItPracticeConfig,
+  CrushItProgressionState,
 } from '../shared/types';
+import {
+  createDefaultCrushItProgress,
+  loadCrushItProgressSynced,
+  recordCrushItStageResultSynced,
+} from './games/crushit/progressionStore';
+import { CrushItStageSelectScreen } from './screens/crushit/CrushItStageSelectScreen';
+import { CrushItGameplayScreen } from './screens/crushit/CrushItGameplayScreen';
 import {
   ALL_CHANGEIT_ADVENTURE_STAGES,
 } from '../shared/changeit/adventureCatalog';
@@ -144,7 +152,9 @@ import { GameplayScreen } from './screens/GameplayScreen';
 
 type ActiveRoute =
   | { view: 'hub' }
-  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit' }
+  | { view: 'game_intro'; gameId: 'chain_clash' | 'gridit' | 'guessit' | 'twistit' | 'changeit' | 'crushit' }
+  | { view: 'crushit_stages' }
+  | { view: 'crushit_play'; stageNumber: number }
   | { view: 'changeit_home' }
   | { view: 'changeit_solo_setup' }
   | { view: 'changeit_templates' }
@@ -272,6 +282,9 @@ export const App: React.FC = () => {
   >(null);
   const [changeItLeaderboardData, setChangeItLeaderboardData] =
     useState<ChangeItLeaderboardResponse | null>(null);
+  const [crushItProgression, setCrushItProgression] = useState<CrushItProgressionState>(() =>
+    createDefaultCrushItProgress('guest')
+  );
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [ongoingMatches, setOngoingMatches] = useState<OngoingMatchSummary[]>([]);
@@ -531,9 +544,14 @@ export const App: React.FC = () => {
         current.view === 'gridit_home' ||
         current.view === 'guessit_entry' ||
         current.view === 'twistit_home' ||
-        current.view === 'changeit_home'
+        current.view === 'changeit_home' ||
+        current.view === 'crushit_stages'
       ) {
         setRoute({ view: 'hub' });
+        return;
+      }
+      if (current.view === 'crushit_play') {
+        setRoute({ view: 'crushit_stages' });
         return;
       }
       if (
@@ -710,6 +728,14 @@ export const App: React.FC = () => {
     }
     if (activeProfileId && !playerSession?.isOffline && route.view === 'changeit_ranked') {
       api.getChangeItLeaderboard(activeProfileId).then(setChangeItLeaderboardData).catch(() => undefined);
+    }
+    if (
+      activeProfileId &&
+      (route.view === 'crushit_stages' || route.view === 'crushit_play')
+    ) {
+      loadCrushItProgressSynced(activeProfileId, Boolean(playerSession?.isOffline || isOffline))
+        .then(setCrushItProgression)
+        .catch(() => undefined);
     }
   }, [activeProfileId, playerSession?.isOffline, isOffline, route.view]);
 
@@ -1980,9 +2006,44 @@ export const App: React.FC = () => {
               setRoute({ view: 'twistit_home' });
             } else if (route.gameId === 'changeit') {
               setRoute({ view: 'changeit_home' });
+            } else if (route.gameId === 'crushit') {
+              setRoute({ view: 'crushit_stages' });
             } else {
               setRoute({ view: 'tab', tab: 'home' });
             }
+          }}
+        />
+      );
+    }
+
+    if (route.view === 'crushit_stages') {
+      return (
+        <CrushItStageSelectScreen
+          progression={crushItProgression}
+          onExitToHub={() => setRoute({ view: 'hub' })}
+          onPlayStage={(stageNumber) => setRoute({ view: 'crushit_play', stageNumber })}
+        />
+      );
+    }
+
+    if (route.view === 'crushit_play') {
+      return (
+        <CrushItGameplayScreen
+          stageNumber={route.stageNumber}
+          progression={crushItProgression}
+          onBackToStages={() => setRoute({ view: 'crushit_stages' })}
+          onSelectStage={(nextStageNumber) =>
+            setRoute({ view: 'crushit_play', stageNumber: nextStageNumber })
+          }
+          onRecordStageResult={(payload) => {
+            recordCrushItStageResultSynced(
+              playerSession.playerId,
+              crushItProgression,
+              payload,
+              Boolean(isOffline || playerSession.isOffline)
+            )
+              .then(setCrushItProgression)
+              .catch(() => undefined);
           }}
         />
       );

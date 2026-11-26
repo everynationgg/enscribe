@@ -61,6 +61,7 @@ import {
   ChangeItUnavailableError,
   StoredChangeItMatch,
 } from './games/changeit/ChangeItStateStore.js';
+import { CrushItStateStore } from './games/crushit/CrushItStateStore.js';
 import { getChangeItServerData } from './games/changeit/serverVocab.js';
 import { ChangeItRoom } from '../shared/changeit/types.js';
 import { TwistItRoomView } from '../shared/twistit/types.js';
@@ -210,6 +211,10 @@ export function createEnscribeApp(
       await ensureGuestProfilesRegistered([pid]);
       return repo.getProfile(pid) ?? null;
     },
+  });
+
+  const crushItStore = new CrushItStateStore({
+    forceLocalMemory: options.forceLocalGuestMemory,
   });
 
   const loadLocalFileIfExists = (): MemorySnapshot | null => {
@@ -3412,6 +3417,47 @@ export function createEnscribeApp(
     handleGridItApi(async (req, res) => {
       const playerId = req.query.playerId ? String(req.query.playerId) : undefined;
       res.json(await changeItEngine.getLeaderboard(playerId));
+    })
+  );
+
+  // ==================== CRUSHIT PROGRESSION ====================
+  app.get(
+    '/api/crushit/progress/:playerId',
+    handleGridItApi(async (req, res) => {
+      const playerId = String(req.params.playerId || '').trim();
+      if (!playerId) {
+        res.status(400).json({ error: 'playerId is required' });
+        return;
+      }
+      res.json(await crushItStore.getProgress(playerId));
+    })
+  );
+
+  app.post(
+    '/api/crushit/progress/:playerId/stage',
+    handleGridItApi(async (req, res) => {
+      const playerId = String(req.params.playerId || '').trim();
+      if (!playerId) {
+        res.status(400).json({ error: 'playerId is required' });
+        return;
+      }
+      const body = req.body ?? {};
+      const stageNumber = Number(body.stageNumber);
+      if (!Number.isInteger(stageNumber) || stageNumber < 1 || stageNumber > 50) {
+        res.status(400).json({ error: 'stageNumber must be between 1 and 50' });
+        return;
+      }
+      const updated = await crushItStore.recordStageResult(playerId, {
+        stageNumber,
+        completed: Boolean(body.completed),
+        score: Number(body.score) || 0,
+        stars: Number(body.stars) || 0,
+        movesRemaining: Number(body.movesRemaining) || 0,
+        wordsFormed: Number(body.wordsFormed) || 0,
+        longestWordLength: Number(body.longestWordLength) || 0,
+        powerUpsUsed: Number(body.powerUpsUsed) || 0,
+      });
+      res.json(updated);
     })
   );
 

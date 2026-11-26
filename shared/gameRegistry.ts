@@ -56,6 +56,17 @@ export const REGISTERED_GAMES: GameModuleDescriptor[] = [
     minPlayers: 1,
     maxPlayers: 8,
   },
+  {
+    id: 'crushit',
+    slug: 'crushit',
+    name: 'CrushIt',
+    tagline: 'Swipe adjacent words to crush tiles, trigger cascades & unleash power-ups.',
+    status: 'playable',
+    badgeText: 'NEW',
+    supportedModes: ['solo'],
+    minPlayers: 1,
+    maxPlayers: 1,
+  },
 ];
 
 export const HUB_GAME_TILES: HubGameTile[] = [
@@ -108,5 +119,15 @@ export const HUB_GAME_TILES: HubGameTile[] = [
     badgeText: 'NEW',
     themeVariant: 'changeit',
     gameId: 'changeit',
+  },
+  {
+    id: 'tile_crushit',
+    slug: 'crushit',
+    name: 'CrushIt',
+    tagline: 'Swipe words & crush tiles across 50 stages!',
+    status: 'playable',
+    badgeText: 'NEW',
+    themeVariant: 'crushit',
+    gameId: 'crushit',
   },
 ];

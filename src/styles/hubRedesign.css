@@ -345,6 +345,10 @@
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.48), 0 8px 24px rgba(34, 211, 238, 0.52), 0 0 20px rgba(168, 85, 247, 0.46);
 }
 
+.ens-fullbleed-card.glow-crushit {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5), 0 8px 24px rgba(236, 72, 153, 0.54), 0 0 20px rgba(251, 191, 36, 0.42);
+}
+
 .ens-fullbleed-card__art {
   position: absolute;
   inset: 0;

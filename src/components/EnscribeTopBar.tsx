@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LogOut, Plus, Settings, User, Volume2, VolumeX } from 'lucide-react';
+import { isSfxMuted, setSfxMuted, subscribeSfxMute } from '../services/soundEffects';
 
 interface EnscribeTopBarProps {
   nickname: string;
@@ -19,8 +20,12 @@ export const EnscribeTopBar: React.FC<EnscribeTopBarProps> = ({
   onSwitchGuest,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState<boolean>(() => isSfxMuted());
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    return subscribeSfxMute(setMuted);
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -109,7 +114,7 @@ export const EnscribeTopBar: React.FC<EnscribeTopBarProps> = ({
             <button
               type="button"
               className="ens-ref-settings-item"
-              onClick={() => setMuted((prev) => !prev)}
+              onClick={() => setSfxMuted(!muted)}
             >
               {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
               <span>{muted ? 'Sound Effects: Muted' : 'Sound Effects: On'}</span>
